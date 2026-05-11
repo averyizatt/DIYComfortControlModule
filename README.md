@@ -12,6 +12,28 @@ This repository now includes:
 - GPS and environmental monitoring service scaffolds
 - Diagnostics + safety fault evaluation hooks
 - Bench validation and connector/extension-point documentation in `docs/`
+- Shared CAN protocol + manager layer for Foxbody distributed modules:
+  - `src/can/can_protocol.h`
+  - `src/can/can_manager.h/.cpp`
+  - `src/state/vehicle_state.h/.cpp`
+
+## Shared CAN Protocol Highlights
+- Preserves taillight compatibility IDs:
+  - `0x100` taillight state broadcast
+  - `0x101` taillight command
+  - `0x102` taillight fault broadcast
+- Adds cabin master frames:
+  - `0x200` heartbeat
+  - `0x201` master command
+  - `0x202` tach state
+  - `0x203` GPS state
+- Adds engine/water meth frames:
+  - `0x300` meth state
+  - `0x301` meth command
+  - `0x302` meth fault
+  - `0x303` extended sensors
+- Includes pack/unpack helpers, DLC checks, and timeout-based node online/offline logic.
+- Includes `DEMO_MODE` CAN simulation fallback for bench UI testing when hardware CAN is unavailable.
 
 ## Build
 ```bash
