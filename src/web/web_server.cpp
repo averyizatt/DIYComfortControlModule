@@ -76,9 +76,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       }
     });
 
-    settings::AppSettings st = settingsMgr_->data();
     state::VehicleState snapshot = stateStore_->read();
-    (void)st;
     settingsMgr_->updateFromState(snapshot);
     settingsMgr_->save();
 

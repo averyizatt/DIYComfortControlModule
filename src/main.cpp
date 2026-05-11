@@ -179,11 +179,12 @@ void setup() {
   pinMode(kPinLcdBacklight, OUTPUT);
   digitalWrite(kPinLcdRst, HIGH);
   digitalWrite(kPinLcdDc, HIGH);
-  analogWrite(kPinLcdBacklight, 255);
+  analogWrite(kPinLcdBacklight, 180);
 
   state::g_vehicle_state.begin();
   g_settings.begin();
   applySettingsToState();
+  analogWrite(kPinLcdBacklight, state::g_vehicle_state.read().display_brightness);
   setupWifiFromSettings();
 
   g_can.begin(true);

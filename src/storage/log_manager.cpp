@@ -2,6 +2,12 @@
 
 namespace storage {
 
+namespace {
+constexpr size_t kMaxLogLineLength = 512;
+constexpr size_t kMaxQueueSize = 300;
+constexpr uint8_t kMaxWritesPerTick = 4;
+}  // namespace
+
 bool LogManager::begin(SdManager* sd) {
   sd_ = sd;
   return sd_ != nullptr;
@@ -14,7 +20,7 @@ void LogManager::setSessionPrefix(const String& prefix) {
 void LogManager::enqueue(const char* category, const String& payload) {
   const char* cat = category ? category : "misc";
   String line = payload;
-  if (line.length() > 512) line = line.substring(0, 512);
+  if (line.length() > kMaxLogLineLength) line = line.substring(0, kMaxLogLineLength);
 
   String framed;
   framed.reserve(line.length() + 48);
@@ -24,7 +30,7 @@ void LogManager::enqueue(const char* category, const String& payload) {
   framed += ",";
   framed += line;
 
-  if (queue_.size() > 300) queue_.pop_front();
+  if (queue_.size() > kMaxQueueSize) queue_.pop_front();
   queue_.push_back(framed);
 }
 
@@ -35,8 +41,7 @@ void LogManager::tick(uint32_t nowMs) {
 
   if (queue_.empty()) return;
 
-  const uint8_t maxPerTick = 4;
-  for (uint8_t i = 0; i < maxPerTick && !queue_.empty(); ++i) {
+  for (uint8_t i = 0; i < kMaxWritesPerTick && !queue_.empty(); ++i) {
     String entry = queue_.front();
     queue_.pop_front();
 

@@ -2,6 +2,15 @@
 
 namespace led {
 
+namespace {
+constexpr uint32_t kFrameIntervalMs = 16;
+constexpr uint32_t kBreathingPeriodMs = 2200;
+constexpr uint32_t kWarningFlashMs = 120;
+constexpr uint32_t kCanFaultFlashMs = 100;
+constexpr uint32_t kStartupSweepDurationMs = 1800;
+constexpr uint32_t kStartupStepMs = 40;
+}  // namespace
+
 bool LedManager::begin(uint8_t pin1, uint8_t pin2, uint8_t pin3, uint16_t ledsPerChannel) {
   ledsPerChannel_ = ledsPerChannel;
   strip1_.updateLength(ledsPerChannel_);
@@ -74,7 +83,7 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
       fillStrip(*ch.strip, rgb);
       break;
     case state::LedMode::BREATHING: {
-      const float phase = (nowMs % 2200U) / 2200.0f;
+      const float phase = (nowMs % kBreathingPeriodMs) / static_cast<float>(kBreathingPeriodMs);
       const float wave = 0.2f + 0.8f * (0.5f + 0.5f * sinf(phase * 6.283185f));
       rgb = scaleColor(ch.color, static_cast<uint8_t>(channelBrightness * wave));
       fillStrip(*ch.strip, rgb);
@@ -93,7 +102,7 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
       break;
     }
     case state::LedMode::WARNING_FLASH:
-      rgb = ((nowMs / 120) % 2 == 0) ? scaleColor(0xFF4000, channelBrightness) : 0;
+      rgb = ((nowMs / kWarningFlashMs) % 2 == 0) ? scaleColor(0xFF4000, channelBrightness) : 0;
       fillStrip(*ch.strip, rgb);
       break;
     case state::LedMode::METH_ACTIVE:
@@ -101,11 +110,11 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
       fillStrip(*ch.strip, rgb);
       break;
     case state::LedMode::CAN_FAULT:
-      rgb = ((nowMs / 100) % 2 == 0) ? scaleColor(0xFF0000, channelBrightness) : 0;
+      rgb = ((nowMs / kCanFaultFlashMs) % 2 == 0) ? scaleColor(0xFF0000, channelBrightness) : 0;
       fillStrip(*ch.strip, rgb);
       break;
     case state::LedMode::STARTUP_SWEEP: {
-      const uint16_t pos = static_cast<uint16_t>((nowMs / 40 + idx * 3) % max<uint16_t>(1, ch.strip->numPixels()));
+      const uint16_t pos = static_cast<uint16_t>((nowMs / kStartupStepMs + idx * 3) % max<uint16_t>(1, ch.strip->numPixels()));
       fillStrip(*ch.strip, 0);
       ch.strip->setPixelColor(pos, scaleColor(ch.color, channelBrightness));
       break;
@@ -126,7 +135,7 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
 void LedManager::tick(const state::VehicleState& s) {
   if (!started_) return;
   const uint32_t nowMs = millis();
-  if ((nowMs - lastFrameMs_) < 16) return;
+  if ((nowMs - lastFrameMs_) < kFrameIntervalMs) return;
   lastFrameMs_ = nowMs;
 
   channels_[0].enabled = s.led_channel_1_enabled;
@@ -148,7 +157,7 @@ void LedManager::tick(const state::VehicleState& s) {
       channels_[i].mode = state::LedMode::STARTUP_SWEEP;
       renderChannel(channels_[i], s, nowMs + i * 80U, i);
     }
-    if (elapsed > 1800U && !s.led_startup_preview) {
+    if (elapsed > kStartupSweepDurationMs && !s.led_startup_preview) {
       startupSweepActive_ = false;
     }
     return;
