@@ -102,10 +102,11 @@ void CanManager::tick() {
   // Safety: stop manual pump test on timeout or Back input.
   state::g_vehicle_state.mutate([this, nowMs, &mustStopManualTest](state::VehicleState& s) {
     const bool backPressed = (s.input_flags & can_protocol::input_flag::BACK) != 0;
-    const bool timedOut = manualTestRunning_ && ((nowMs - manualTestStartMs_) > kManualTestTimeoutMs);
-    if ((manualTestRunning_ && backPressed) || timedOut) {
+    const bool timedOut = s.manual_test_running && ((nowMs - manualTestStartMs_) > kManualTestTimeoutMs);
+    if ((s.manual_test_running && backPressed) || timedOut) {
       s.meth_pump_duty = 0;
       s.meth_state = state::MethState::OFF;
+      s.manual_test_running = false;
       mustStopManualTest = true;
     }
 
@@ -144,18 +145,18 @@ bool CanManager::sendMethArm(bool armed) {
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
   manualTestStartMs_ = millis();
-  manualTestRunning_ = true;
   state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
     s.meth_pump_duty = duty;
+    s.manual_test_running = true;
   });
   return sendFrame(can_protocol::packMethManualTest(duty));
 }
 
 bool CanManager::sendMethStopManualTest() {
-  manualTestRunning_ = false;
   state::g_vehicle_state.mutate([](state::VehicleState& s) {
     s.meth_pump_duty = 0;
+    s.manual_test_running = false;
     if (s.meth_state == state::MethState::TEST) {
       s.meth_state = state::MethState::OFF;
     }
@@ -342,7 +343,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     if (!s.meth_online) {
       s.meth_state = state::MethState::OFF;
       s.meth_pump_duty = 0;
-      manualTestRunning_ = false;
+      s.manual_test_running = false;
     }
   });
 }
@@ -358,6 +359,7 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.meth_online = true;
 
     s.rpm = static_cast<uint16_t>(1800 + 1200 * (0.5f + 0.5f * sinf(t * 1.8f)));
+    // generated_tach_hz10 = (RPM / 15) * 10 => preserve scaling in 0.1Hz units.
     s.generated_tach_hz10 = static_cast<uint16_t>((s.rpm * 10U) / 15U);
     s.raw_tach_hz10 = s.generated_tach_hz10;
     s.tach_source = static_cast<uint8_t>(can_protocol::TachSource::DEMO);

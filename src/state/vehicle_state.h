@@ -75,10 +75,18 @@ struct VehicleState {
   // Reset counters (placeholder, filled by platform-specific reset reason logic)
   uint16_t brownout_reset_count = 0;
   uint16_t watchdog_reset_count = 0;
+  bool manual_test_running = false;
 };
 
 class VehicleStateStore {
  public:
+  ~VehicleStateStore() {
+    if (mutex_ != nullptr) {
+      vSemaphoreDelete(mutex_);
+      mutex_ = nullptr;
+    }
+  }
+
   void begin() {
     mutex_ = xSemaphoreCreateMutex();
   }

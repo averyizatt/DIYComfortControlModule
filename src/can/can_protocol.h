@@ -105,8 +105,8 @@ inline int8_t offset40ToTemp(uint8_t encoded) {
 }
 
 inline uint8_t voltsTo10(float volts) {
-  const int scaled = static_cast<int>(volts * 10.0f + 0.5f);
-  return clampU8(scaled);
+  const int voltsScaledBy10 = static_cast<int>(volts * 10.0f + 0.5f);
+  return clampU8(voltsScaledBy10);
 }
 
 inline uint16_t decodeU16BE(uint8_t high, uint8_t low) {
