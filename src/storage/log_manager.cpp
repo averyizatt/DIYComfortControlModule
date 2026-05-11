@@ -30,7 +30,10 @@ void LogManager::enqueue(const char* category, const String& payload) {
   framed += ",";
   framed += line;
 
-  if (queue_.size() > kMaxQueueSize) queue_.pop_front();
+  if (queue_.size() > kMaxQueueSize) {
+    queue_.pop_front();
+    ++droppedCount_;
+  }
   queue_.push_back(framed);
 }
 

@@ -140,7 +140,7 @@ void storageTask(void*) {
         s.sd_mounted = g_sd.mounted();
         s.sd_size_bytes = g_sd.totalBytes();
         s.sd_used_bytes = g_sd.usedBytes();
-        s.sd_write_error_count = g_sd.errorCount();
+        s.sd_write_error_count = g_sd.errorCount() + g_logs.droppedCount();
         strncpy(s.last_sd_write_status, g_sd.lastStatus(), sizeof(s.last_sd_write_status) - 1);
         s.last_sd_write_status[sizeof(s.last_sd_write_status) - 1] = '\0';
         strncpy(s.current_log_file, g_logs.currentFile(), sizeof(s.current_log_file) - 1);
@@ -179,7 +179,6 @@ void setup() {
   pinMode(kPinLcdBacklight, OUTPUT);
   digitalWrite(kPinLcdRst, HIGH);
   digitalWrite(kPinLcdDc, HIGH);
-  analogWrite(kPinLcdBacklight, 180);
 
   state::g_vehicle_state.begin();
   g_settings.begin();

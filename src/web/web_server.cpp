@@ -14,9 +14,10 @@ const char kIndexHtml[] PROGMEM = R"HTML(
 <title>Foxbody Cabin Master</title><style>body{font-family:Arial;background:#111;color:#eee;margin:0}header{padding:12px;background:#1b1b1b}main{padding:12px}.card{border:1px solid #333;border-radius:8px;padding:10px;margin:8px 0}button{padding:8px 10px;margin:4px}input,select{margin:4px}</style></head>
 <body><header><h2>Foxbody Cabin Master Dashboard</h2></header><main>
 <div class='card'><h3>Live</h3><pre id='live'>connecting...</pre></div>
-<div class='card'><h3>Water Meth</h3><p>Mixture ratio is user selected and not sensor verified.</p></div>
+<div class='card'><h3>Water Meth</h3><p id='ratioWarn'></p></div>
 <div class='card'><h3>Pages</h3><p>Dashboard • Settings • LED • Water Meth • Taillights • Diagnostics</p></div>
 <script>
+document.getElementById('ratioWarn').textContent='{{RATIO_WARNING}}';
 const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=e.data;};
 </script></main></body></html>
 )HTML";
@@ -50,7 +51,9 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
 
   server_.on("/", HTTP_GET, [this](AsyncWebServerRequest* req) {
     if (!checkAuth(req)) return;
-    req->send(200, "text/html", kIndexHtml);
+    String html(kIndexHtml);
+    html.replace("{{RATIO_WARNING}}", kRatioWarning);
+    req->send(200, "text/html", html);
   });
 
   server_.on("/api/state", HTTP_GET, [this](AsyncWebServerRequest* req) { sendState(req); });

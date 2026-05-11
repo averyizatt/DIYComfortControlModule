@@ -16,6 +16,7 @@ class LogManager {
   void tick(uint32_t nowMs);
   void flushCritical();
   const char* currentFile() const { return currentFile_.c_str(); }
+  uint32_t droppedCount() const { return droppedCount_; }
 
  private:
   SdManager* sd_ = nullptr;
@@ -23,6 +24,7 @@ class LogManager {
   String sessionPrefix_ = "boot";
   String currentFile_;
   uint32_t lastFlushMs_ = 0;
+  uint32_t droppedCount_ = 0;
 };
 
 }  // namespace storage

@@ -9,6 +9,7 @@ constexpr uint32_t kWarningFlashMs = 120;
 constexpr uint32_t kCanFaultFlashMs = 100;
 constexpr uint32_t kStartupSweepDurationMs = 1800;
 constexpr uint32_t kStartupStepMs = 40;
+constexpr uint16_t kRpmBrightnessScaleDivisor = 30;
 }  // namespace
 
 bool LedManager::begin(uint8_t pin1, uint8_t pin2, uint8_t pin3, uint16_t ledsPerChannel) {
@@ -96,7 +97,7 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
       }
       break;
     case state::LedMode::RPM_REACTIVE: {
-      const uint8_t react = static_cast<uint8_t>(min<uint16_t>(255, s.rpm / 30));
+      const uint8_t react = static_cast<uint8_t>(min<uint16_t>(255, s.rpm / kRpmBrightnessScaleDivisor));
       rgb = scaleColor(ch.color, min<uint8_t>(255, max<uint8_t>(20, react)));
       fillStrip(*ch.strip, rgb);
       break;

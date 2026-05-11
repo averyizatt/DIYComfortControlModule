@@ -12,6 +12,7 @@ bool TouchManager::begin(TwoWire& wire, uint8_t sdaPin, uint8_t sclPin, uint8_t 
   if (rstPin_ != 255) {
     pinMode(rstPin_, OUTPUT);
     digitalWrite(rstPin_, LOW);
+    // Reset pulse runs during setup before time-critical tasks start.
     delay(5);
     digitalWrite(rstPin_, HIGH);
   }
