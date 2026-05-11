@@ -6,7 +6,7 @@ namespace ccm::can {
 
 constexpr uint8_t kProtocolVersion = CCM_CAN_PROTOCOL_VERSION;
 
-enum class ModuleOwner : uint8_t {
+enum class ModuleId : uint8_t {
   Master = 0x01,
   EngineBay = 0x02,
   Lighting = 0x03,
@@ -55,7 +55,7 @@ struct CanFrame {
 };
 
 struct NodeHealth {
-  ModuleOwner owner = ModuleOwner::Master;
+  ModuleId owner = ModuleId::Master;
   uint32_t lastSeenMs = 0;
   bool online = false;
 };

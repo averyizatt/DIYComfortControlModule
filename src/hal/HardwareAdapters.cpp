@@ -101,11 +101,11 @@ void LedcTachAdapter::setFrequencyHz(uint32_t hz, uint8_t duty) {
 
 core::EnvironmentData StubSensorAdapter::readEnvironment() {
   core::EnvironmentData env;
-  const uint32_t t = millis() / 1000;
-  env.cabinC = 26.0f + sinf(t * 0.01f);
-  env.engineBayC = 55.0f + sinf(t * 0.03f);
-  env.outsideC = 22.0f + sinf(t * 0.008f);
-  env.intakeC = 33.0f + sinf(t * 0.02f);
+  const uint32_t elapsedSeconds = millis() / 1000;
+  env.cabinC = 26.0f + sinf(elapsedSeconds * 0.01f);
+  env.engineBayC = 55.0f + sinf(elapsedSeconds * 0.03f);
+  env.outsideC = 22.0f + sinf(elapsedSeconds * 0.008f);
+  env.intakeC = 33.0f + sinf(elapsedSeconds * 0.02f);
   env.humidity = 45.0f;
   return env;
 }

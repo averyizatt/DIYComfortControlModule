@@ -53,7 +53,7 @@ void Application::runCanTask() {
         frame.timestampMs = now;
         frame.source = RpmSource::CanBus;
         frame.rpm = static_cast<uint16_t>((incoming.data[0] << 8) | incoming.data[1]);
-        queueOverwrite(qRpm_, &frame, 0);
+        queueOverwrite(qRpm_, &frame);
       }
       nodeBitmask |= 1;
     }
@@ -63,7 +63,7 @@ void Application::runCanTask() {
       hb.id = static_cast<uint16_t>(can::CanId::MasterHeartbeat);
       hb.dlc = 2;
       hb.data[0] = can::kProtocolVersion;
-      hb.data[1] = static_cast<uint8_t>(can::ModuleOwner::Master);
+      hb.data[1] = static_cast<uint8_t>(can::ModuleId::Master);
       can_.send(hb);
       lastHeartbeat = now;
     }
@@ -84,7 +84,7 @@ void Application::runCanTask() {
     health.canOnline = true;
     health.gpsOnline = false;
     health.nodeBitmask = nodeBitmask;
-    queueOverwrite(qHealth_, &health, 0);
+    queueOverwrite(qHealth_, &health);
 
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -96,7 +96,7 @@ void Application::runSensorTask() {
     frame.timestampMs = millis();
     frame.environment = env_.readEnvironment();
     frame.power = env_.readPower();
-    queueOverwrite(qSensor_, &frame, pdMS_TO_TICKS(5));
+    queueOverwrite(qSensor_, &frame);
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
@@ -198,8 +198,7 @@ void Application::runDiagnosticsTask() {
   }
 }
 
-bool Application::queueOverwrite(QueueHandle_t queue, const void* item, TickType_t timeoutTicks) {
-  (void)timeoutTicks;
+bool Application::queueOverwrite(QueueHandle_t queue, const void* item) {
   if (!queue || !item) return false;
   return xQueueOverwrite(queue, item) == pdTRUE;
 }

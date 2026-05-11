@@ -36,7 +36,7 @@ class Application {
   void runUiTask();
   void runDiagnosticsTask();
 
-  bool queueOverwrite(QueueHandle_t queue, const void* item, TickType_t timeoutTicks);
+  bool queueOverwrite(QueueHandle_t queue, const void* item);
 
   SystemState state_;
 
