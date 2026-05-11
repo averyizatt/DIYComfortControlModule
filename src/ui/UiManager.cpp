@@ -25,12 +25,12 @@ bool UiManager::pollAction(core::UiAction& action) {
 
   switch (event.type) {
     case hal::ButtonEventType::Up:
-      taillightMode_ = static_cast<uint8_t>((taillightMode_ + 1) % 4);
+      taillightMode_ = static_cast<uint8_t>((taillightMode_ + 1) % kTailLightModeCount);
       action.type = core::UiActionType::SetTaillightMode;
       action.value = taillightMode_;
       return true;
     case hal::ButtonEventType::Down:
-      methMix_ = (methMix_ >= 100) ? 25 : static_cast<uint8_t>(methMix_ + 25);
+      methMix_ = (methMix_ >= kMethMixMax) ? kMethMixMin : static_cast<uint8_t>(methMix_ + kMethMixStep);
       action.type = core::UiActionType::ChangeMethMix;
       action.value = methMix_;
       return true;

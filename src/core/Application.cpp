@@ -12,9 +12,9 @@ Application::Application()
 
 void Application::begin() {
   qUiActions_ = xQueueCreate(8, sizeof(UiAction));
-  qSensor_ = xQueueCreate(4, sizeof(SensorFrame));
-  qRpm_ = xQueueCreate(4, sizeof(RpmFrame));
-  qHealth_ = xQueueCreate(4, sizeof(HealthFrame));
+  qSensor_ = xQueueCreate(1, sizeof(SensorFrame));
+  qRpm_ = xQueueCreate(1, sizeof(RpmFrame));
+  qHealth_ = xQueueCreate(1, sizeof(HealthFrame));
   qCanCmd_ = xQueueCreate(8, sizeof(CanCommand));
 
   can_.begin(config::kCanBitrate);
@@ -199,16 +199,9 @@ void Application::runDiagnosticsTask() {
 }
 
 bool Application::queueOverwrite(QueueHandle_t queue, const void* item, TickType_t timeoutTicks) {
+  (void)timeoutTicks;
   if (!queue || !item) return false;
-#if CONFIG_FREERTOS_UNICORE
   return xQueueOverwrite(queue, item) == pdTRUE;
-#else
-  if (uxQueueSpacesAvailable(queue) == 0) {
-    uint8_t scratch[sizeof(SensorFrame)]{};
-    xQueueReceive(queue, scratch, 0);
-  }
-  return xQueueSend(queue, item, timeoutTicks) == pdTRUE;
-#endif
 }
 
 }  // namespace ccm::core

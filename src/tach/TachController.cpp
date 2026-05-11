@@ -20,9 +20,10 @@ void TachController::startupSweep(uint16_t maxRpm, uint16_t step, uint32_t delay
     updateRpm(rpm);
     delay(delayMs);
   }
-  for (int rpm = maxRpm; rpm >= 0; rpm -= step) {
-    updateRpm(static_cast<uint16_t>(rpm));
+  for (uint16_t rpm = maxRpm;; rpm = (rpm > step) ? static_cast<uint16_t>(rpm - step) : 0) {
+    updateRpm(rpm);
     delay(delayMs);
+    if (rpm == 0) break;
   }
 }
 
