@@ -109,11 +109,11 @@ inline uint8_t voltsTo10(float volts) {
   return clampU8(scaled);
 }
 
-inline uint16_t packU16BE(uint8_t high, uint8_t low) {
+inline uint16_t decodeU16BE(uint8_t high, uint8_t low) {
   return static_cast<uint16_t>((static_cast<uint16_t>(high) << 8) | low);
 }
 
-inline void unpackU16BE(uint16_t value, uint8_t& high, uint8_t& low) {
+inline void encodeU16BE(uint16_t value, uint8_t& high, uint8_t& low) {
   high = static_cast<uint8_t>((value >> 8) & 0xFF);
   low = static_cast<uint8_t>(value & 0xFF);
 }
@@ -237,7 +237,7 @@ inline CanFrame packTaillightCustomAnimation(uint8_t animId, uint16_t durationMs
   frame.dlc = 6;
   frame.data[0] = taillight_command::TRIGGER_CUSTOM_ANIMATION;
   frame.data[1] = animId;
-  unpackU16BE(durationMs, frame.data[2], frame.data[3]);
+  encodeU16BE(durationMs, frame.data[2], frame.data[3]);
   frame.data[4] = param0;
   frame.data[5] = param1;
   return frame;

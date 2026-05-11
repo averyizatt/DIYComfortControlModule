@@ -31,8 +31,8 @@ void packMasterHeartbeat(const state::VehicleState& s, can_protocol::CanFrame& o
 void packTachState(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.id = can_protocol::ID_TACH_RPM_STATE;
   out.dlc = 8;
-  can_protocol::unpackU16BE(s.rpm, out.data[0], out.data[1]);
-  can_protocol::unpackU16BE(s.generated_tach_hz10, out.data[2], out.data[3]);
+  can_protocol::encodeU16BE(s.rpm, out.data[0], out.data[1]);
+  can_protocol::encodeU16BE(s.generated_tach_hz10, out.data[2], out.data[3]);
   out.data[4] = s.tach_source;
   out.data[5] = s.tach_status_flags;
   out.data[6] = s.pulses_per_rev10;
@@ -42,9 +42,9 @@ void packTachState(const state::VehicleState& s, can_protocol::CanFrame& out) {
 void packGpsState(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.id = can_protocol::ID_GPS_STATE;
   out.dlc = 8;
-  can_protocol::unpackU16BE(static_cast<uint16_t>(s.speed * 10.0f), out.data[0], out.data[1]);
+  can_protocol::encodeU16BE(static_cast<uint16_t>(s.speed * 10.0f), out.data[0], out.data[1]);
   const uint16_t altitudeRaw = static_cast<uint16_t>(s.gps_altitude_m);
-  can_protocol::unpackU16BE(altitudeRaw, out.data[2], out.data[3]);
+  can_protocol::encodeU16BE(altitudeRaw, out.data[2], out.data[3]);
   out.data[4] = s.gps_satellites;
   out.data[5] = s.gps_fix_type;
   out.data[6] = s.gps_status_flags;
@@ -358,7 +358,7 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.meth_online = true;
 
     s.rpm = static_cast<uint16_t>(1800 + 1200 * (0.5f + 0.5f * sinf(t * 1.8f)));
-    s.generated_tach_hz10 = static_cast<uint16_t>((s.rpm / 15U) * 10U);
+    s.generated_tach_hz10 = static_cast<uint16_t>((s.rpm * 10U) / 15U);
     s.raw_tach_hz10 = s.generated_tach_hz10;
     s.tach_source = static_cast<uint8_t>(can_protocol::TachSource::DEMO);
     s.tach_status_flags = 0x03;
