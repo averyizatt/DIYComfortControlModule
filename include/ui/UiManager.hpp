@@ -17,7 +17,7 @@ class UiManager {
   bool pollAction(core::UiAction& action);
 
  private:
-  static constexpr uint8_t kTailLightModeCount = 4;
+  static constexpr uint8_t kTaillightModeCount = 4;
   static constexpr uint8_t kMethMixMin = 25;
   static constexpr uint8_t kMethMixMax = 100;
   static constexpr uint8_t kMethMixStep = 25;

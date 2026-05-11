@@ -25,7 +25,7 @@ bool UiManager::pollAction(core::UiAction& action) {
 
   switch (event.type) {
     case hal::ButtonEventType::Up:
-      taillightMode_ = static_cast<uint8_t>((taillightMode_ + 1) % kTailLightModeCount);
+      taillightMode_ = static_cast<uint8_t>((taillightMode_ + 1) % kTaillightModeCount);
       action.type = core::UiActionType::SetTaillightMode;
       action.value = taillightMode_;
       return true;
