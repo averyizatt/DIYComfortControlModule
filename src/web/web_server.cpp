@@ -4,6 +4,8 @@
 #include <AsyncJson.h>
 #include <WiFi.h>
 
+#include <cstring>
+
 namespace web {
 
 namespace {
@@ -33,6 +35,18 @@ uint32_t parseColor(const String& s) {
     return static_cast<uint32_t>(strtoul(s.substring(1).c_str(), nullptr, 16));
   }
   return static_cast<uint32_t>(strtoul(s.c_str(), nullptr, 0));
+}
+
+bool constantTimeEquals(const char* a, const String& b) {
+  if (!a) return false;
+  const size_t alen = strlen(a);
+  const size_t blen = b.length();
+  if (alen != blen) return false;
+  uint8_t diff = 0;
+  for (size_t i = 0; i < alen; ++i) {
+    diff |= static_cast<uint8_t>(a[i]) ^ static_cast<uint8_t>(b[i]);
+  }
+  return diff == 0;
 }
 }  // namespace
 
@@ -100,7 +114,8 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       const bool enabled = obj["enabled"] | true;
       const uint8_t mode = obj["mode"] | 1;
       const uint8_t br = obj["brightness"] | 180;
-      const uint32_t color = parseColor(String(static_cast<const char*>(obj["color"] | "#00FF80")));
+      String colorStr = obj["color"] | "#00FF80";
+      const uint32_t color = parseColor(colorStr);
 
       if (channel == 1) {
         s.led_channel_1_enabled = enabled;
@@ -207,7 +222,7 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest* request) const {
     request->send(401, "application/json", "{\"error\":\"unauthorized\"}");
     return false;
   }
-  return request->getHeader("X-Auth-Token")->value() == String(pass);
+  return constantTimeEquals(pass, request->getHeader("X-Auth-Token")->value());
 }
 
 String WebServerManager::stateJson() const {

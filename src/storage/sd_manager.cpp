@@ -13,7 +13,7 @@ bool SdManager::begin(uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin, uint8_t 
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, HIGH);
 
-  spi_.begin(sckPin, misoPin, mosiPin, sdCsPin_);
+  spi_.begin(sckPin, misoPin, mosiPin);
 
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, LOW);

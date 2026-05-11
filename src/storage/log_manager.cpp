@@ -65,7 +65,13 @@ void LogManager::flushCritical() {
   while (!queue_.empty()) {
     String entry = queue_.front();
     queue_.pop_front();
-    currentFile_ = "/logs/faults/" + sessionPrefix_ + ".csv";
+    const int firstComma = entry.indexOf(',');
+    const int secondComma = entry.indexOf(',', firstComma + 1);
+    String cat = "faults";
+    if (firstComma > 0 && secondComma > firstComma) {
+      cat = entry.substring(firstComma + 1, secondComma);
+    }
+    currentFile_ = "/logs/" + cat + "/" + sessionPrefix_ + ".csv";
     sd_->appendLine(currentFile_.c_str(), entry);
   }
 }

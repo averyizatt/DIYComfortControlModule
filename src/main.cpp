@@ -121,11 +121,20 @@ void storageTask(void*) {
     if ((nowMs - lastLogMs) >= 1000) {
       lastLogMs = nowMs;
       const state::VehicleState s = state::g_vehicle_state.read();
-      g_logs.enqueue("can", String("rx=") + s.can_rx_count + ",tx=" + s.can_tx_count + ",last_id=" + s.can_last_rx_id);
-      g_logs.enqueue("gps", String("fix=") + (s.gps_fix ? 1 : 0) + ",sat=" + s.gps_satellites + ",speed=" + s.speed);
-      g_logs.enqueue("meth", String("state=") + static_cast<int>(s.meth_state) + ",ratio=" + s.meth_selected_ratio_percent + ",duty=" + s.meth_pump_duty);
+      char canLine[96];
+      char gpsLine[96];
+      char methLine[96];
+      snprintf(canLine, sizeof(canLine), "rx=%lu,tx=%lu,last_id=%u", static_cast<unsigned long>(s.can_rx_count), static_cast<unsigned long>(s.can_tx_count),
+               s.can_last_rx_id);
+      snprintf(gpsLine, sizeof(gpsLine), "fix=%u,sat=%u,speed=%.1f", s.gps_fix ? 1U : 0U, s.gps_satellites, static_cast<double>(s.speed));
+      snprintf(methLine, sizeof(methLine), "state=%u,ratio=%u,duty=%u", static_cast<uint8_t>(s.meth_state), s.meth_selected_ratio_percent, s.meth_pump_duty);
+      g_logs.enqueue("can", canLine);
+      g_logs.enqueue("gps", gpsLine);
+      g_logs.enqueue("meth", methLine);
       if (s.fault_flags != 0) {
-        g_logs.enqueue("faults", String("fault_flags=") + s.fault_flags);
+        char faultLine[48];
+        snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", s.fault_flags);
+        g_logs.enqueue("faults", faultLine);
         g_logs.flushCritical();
       }
     }

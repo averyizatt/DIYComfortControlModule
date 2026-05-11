@@ -183,9 +183,8 @@ bool CanManager::sendMethClearFaults() {
 }
 
 bool CanManager::sendMethConfigBroadcast() {
+  state::g_vehicle_state.mutate([&](state::VehicleState& live) { live.meth_config_version++; });
   state::VehicleState s = state::g_vehicle_state.read();
-  s.meth_config_version++;
-  state::g_vehicle_state.mutate([&](state::VehicleState& live) { live.meth_config_version = s.meth_config_version; });
   return sendFrame(packMethConfigState(s));
 }
 
