@@ -14,6 +14,7 @@
 #include "storage/sd_manager.h"
 #include "touch/touch_manager.h"
 #include "ui/asset_manager.h"
+#include "ui/screen_dashboard.h"
 #include "web/web_server.h"
 
 namespace {
@@ -26,6 +27,7 @@ storage::LogManager g_logs;
 race::RacePerformanceManager g_race;
 touch::TouchManager g_touch;
 ui::AssetManager g_assets;
+ui::ScreenDashboard g_screen;
 
 // Hosyond 4.0" ST7796S + CTP + SD wiring placeholders.
 constexpr uint8_t kPinLcdCs = 10;
@@ -158,6 +160,7 @@ void touchTask(void*) {
   registerTaskWatchdog();
   while (true) {
     const touch::TouchSample t = g_touch.read();
+    g_screen.handleTouch(t, millis());
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
       s.touch_online = g_touch.online();
       if (t.touched) {
@@ -169,11 +172,33 @@ void touchTask(void*) {
   }
 }
 
+void screenTask(void*) {
+  registerTaskWatchdog();
+  uint32_t lastFpsMs = millis();
+  uint32_t frameCount = 0;
+
+  while (true) {
+    const state::VehicleState s = state::g_vehicle_state.read();
+    g_screen.tick(s, millis());
+    frameCount++;
+
+    const uint32_t nowMs = millis();
+    if ((nowMs - lastFpsMs) >= 1000) {
+      const float fps = frameCount * 1000.0f / static_cast<float>(nowMs - lastFpsMs);
+      frameCount = 0;
+      lastFpsMs = nowMs;
+      state::g_vehicle_state.mutate([&](state::VehicleState& st) { st.ui_fps = fps; });
+    }
+
+    feedTaskWatchdog();
+    vTaskDelay(pdMS_TO_TICKS(33));
+  }
+}
+
 void storageTask(void*) {
   registerTaskWatchdog();
   uint32_t lastLogMs = 0;
-  uint32_t frameCounter = 0;
-  uint32_t fpsStartMs = millis();
+  uint32_t lastStorageStatusMs = 0;
 
   while (true) {
     const uint32_t nowMs = millis();
@@ -204,12 +229,8 @@ void storageTask(void*) {
       }
     }
 
-    frameCounter++;
-    if ((nowMs - fpsStartMs) >= 1000) {
-      const float fps = frameCounter * 1000.0f / static_cast<float>(nowMs - fpsStartMs);
-      frameCounter = 0;
-      fpsStartMs = nowMs;
-
+    if ((nowMs - lastStorageStatusMs) >= 1000) {
+      lastStorageStatusMs = nowMs;
       state::g_vehicle_state.mutate([&](state::VehicleState& s) {
         s.sd_mounted = g_sd.mounted();
         s.sd_size_bytes = g_sd.totalBytes();
@@ -219,7 +240,6 @@ void storageTask(void*) {
         s.last_sd_write_status[sizeof(s.last_sd_write_status) - 1] = '\0';
         strncpy(s.current_log_file, g_logs.currentFile(), sizeof(s.current_log_file) - 1);
         s.current_log_file[sizeof(s.current_log_file) - 1] = '\0';
-        s.ui_fps = fps;
         s.heap_free_bytes = ESP.getFreeHeap();
         s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());
       });
@@ -273,6 +293,8 @@ void setup() {
   g_logs.begin(&g_sd);
   g_logs.setSessionPrefix(String("boot_") + String(millis()));
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
+  g_screen.attach(&g_can, &g_race, &g_settings);
+  g_screen.begin(kPinLcdCs, kPinLcdRst, kPinLcdDc, kPinSpiSck, kPinSpiMosi, kPinSpiMiso);
 
   g_led.begin(kPinLedData1, kPinLedData2, kPinLedData3, 18);
   g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
@@ -283,6 +305,7 @@ void setup() {
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(screenTask, "screen_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(heartbeatTask, "hb_task", 3072, nullptr, 1, nullptr, 1);
 }
 

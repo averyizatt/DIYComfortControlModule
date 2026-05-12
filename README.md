@@ -33,6 +33,7 @@ The design goal is an extensible platform with clear module boundaries, determin
 
 - 4" ST7796S capacitive touch dashboard
 - touch-first dashboard control (no button/potentiometer dependency)
+- on-screen high-contrast card layout aligned with web dashboard sections
 - ESP32 TWAI + transceiver CAN networking
 - stock tachometer integration
 - GPS integration
@@ -341,7 +342,7 @@ src/
 - `web/`: HTTP/WebSocket APIs + dashboard hosting
 - `touch/`: capacitive touch manager abstraction
 - `storage/`: SD mount + buffered logging
-- `ui/`: dashboard rendering + assets
+- `ui/`: touchscreen dashboard rendering, touch actions, and assets
 - `gps/`: GNSS ingest and validity tracking
 - `tach/`: tach input/output control paths
 
