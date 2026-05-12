@@ -266,6 +266,7 @@ Use a hybrid coverage strategy:
 
 #### One-pass export settings (exact starting point)
 - State bounding box (Colorado, **WGS84 / EPSG:4326 lat/lon**): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
+  - Units/order: decimal degrees, listed as **[west_lon, south_lat, east_lon, north_lat]**
 - Base layer export:
   - bounds: Colorado bbox
   - zooms: profile-dependent statewide zoom range (z7-z15 or z7-z16)
