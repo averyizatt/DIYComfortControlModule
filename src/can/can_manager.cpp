@@ -18,6 +18,15 @@ constexpr uint32_t kManualTestTimeoutMs = 5000;
 constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
 
+namespace meth_manual_test_reject_reason {
+constexpr uint8_t NONE = 0;
+constexpr uint8_t OFFLINE = 1;
+constexpr uint8_t FAULT = 2;
+constexpr uint8_t COOLDOWN = 3;
+constexpr uint8_t DUTY_ZERO = 4;
+constexpr uint8_t DUTY_OVER_MAX = 5;
+}  // namespace meth_manual_test_reject_reason
+
 void packMasterHeartbeat(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.id = can_protocol::ID_MASTER_HEARTBEAT;
   out.dlc = 8;
@@ -118,6 +127,13 @@ void CanManager::tick() {
       mustStopManualTest = true;
     }
 
+    const uint32_t elapsedSinceManualStop = nowMs - lastManualTestStopMs_;
+    if (elapsedSinceManualStop < kManualTestCooldownMs) {
+      s.meth_manual_test_cooldown_ms_remaining = static_cast<uint16_t>(kManualTestCooldownMs - elapsedSinceManualStop);
+    } else {
+      s.meth_manual_test_cooldown_ms_remaining = 0;
+    }
+
     s.uptime_ms = nowMs;
   });
   if (mustStopManualTest) {
@@ -159,20 +175,36 @@ bool CanManager::sendMethArm(bool armed) {
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
   const state::VehicleState snapshot = state::g_vehicle_state.read();
-  if (!snapshot.meth_online) return false;
-  if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) return false;
+  if (!snapshot.meth_online) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::OFFLINE; });
+    return false;
+  }
+  if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::FAULT; });
+    return false;
+  }
 
   const uint32_t nowMs = millis();
-  if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) return false;
+  if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::COOLDOWN; });
+    return false;
+  }
 
-  if (duty == 0) return false;
-  if (duty > snapshot.meth_max_pump_duty) return false;
+  if (duty == 0) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_ZERO; });
+    return false;
+  }
+  if (duty > snapshot.meth_max_pump_duty) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_OVER_MAX; });
+    return false;
+  }
 
   manualTestStartMs_ = nowMs;
   state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
     s.meth_pump_duty = duty;
     s.manual_test_running = true;
+    s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::NONE;
   });
   return sendFrame(can_protocol::packMethManualTest(duty));
 }

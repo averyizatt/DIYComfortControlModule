@@ -288,6 +288,7 @@ Use a hybrid coverage strategy:
 
 Planned/implemented LAN-focused web control portal:
 - live dashboard
+- dedicated CAN status page (`/can`)
 - settings/config page
 - LED control
 - water/meth control
@@ -303,11 +304,13 @@ Planned/implemented LAN-focused web control portal:
 - `POST /api/taillights`
 - `POST /api/tach`
 - `GET /api/diagnostics`
+- `GET /api/can/status`
 
 Design notes:
 - JSON APIs
 - live updates by WebSocket/SSE
 - local-network operation focus
+- high-contrast large-text layout for in-car readability
 - confirmation required for unsafe actions
 
 ---

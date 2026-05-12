@@ -12,21 +12,65 @@ namespace web {
 
 namespace {
 constexpr const char* kRatioWarning = "Mixture ratio is user selected and not sensor verified.";
+constexpr const char* kUiFontStack = "'Arial Black','Segoe UI',Arial,sans-serif";
 
 const char kIndexHtml[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Foxbody Cabin Master</title><style>body{font-family:Arial;background:#111;color:#eee;margin:0}header{padding:12px;background:#1b1b1b}main{padding:12px}.card{border:1px solid #333;border-radius:8px;padding:10px;margin:8px 0}button{padding:8px 10px;margin:4px}input,select{margin:4px}</style></head>
-<body><header><h2>Foxbody Cabin Master Dashboard</h2></header><main>
-<div class='card'><h3>Live</h3><pre id='live'>connecting...</pre></div>
-<div class='card'><h3>Water Meth</h3><p id='ratioWarn'></p></div>
-<div class='card'><h3>Race Performance</h3><p><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></p><pre id='race'>loading race data...</pre></div>
-<div class='card'><h3>Pages</h3><p>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics</p></div>
+<title>Foxbody Cabin Master</title><style>
+*{box-sizing:border-box}
+body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0;line-height:1.35}
+header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55}
+h1{margin:0;font-size:clamp(28px,5vw,44px);letter-spacing:.5px}
+.sub{margin-top:6px;color:#b8c4d8;font-size:clamp(13px,2.2vw,18px)}
+main{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;max-width:1320px;margin:0 auto}
+.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27;min-width:0}
+.card h2{margin:0 0 10px 0;font-size:clamp(22px,3.3vw,30px)}
+pre{margin:0;background:#0f141c;border:1px solid #2f3d51;border-radius:8px;padding:10px;font-size:clamp(14px,2.25vw,20px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+.warn{font-size:clamp(14px,2.3vw,18px);font-weight:700;color:#ffd27d}
+.actions{display:grid;grid-template-columns:repeat(2,minmax(130px,1fr));gap:8px}
+button{font:inherit;font-size:clamp(16px,2.6vw,22px);font-weight:800;padding:12px;border-radius:10px;border:2px solid #4c6488;background:#243246;color:#f0f4ff}
+button:active{transform:scale(.99)}
+a.link{color:#8ec8ff;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
+@media (max-width:760px){.actions{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header><h1>Foxbody Cabin Master</h1><div class='sub'>Race-safe dashboard • High-contrast • Large block text</div></header>
+<main>
+<div class='card'><h2>Live Vehicle</h2><pre id='live'>Connecting...</pre></div>
+<div class='card'><h2>CAN Status</h2><pre id='canStatus'>Loading CAN status...</pre></div>
+<div class='card'><h2>Water Meth</h2><p class='warn' id='ratioWarn'></p></div>
+<div class='card'><h2>Race Performance</h2><div class='actions'><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></div><pre id='race'>Loading race data...</pre></div>
+<div class='card'><h2>Pages</h2><p><a class='link' href='/can'>Open dedicated CAN status page</a></p><p class='sub'>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics • CAN Status</p></div>
+</main>
 <script>
 document.getElementById('ratioWarn').textContent='{{RATIO_WARNING}}';
-const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=e.data;};
+function pretty(text){try{return JSON.stringify(JSON.parse(text),null,2);}catch(_){return text;}}
+const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=pretty(e.data);};
 async function raceCmd(action){await fetch('/api/race/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});}
-setInterval(async ()=>{try{const r=await fetch('/api/race/state');document.getElementById('race').textContent=await r.text();}catch(_){}},1000);
-</script></main></body></html>
+async function updatePanels(){
+  try{const race=await fetch('/api/race/state');document.getElementById('race').textContent=pretty(await race.text());}catch(_){}
+  try{const can=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await can.text());}catch(_){}
+}
+setInterval(updatePanels,1000);updatePanels();
+</script></body></html>
+)HTML";
+
+const char kCanStatusHtml[] PROGMEM = R"HTML(
+<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Foxbody CAN Status</title><style>
+*{box-sizing:border-box}body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0}
+header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55}
+h1{margin:0;font-size:clamp(28px,5vw,44px)}main{padding:14px;max-width:1200px;margin:0 auto}
+.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27}
+pre{margin:0;background:#0f141c;border:1px solid #2f3d51;border-radius:8px;padding:10px;font-size:clamp(14px,2.4vw,22px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+a{display:inline-block;margin-bottom:10px;color:#8ec8ff;font-size:clamp(16px,2.2vw,22px)}
+</style></head>
+<body><header><h1>CAN Status</h1></header><main><a href='/'>← Back to Dashboard</a><div class='card'><pre id='canStatus'>Loading CAN status...</pre></div></main>
+<script>
+function pretty(text){try{return JSON.stringify(JSON.parse(text),null,2);}catch(_){return text;}}
+async function tick(){try{const r=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await r.text());}catch(_){}} 
+setInterval(tick,600);tick();
+</script></body></html>
 )HTML";
 
 String toHexColor(uint32_t c) {
@@ -74,6 +118,23 @@ void sanitizeMethConfig(state::VehicleState& s) {
     s.meth_can_loss_behavior = state::MethCanLossBehavior::DISARM;
   }
 }
+
+const char* manualTestRejectReasonText(uint8_t code) {
+  switch (code) {
+    case 1:
+      return "offline";
+    case 2:
+      return "fault";
+    case 3:
+      return "cooldown";
+    case 4:
+      return "duty_zero";
+    case 5:
+      return "duty_over_max";
+    default:
+      return "none";
+  }
+}
 }  // namespace
 
 bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr,
@@ -95,12 +156,20 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     if (!checkAuth(req)) return;
     String html(kIndexHtml);
     html.replace("{{RATIO_WARNING}}", kRatioWarning);
+    html.replace("{{UI_FONT_STACK}}", kUiFontStack);
+    req->send(200, "text/html", html);
+  });
+  server_.on("/can", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    String html(kCanStatusHtml);
+    html.replace("{{UI_FONT_STACK}}", kUiFontStack);
     req->send(200, "text/html", html);
   });
 
   server_.on("/api/state", HTTP_GET, [this](AsyncWebServerRequest* req) { sendState(req); });
   server_.on("/api/settings", HTTP_GET, [this](AsyncWebServerRequest* req) { sendSettings(req); });
   server_.on("/api/diagnostics", HTTP_GET, [this](AsyncWebServerRequest* req) { sendDiagnostics(req); });
+  server_.on("/api/can/status", HTTP_GET, [this](AsyncWebServerRequest* req) { sendCanStatus(req); });
   server_.on("/api/race/state", HTTP_GET, [this](AsyncWebServerRequest* req) {
     if (!checkAuth(req)) return;
     req->send(200, "application/json", stateJson());
@@ -237,7 +306,14 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         return;
       }
       if (!canMgr_->sendMethManualTest(duty)) {
-        req->send(409, "application/json", "{\"error\":\"manual test rejected by safety policy\"}");
+        const state::VehicleState snapshot = stateStore_->read();
+        DynamicJsonDocument out(256);
+        out["error"] = "manual test rejected by safety policy";
+        out["reason"] = manualTestRejectReasonText(snapshot.meth_manual_test_reject_reason);
+        out["cooldown_ms_remaining"] = snapshot.meth_manual_test_cooldown_ms_remaining;
+        String body;
+        serializeJson(out, body);
+        req->send(409, "application/json", body);
         return;
       }
     }
@@ -349,6 +425,8 @@ String WebServerManager::stateJson() const {
   doc["pump_duty"] = s.meth_pump_duty;
   doc["tank_level"] = s.meth_tank_level;
   doc["selected_meth_ratio"] = s.meth_selected_ratio_percent;
+  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
   doc["can_node_online"] = s.can_online;
   doc["taillight_state_left"] = s.taillight_left_state;
   doc["taillight_state_right"] = s.taillight_right_state;
@@ -384,6 +462,34 @@ String WebServerManager::stateJson() const {
   doc["race_start_longitude"] = s.race_start_longitude;
   doc["race_start_finish_radius_m"] = s.race_start_finish_radius_m;
 
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
+String WebServerManager::canStatusJson() const {
+  DynamicJsonDocument doc(2048);
+  const state::VehicleState s = stateStore_->read();
+  doc["can_online"] = s.can_online;
+  doc["can_rx_count"] = s.can_rx_count;
+  doc["can_tx_count"] = s.can_tx_count;
+  doc["can_bad_checksum_count"] = s.can_bad_checksum_count;
+  doc["can_last_rx_id"] = s.can_last_rx_id;
+  doc["can_last_tx_id"] = s.can_last_tx_id;
+  doc["can_last_rx_ms"] = s.can_last_rx_ms;
+  doc["can_last_tx_ms"] = s.can_last_tx_ms;
+  doc["taillight_online"] = s.taillight_online;
+  doc["meth_online"] = s.meth_online;
+  doc["gps_stale"] = s.gps_stale;
+  doc["fault_flags"] = s.fault_flags;
+  doc["master_state"] = s.master_state;
+  doc["uptime_ms"] = s.uptime_ms;
+  doc["reset_reason"] = s.reset_reason;
+  doc["brownout_reset_count"] = s.brownout_reset_count;
+  doc["watchdog_reset_count"] = s.watchdog_reset_count;
+  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
+  doc["web_connected_clients"] = s.web_connected_clients;
   String out;
   serializeJson(doc, out);
   return out;
@@ -455,10 +561,19 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["race_running"] = s.race_running;
   doc["race_quality_percent"] = s.race_quality_percent;
   doc["race_validation_flags"] = s.race_validation_flags;
+  doc["brownout_reset_count"] = s.brownout_reset_count;
+  doc["watchdog_reset_count"] = s.watchdog_reset_count;
+  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
 
   String out;
   serializeJson(doc, out);
   request->send(200, "application/json", out);
+}
+
+void WebServerManager::sendCanStatus(AsyncWebServerRequest* request) const {
+  if (!checkAuth(request)) return;
+  request->send(200, "application/json", canStatusJson());
 }
 
 void WebServerManager::tick() {

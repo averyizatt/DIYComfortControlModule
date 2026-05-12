@@ -21,7 +21,9 @@ class WebServerManager {
   void sendState(AsyncWebServerRequest* request) const;
   void sendSettings(AsyncWebServerRequest* request) const;
   void sendDiagnostics(AsyncWebServerRequest* request) const;
+  void sendCanStatus(AsyncWebServerRequest* request) const;
   String stateJson() const;
+  String canStatusJson() const;
 
   AsyncWebServer server_{80};
   AsyncWebSocket ws_{"/ws"};

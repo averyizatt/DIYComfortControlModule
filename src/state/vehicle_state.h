@@ -114,6 +114,8 @@ struct VehicleState {
   uint16_t brownout_reset_count = 0;
   uint16_t watchdog_reset_count = 0;
   bool manual_test_running = false;
+  uint8_t meth_manual_test_reject_reason = 0;
+  uint16_t meth_manual_test_cooldown_ms_remaining = 0;
 
   // LED config/state
   bool led_channel_1_enabled = true;
