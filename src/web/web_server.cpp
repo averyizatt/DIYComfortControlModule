@@ -6,6 +6,8 @@
 
 #include <cstring>
 
+#include "meth/meth_config.h"
+
 namespace web {
 
 namespace {
@@ -50,6 +52,27 @@ bool constantTimeEquals(const char* a, const String& b) {
     diff |= static_cast<uint8_t>(a[i]) ^ static_cast<uint8_t>(b[i]);
   }
   return diff == 0;
+}
+
+uint8_t sanitizeMethRatioValue(uint8_t ratio) {
+  return meth::sanitizeRatio(ratio);
+}
+
+uint8_t sanitizeMethBoostTriggerKpa(uint8_t kpa) {
+  return static_cast<uint8_t>(constrain(static_cast<int>(kpa), 20, 250));
+}
+
+int8_t sanitizeMethIatThresholdC(int value) {
+  return static_cast<int8_t>(constrain(value, -20, 120));
+}
+
+void sanitizeMethConfig(state::VehicleState& s) {
+  s.meth_selected_ratio_percent = sanitizeMethRatioValue(s.meth_selected_ratio_percent);
+  s.meth_boost_trigger_kpa = sanitizeMethBoostTriggerKpa(s.meth_boost_trigger_kpa);
+  s.meth_iat_safety_threshold = sanitizeMethIatThresholdC(s.meth_iat_safety_threshold);
+  if (static_cast<uint8_t>(s.meth_can_loss_behavior) > static_cast<uint8_t>(state::MethCanLossBehavior::HOLD_LAST_VALID)) {
+    s.meth_can_loss_behavior = state::MethCanLossBehavior::DISARM;
+  }
 }
 }  // namespace
 
@@ -112,12 +135,15 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       if (obj.containsKey("tach_scaling_mode")) s.tach_scaling_mode = obj["tach_scaling_mode"].as<uint8_t>();
       if (obj.containsKey("led_global_brightness")) s.led_global_brightness = obj["led_global_brightness"].as<uint8_t>();
       if (obj.containsKey("led_theme")) s.led_theme = obj["led_theme"].as<uint8_t>();
-      if (obj.containsKey("meth_ratio")) s.meth_selected_ratio_percent = obj["meth_ratio"].as<uint8_t>();
-      if (obj.containsKey("meth_boost_trigger_kpa")) s.meth_boost_trigger_kpa = obj["meth_boost_trigger_kpa"].as<uint8_t>();
-      if (obj.containsKey("meth_iat_safety_threshold")) s.meth_iat_safety_threshold = obj["meth_iat_safety_threshold"].as<int8_t>();
+      if (obj.containsKey("meth_ratio")) s.meth_selected_ratio_percent = sanitizeMethRatioValue(obj["meth_ratio"].as<uint8_t>());
+      if (obj.containsKey("meth_boost_trigger_kpa")) s.meth_boost_trigger_kpa = sanitizeMethBoostTriggerKpa(obj["meth_boost_trigger_kpa"].as<uint8_t>());
+      if (obj.containsKey("meth_iat_safety_threshold")) s.meth_iat_safety_threshold = sanitizeMethIatThresholdC(obj["meth_iat_safety_threshold"].as<int>());
       if (obj.containsKey("meth_max_pump_duty")) s.meth_max_pump_duty = obj["meth_max_pump_duty"].as<uint8_t>();
       if (obj.containsKey("can_loss_behavior")) {
-        s.meth_can_loss_behavior = static_cast<state::MethCanLossBehavior>(obj["can_loss_behavior"].as<uint8_t>());
+        const uint8_t behavior = obj["can_loss_behavior"].as<uint8_t>();
+        s.meth_can_loss_behavior =
+            (behavior <= static_cast<uint8_t>(state::MethCanLossBehavior::HOLD_LAST_VALID)) ? static_cast<state::MethCanLossBehavior>(behavior)
+                                                                                              : state::MethCanLossBehavior::DISARM;
       }
       if (obj.containsKey("race_use_metric_targets")) s.race_use_metric_targets = obj["race_use_metric_targets"].as<bool>();
       if (obj.containsKey("race_auto_start")) s.race_auto_start = obj["race_auto_start"].as<bool>();
@@ -125,6 +151,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       if (obj.containsKey("race_sample_min_ms")) s.race_sample_min_ms = obj["race_sample_min_ms"].as<uint16_t>();
       if (obj.containsKey("race_sample_max_ms")) s.race_sample_max_ms = obj["race_sample_max_ms"].as<uint16_t>();
       if (obj.containsKey("race_start_finish_radius_m")) s.race_start_finish_radius_m = obj["race_start_finish_radius_m"].as<float>();
+      sanitizeMethConfig(s);
     });
 
     state::VehicleState snapshot = stateStore_->read();
@@ -185,26 +212,38 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     const bool confirm = obj["confirm"] | false;
 
     if (obj.containsKey("ratio")) {
-      stateStore_->mutate([&](state::VehicleState& s) { s.meth_selected_ratio_percent = obj["ratio"].as<uint8_t>(); });
+      stateStore_->mutate([&](state::VehicleState& s) {
+        s.meth_selected_ratio_percent = sanitizeMethRatioValue(obj["ratio"].as<uint8_t>());
+        sanitizeMethConfig(s);
+      });
     }
     if (obj.containsKey("armed")) {
       const bool armed = obj["armed"].as<bool>();
-      stateStore_->mutate([&](state::VehicleState& s) { s.meth_desired_armed = armed; });
-      canMgr_->sendMethArm(armed);
+      const bool sent = canMgr_->sendMethArm(armed);
+      stateStore_->mutate([&](state::VehicleState& s) { s.meth_desired_armed = sent && armed; });
+      if (armed && !sent) {
+        req->send(409, "application/json", "{\"error\":\"meth arm rejected by safety policy\"}");
+        return;
+      }
     }
     if (obj.containsKey("manual_test_duty")) {
       if (!confirm) {
         req->send(400, "application/json", "{\"error\":\"confirmation required\"}");
         return;
       }
-      canMgr_->sendMethManualTest(obj["manual_test_duty"].as<uint8_t>());
+      const uint8_t duty = obj["manual_test_duty"].as<uint8_t>();
+      if (duty == 0 || !canMgr_->sendMethManualTest(duty)) {
+        req->send(409, "application/json", "{\"error\":\"manual test rejected by safety policy\"}");
+        return;
+      }
     }
     if ((obj["clear_faults"] | false) == true) canMgr_->sendMethClearFaults();
 
     stateStore_->mutate([&](state::VehicleState& s) {
-      if (obj.containsKey("boost_trigger_kpa")) s.meth_boost_trigger_kpa = obj["boost_trigger_kpa"].as<uint8_t>();
-      if (obj.containsKey("iat_threshold_c")) s.meth_iat_safety_threshold = obj["iat_threshold_c"].as<int8_t>();
+      if (obj.containsKey("boost_trigger_kpa")) s.meth_boost_trigger_kpa = sanitizeMethBoostTriggerKpa(obj["boost_trigger_kpa"].as<uint8_t>());
+      if (obj.containsKey("iat_threshold_c")) s.meth_iat_safety_threshold = sanitizeMethIatThresholdC(obj["iat_threshold_c"].as<int>());
       if (obj.containsKey("max_pump_duty")) s.meth_max_pump_duty = obj["max_pump_duty"].as<uint8_t>();
+      sanitizeMethConfig(s);
     });
 
     settingsMgr_->updateFromState(stateStore_->read());

@@ -14,6 +14,7 @@ constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
 constexpr uint32_t kGpsStaleTimeoutMs = 1000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
+constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
 
 void packMasterHeartbeat(const state::VehicleState& s, can_protocol::CanFrame& out) {
@@ -140,26 +141,46 @@ bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationM
 }
 
 bool CanManager::sendMethArm(bool armed) {
-  if (!armed) {
+  if (armed) {
+    const state::VehicleState snapshot = state::g_vehicle_state.read();
+    if (!snapshot.meth_online) return false;
+    if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) return false;
+  } else {
     state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.meth_desired_armed = false;
       s.meth_state = state::MethState::OFF;
       s.meth_pump_duty = 0;
+      s.manual_test_running = false;
     });
   }
   return sendFrame(can_protocol::packMethArm(armed));
 }
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
-  manualTestStartMs_ = millis();
-  state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
+  const state::VehicleState snapshot = state::g_vehicle_state.read();
+  if (!snapshot.meth_online) return false;
+  if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) return false;
+
+  const uint32_t nowMs = millis();
+  if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) return false;
+
+  uint8_t safeDuty = duty;
+  if (safeDuty > snapshot.meth_max_pump_duty) {
+    safeDuty = snapshot.meth_max_pump_duty;
+  }
+  if (safeDuty == 0) return false;
+
+  manualTestStartMs_ = nowMs;
+  state::g_vehicle_state.mutate([safeDuty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
-    s.meth_pump_duty = duty;
+    s.meth_pump_duty = safeDuty;
     s.manual_test_running = true;
   });
-  return sendFrame(can_protocol::packMethManualTest(duty));
+  return sendFrame(can_protocol::packMethManualTest(safeDuty));
 }
 
 bool CanManager::sendMethStopManualTest() {
+  lastManualTestStopMs_ = millis();
   state::g_vehicle_state.mutate([](state::VehicleState& s) {
     s.meth_pump_duty = 0;
     s.manual_test_running = false;
@@ -308,6 +329,8 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
         s.master_state = static_cast<uint8_t>(can_protocol::MasterState::FAULT);
         s.meth_state = state::MethState::FAULT;
         s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
+        s.manual_test_running = false;
       }
     });
     return;
@@ -354,6 +377,8 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       } else if (ack.status == 3) {
         s.meth_state = state::MethState::FAULT;
         s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
+        s.manual_test_running = false;
       }
     });
     return;
@@ -405,6 +430,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
       if (s.meth_can_loss_behavior == state::MethCanLossBehavior::DISARM) {
         s.meth_state = state::MethState::OFF;
         s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
         s.manual_test_running = false;
       }
     }

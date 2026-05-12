@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 
 #include <cstring>
 
@@ -43,10 +44,50 @@ constexpr uint8_t kPinSdCs = 16;
 constexpr uint8_t kPinLedData1 = 38;
 constexpr uint8_t kPinLedData2 = 39;
 constexpr uint8_t kPinLedData3 = 40;
+constexpr uint32_t kTaskWatchdogTimeoutSec = 6;
+
+void initTaskWatchdog() {
+#if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
+  esp_task_wdt_config_t cfg{};
+  cfg.timeout_ms = kTaskWatchdogTimeoutSec * 1000;
+  cfg.idle_core_mask = (1U << portNUM_PROCESSORS) - 1U;
+  cfg.trigger_panic = true;
+  esp_task_wdt_init(&cfg);
+#else
+  esp_task_wdt_init(kTaskWatchdogTimeoutSec, true);
+#endif
+}
+
+void registerTaskWatchdog() {
+  esp_task_wdt_add(nullptr);
+}
+
+void feedTaskWatchdog() {
+  esp_task_wdt_reset();
+}
 
 void applySettingsToState() {
   state::g_vehicle_state.mutate([](state::VehicleState& s) {
-    s.reset_reason = static_cast<uint8_t>(esp_reset_reason());
+    const esp_reset_reason_t reason = esp_reset_reason();
+    s.reset_reason = static_cast<uint8_t>(reason);
+    if (reason == ESP_RST_BROWNOUT) {
+      s.brownout_reset_count++;
+    }
+#if defined(ESP_RST_TASK_WDT)
+    if (reason == ESP_RST_TASK_WDT) {
+      s.watchdog_reset_count++;
+    }
+#endif
+#if defined(ESP_RST_INT_WDT)
+    if (reason == ESP_RST_INT_WDT) {
+      s.watchdog_reset_count++;
+    }
+#endif
+#if defined(ESP_RST_WDT)
+    if (reason == ESP_RST_WDT) {
+      s.watchdog_reset_count++;
+    }
+#endif
     s.heap_free_bytes = ESP.getFreeHeap();
     s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());
   });
@@ -74,38 +115,47 @@ void setupWifiFromSettings() {
 }
 
 void canTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     g_can.tick();
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
 void ledTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     const state::VehicleState s = state::g_vehicle_state.read();
     g_led.tick(s);
     state::g_vehicle_state.mutate([](state::VehicleState& st) {
       if (st.led_startup_preview) st.led_startup_preview = false;
     });
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(8));
   }
 }
 
 void webTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     g_web.tick();
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
 void raceTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     g_race.tick(millis());
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void touchTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     const touch::TouchSample t = g_touch.read();
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
@@ -114,11 +164,13 @@ void touchTask(void*) {
         s.input_flags |= can_protocol::input_flag::TOUCH;
       }
     });
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(25));
   }
 }
 
 void storageTask(void*) {
+  registerTaskWatchdog();
   uint32_t lastLogMs = 0;
   uint32_t frameCounter = 0;
   uint32_t fpsStartMs = millis();
@@ -173,11 +225,13 @@ void storageTask(void*) {
       });
     }
 
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
 void heartbeatTask(void*) {
+  registerTaskWatchdog();
   while (true) {
     state::g_vehicle_state.mutate([](state::VehicleState& s) {
       s.input_flags = 0;
@@ -187,6 +241,7 @@ void heartbeatTask(void*) {
         s.master_state = 1;
       }
     });
+    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
@@ -203,6 +258,8 @@ void setup() {
   digitalWrite(kPinLcdDc, HIGH);
 
   state::g_vehicle_state.begin();
+  initTaskWatchdog();
+  registerTaskWatchdog();
   g_settings.begin();
   applySettingsToState();
   analogWrite(kPinLcdBacklight, state::g_vehicle_state.read().display_brightness);

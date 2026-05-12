@@ -42,6 +42,7 @@ class CanManager {
   uint32_t lastGpsTxMs_ = 0;
   uint32_t lastDemoMs_ = 0;
   uint32_t manualTestStartMs_ = 0;
+  uint32_t lastManualTestStopMs_ = 0;
   uint32_t lastMethConfigTxMs_ = 0;
 };
 

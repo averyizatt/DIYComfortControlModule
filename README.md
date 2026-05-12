@@ -164,10 +164,12 @@ Cabin master capabilities:
 ### Safety behavior
 - boots disarmed
 - manual test requires explicit confirmation and timeout
+- manual test commands are safety-gated (online/fault/cooldown/duty constraints)
 - critical faults latch and force safe output behavior
 - CAN loss must not trigger spraying
 - engine module can run from last known safe config or disarm policy
 - engine module remains autonomous for safety-critical decisions
+- ESP32 task watchdog supervision is enabled for core runtime tasks
 
 > ⚠️ **Mixture ratio warning:** Selected meth ratio is user-configured and **not sensor-verified** unless a real concentration sensor is installed.
 
