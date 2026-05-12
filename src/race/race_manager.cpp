@@ -155,7 +155,7 @@ bool RacePerformanceManager::sampleValid(const state::VehicleState& s, uint32_t 
   if (dtMs > s.race_sample_max_ms) flagsOut |= kFlagRateHigh;
 
   const float speedDeltaMps = fabsf((s.speed - (prevSpeedKph_)) * kKphToMps);
-  const float accelMps2 = (dtMs > 0) ? (speedDeltaMps / (static_cast<float>(dtMs) / 1000.0f)) : 0.0f;
+  const float accelMps2 = (dtMs > 0) ? (speedDeltaMps * 1000.0f / static_cast<float>(dtMs)) : 0.0f;
   if (accelMps2 > 16.0f) flagsOut |= kFlagNoisy;
 
   if (flagsOut & kFlagNoFix) qualityOut = 0;
