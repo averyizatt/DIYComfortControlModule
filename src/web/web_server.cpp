@@ -277,16 +277,16 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest* request) const {
   if (!request || !settingsMgr_) return false;
   const char* pass = settingsMgr_->data().web_password;
   if (!pass || pass[0] == '\0') return true;
-  if (!request->hasHeader("X-Auth-Token")) {
-    request->send(401, "application/json", "{\"error\":\"unauthorized\"}");
-    return false;
-  }
+  String candidate;
   const AsyncWebHeader* header = request->getHeader("X-Auth-Token");
-  if (!header) {
+  if (header) {
+    candidate = header->value();
+  }
+  if (!constantTimeEquals(pass, candidate)) {
     request->send(401, "application/json", "{\"error\":\"unauthorized\"}");
     return false;
   }
-  return constantTimeEquals(pass, header->value());
+  return true;
 }
 
 String WebServerManager::stateJson() const {
