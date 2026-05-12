@@ -265,7 +265,7 @@ Use a hybrid coverage strategy:
 - Expected tile storage: **~38-58GB**
 
 #### One-pass export settings (exact starting point)
-- State bounding box (Colorado, **WGS84 / EPSG:4326 lat/lon**): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
+- State bounding box (Colorado, **WGS84 / EPSG:4326 lat/lon**, all values in **degrees**): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
   - Units/order: decimal degrees, listed as **[west_lon, south_lat, east_lon, north_lat]**
   - Use tools/exporters that accept EPSG:4326 bbox input in minLon,minLat,maxLon,maxLat order
 - Base layer export:
