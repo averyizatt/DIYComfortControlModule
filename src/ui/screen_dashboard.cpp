@@ -60,7 +60,7 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc, uint8_
 
 void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
   if (!online_) return;
-  if (static_cast<int32_t>(nowMs - lastRenderMs_) < static_cast<int32_t>(kRenderIntervalMs)) return;
+  if ((nowMs - lastRenderMs_) < kRenderIntervalMs) return;
   lastRenderMs_ = nowMs;
   page_ = pageFromUi(s.ui_page);
   render(s);
@@ -109,7 +109,7 @@ void ScreenDashboard::drawHeader(const state::VehicleState& s) {
   g_gfx->setTextColor(s.touch_online ? kOk : kWarn, kPanel);
   g_gfx->print(s.touch_online ? "TOUCH ONLINE" : "TOUCH OFFLINE");
   const uint32_t nowMs = millis();
-  if (actionFeedback_[0] != '\0' && static_cast<int32_t>(actionFeedbackUntilMs_ - nowMs) > 0) {
+  if (actionFeedback_[0] != '\0' && (actionFeedbackUntilMs_ - nowMs) <= kActionFeedbackMs) {
     g_gfx->setTextColor(kOk, kPanel);
     g_gfx->setCursor(130, 30);
     g_gfx->print(actionFeedback_);
@@ -311,7 +311,7 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     return;
   }
 
-  if (touchActive_ || (static_cast<int32_t>(nowMs - lastTouchMs_) < static_cast<int32_t>(kTouchDebounceMs))) return;
+  if (touchActive_ || ((nowMs - lastTouchMs_) < kTouchDebounceMs)) return;
   touchActive_ = true;
   lastTouchMs_ = nowMs;
 
