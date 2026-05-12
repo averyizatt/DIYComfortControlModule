@@ -233,6 +233,50 @@ All animation timing is non-blocking (`millis()` scheduling), so LED effects do 
 - GPS timestamps when available, uptime fallback otherwise
 - system must operate safely if SD is absent or fails to mount
 
+### Offline map tile packs (Colorado target)
+
+Recommended SD target for best visual quality and growth:
+- **64GB microSD** (preferred)
+- **32GB microSD** (safe fallback)
+
+Use a hybrid coverage strategy:
+- full-state baseline zoom coverage for Colorado
+- high-detail zooms only for major metros and key highway corridors
+- compressed raster tiles (prefer WebP-capable output) or compact tile DB format to keep SPI SD reads responsive
+
+#### Profile A: 32GB (safe)
+- Colorado statewide: **z7-z15**
+- Selective detail: **z16** for:
+  - Denver metro
+  - Colorado Springs metro
+  - Fort Collins metro
+  - I-25 corridor
+  - I-70 corridor
+- Expected tile storage: **~18-28GB**
+
+#### Profile B: 64GB (best visual, recommended)
+- Colorado statewide: **z7-z16**
+- Selective detail: **z17** for:
+  - Denver metro
+  - Colorado Springs metro
+  - Fort Collins metro
+  - I-25 corridor
+  - I-70 corridor
+- Expected tile storage: **~38-58GB**
+
+#### One-pass export settings (exact starting point)
+- State bounding box (Colorado): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
+- Base layer export:
+  - bounds: Colorado bbox
+  - zooms: profile-dependent statewide zoom range (z7-z15 or z7-z16)
+- High-detail overlays:
+  - bounds: individual metro polygons + buffered I-25 and I-70 corridors
+  - zooms: profile-dependent selective zoom (z16 for 32GB, z17 for 64GB)
+- Output:
+  - raster tile pyramid or single compact tile DB
+  - compression enabled (WebP if tooling supports it)
+- Keep at least **15-20% free SD capacity** for logs (`/logs/*`) and UI assets (`/ui/*`)
+
 ---
 
 ## Web Dashboard
@@ -377,4 +421,3 @@ Safety-first and modularity-first changes are preferred over feature speed.
 ## License
 
 License to be added.
-
