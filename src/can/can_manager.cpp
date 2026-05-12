@@ -434,6 +434,8 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.gps_fix_type = 2;
     s.last_gps_ms = nowMs;
     s.gps_altitude_m = 128;
+    s.gps_latitude = 40.7608 + 0.0002 * sinf(t * 0.05f);
+    s.gps_longitude = -111.8910 + 0.0002 * cosf(t * 0.05f);
 
     s.taillight_left_state = static_cast<uint8_t>(static_cast<int>(t * 2) % 4);
     s.taillight_right_state = static_cast<uint8_t>((static_cast<int>(t * 2) + 1) % 4);

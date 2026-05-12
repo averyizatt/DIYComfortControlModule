@@ -17,10 +17,13 @@ const char kIndexHtml[] PROGMEM = R"HTML(
 <body><header><h2>Foxbody Cabin Master Dashboard</h2></header><main>
 <div class='card'><h3>Live</h3><pre id='live'>connecting...</pre></div>
 <div class='card'><h3>Water Meth</h3><p id='ratioWarn'></p></div>
-<div class='card'><h3>Pages</h3><p>Dashboard • Settings • LED • Water Meth • Taillights • Diagnostics</p></div>
+<div class='card'><h3>Race Performance</h3><p><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></p><pre id='race'>loading race data...</pre></div>
+<div class='card'><h3>Pages</h3><p>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics</p></div>
 <script>
 document.getElementById('ratioWarn').textContent='{{RATIO_WARNING}}';
 const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=e.data;};
+async function raceCmd(action){await fetch('/api/race/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});}
+setInterval(async ()=>{try{const r=await fetch('/api/race/state');document.getElementById('race').textContent=await r.text();}catch(_){}} ,1000);
 </script></main></body></html>
 )HTML";
 
@@ -50,11 +53,13 @@ bool constantTimeEquals(const char* a, const String& b) {
 }
 }  // namespace
 
-bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr) {
+bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr,
+                             race::RacePerformanceManager* raceMgr) {
   stateStore_ = stateStore;
   settingsMgr_ = settingsMgr;
   canMgr_ = canMgr;
-  if (!stateStore_ || !settingsMgr_ || !canMgr_) return false;
+  raceMgr_ = raceMgr;
+  if (!stateStore_ || !settingsMgr_ || !canMgr_ || !raceMgr_) return false;
 
   ws_.onEvent([this](AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType type, void*, uint8_t*, size_t) {
     if (type == WS_EVT_CONNECT || type == WS_EVT_DISCONNECT) {
@@ -73,6 +78,29 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
   server_.on("/api/state", HTTP_GET, [this](AsyncWebServerRequest* req) { sendState(req); });
   server_.on("/api/settings", HTTP_GET, [this](AsyncWebServerRequest* req) { sendSettings(req); });
   server_.on("/api/diagnostics", HTTP_GET, [this](AsyncWebServerRequest* req) { sendDiagnostics(req); });
+  server_.on("/api/race/state", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    req->send(200, "application/json", stateJson());
+  });
+  server_.on("/api/race/history", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    req->send(200, "application/json", raceMgr_->historyJson());
+  });
+  server_.on("/api/race/records", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    req->send(200, "application/json", raceMgr_->recordsJson());
+  });
+  server_.on("/api/race/export", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    const uint16_t written = raceMgr_->exportHistoryToLog();
+    DynamicJsonDocument out(256);
+    out["ok"] = true;
+    out["exported_entries"] = written;
+    out["target"] = "/logs/race";
+    String body;
+    serializeJson(out, body);
+    req->send(200, "application/json", body);
+  });
 
   auto settingsHandler = new AsyncCallbackJsonWebHandler("/api/settings", [this](AsyncWebServerRequest* req, JsonVariant& json) {
     if (!checkAuth(req)) return;
@@ -91,6 +119,12 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       if (obj.containsKey("can_loss_behavior")) {
         s.meth_can_loss_behavior = static_cast<state::MethCanLossBehavior>(obj["can_loss_behavior"].as<uint8_t>());
       }
+      if (obj.containsKey("race_use_metric_targets")) s.race_use_metric_targets = obj["race_use_metric_targets"].as<bool>();
+      if (obj.containsKey("race_auto_start")) s.race_auto_start = obj["race_auto_start"].as<bool>();
+      if (obj.containsKey("race_min_satellites")) s.race_min_satellites = obj["race_min_satellites"].as<uint8_t>();
+      if (obj.containsKey("race_sample_min_ms")) s.race_sample_min_ms = obj["race_sample_min_ms"].as<uint16_t>();
+      if (obj.containsKey("race_sample_max_ms")) s.race_sample_max_ms = obj["race_sample_max_ms"].as<uint16_t>();
+      if (obj.containsKey("race_start_finish_radius_m")) s.race_start_finish_radius_m = obj["race_start_finish_radius_m"].as<float>();
     });
 
     state::VehicleState snapshot = stateStore_->read();
@@ -185,6 +219,31 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
   });
   server_.addHandler(methHandler);
 
+  auto raceControlHandler = new AsyncCallbackJsonWebHandler("/api/race/control", [this](AsyncWebServerRequest* req, JsonVariant& json) {
+    if (!checkAuth(req)) return;
+    JsonObject obj = json.as<JsonObject>();
+    const String action = obj["action"] | "";
+
+    if (action == "start_accel") {
+      raceMgr_->startRun(state::RaceMode::ACCEL);
+    } else if (action == "start_lap") {
+      raceMgr_->startRun(state::RaceMode::LAP);
+    } else if (action == "stop") {
+      raceMgr_->stopRun();
+    } else if (action == "reset") {
+      raceMgr_->resetSession();
+    } else if (action == "set_start_finish") {
+      raceMgr_->setStartFinishPointFromCurrentFix();
+    } else if (action == "mark_lap") {
+      raceMgr_->markLap();
+    } else {
+      req->send(400, "application/json", "{\"error\":\"invalid action\"}");
+      return;
+    }
+    req->send(200, "application/json", "{\"ok\":true}");
+  });
+  server_.addHandler(raceControlHandler);
+
   auto tailHandler = new AsyncCallbackJsonWebHandler("/api/taillights", [this](AsyncWebServerRequest* req, JsonVariant& json) {
     if (!checkAuth(req)) return;
     JsonObject obj = json.as<JsonObject>();
@@ -226,7 +285,7 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest* request) const {
 }
 
 String WebServerManager::stateJson() const {
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(4096);
   const state::VehicleState s = stateStore_->read();
 
   doc["rpm"] = s.rpm;
@@ -250,6 +309,32 @@ String WebServerManager::stateJson() const {
   doc["led1_color"] = toHexColor(s.led_channel_1_color);
   doc["led2_color"] = toHexColor(s.led_channel_2_color);
   doc["led3_color"] = toHexColor(s.led_channel_3_color);
+  doc["gps_latitude"] = s.gps_latitude;
+  doc["gps_longitude"] = s.gps_longitude;
+  doc["race_mode"] = static_cast<uint8_t>(s.race_mode);
+  doc["race_enabled"] = s.race_enabled;
+  doc["race_running"] = s.race_running;
+  doc["race_quality_percent"] = s.race_quality_percent;
+  doc["race_validation_flags"] = s.race_validation_flags;
+  doc["race_data_valid"] = s.race_data_valid;
+  doc["race_elapsed_ms"] = s.race_elapsed_ms;
+  doc["race_distance_m"] = s.race_distance_m;
+  doc["race_0_30_s"] = s.race_0_30_s;
+  doc["race_0_60_s"] = s.race_0_60_s;
+  doc["race_60_130_s"] = s.race_60_130_s;
+  doc["race_100_150_kph_s"] = s.race_100_150_kph_s;
+  doc["race_eighth_mile_et_s"] = s.race_eighth_mile_et_s;
+  doc["race_quarter_mile_et_s"] = s.race_quarter_mile_et_s;
+  doc["race_eighth_mile_trap_mph"] = s.race_eighth_mile_trap_mph;
+  doc["race_quarter_mile_trap_mph"] = s.race_quarter_mile_trap_mph;
+  doc["race_lap_count"] = s.race_lap_count;
+  doc["race_last_lap_s"] = s.race_last_lap_s;
+  doc["race_best_lap_s"] = s.race_best_lap_s;
+  doc["race_lap_delta_s"] = s.race_lap_delta_s;
+  doc["race_start_point_set"] = s.race_start_point_set;
+  doc["race_start_latitude"] = s.race_start_latitude;
+  doc["race_start_longitude"] = s.race_start_longitude;
+  doc["race_start_finish_radius_m"] = s.race_start_finish_radius_m;
 
   String out;
   serializeJson(doc, out);
@@ -276,6 +361,15 @@ void WebServerManager::sendSettings(AsyncWebServerRequest* request) const {
   doc["meth_iat_safety_threshold"] = st.meth_iat_safety_threshold;
   doc["meth_max_pump_duty"] = st.meth_max_pump_duty;
   doc["can_loss_behavior"] = st.meth_can_loss_behavior;
+  doc["race_use_metric_targets"] = st.race_use_metric_targets;
+  doc["race_auto_start"] = st.race_auto_start;
+  doc["race_min_satellites"] = st.race_min_satellites;
+  doc["race_sample_min_ms"] = st.race_sample_min_ms;
+  doc["race_sample_max_ms"] = st.race_sample_max_ms;
+  doc["race_start_finish_radius_m"] = st.race_start_finish_radius_m;
+  doc["race_start_latitude"] = st.race_start_latitude;
+  doc["race_start_longitude"] = st.race_start_longitude;
+  doc["race_start_point_set"] = st.race_start_point_set;
   doc["wifi_ap_mode"] = st.wifi_ap_mode;
   doc["warning"] = kRatioWarning;
 
@@ -310,6 +404,9 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["sd_write_error_count"] = s.sd_write_error_count;
   doc["touch_online"] = s.touch_online;
   doc["ui_fps"] = s.ui_fps;
+  doc["race_running"] = s.race_running;
+  doc["race_quality_percent"] = s.race_quality_percent;
+  doc["race_validation_flags"] = s.race_validation_flags;
 
   String out;
   serializeJson(doc, out);

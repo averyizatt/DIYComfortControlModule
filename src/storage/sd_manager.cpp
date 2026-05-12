@@ -31,6 +31,7 @@ bool SdManager::begin(uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin, uint8_t 
   ensureFolder("/logs/meth");
   ensureFolder("/logs/faults");
   ensureFolder("/logs/tach");
+  ensureFolder("/logs/race");
   ensureFolder("/ui");
   ensureFolder("/ui/images");
   ensureFolder("/ui/icons");

@@ -31,6 +31,12 @@ enum class MethCanLossBehavior : uint8_t {
   HOLD_LAST_VALID = 1,
 };
 
+enum class RaceMode : uint8_t {
+  OFF = 0,
+  ACCEL = 1,
+  LAP = 2,
+};
+
 struct VehicleState {
   // Core dash values
   uint16_t rpm = 0;
@@ -148,6 +154,45 @@ struct VehicleState {
   uint8_t reset_reason = 0;
   char current_log_file[64]{};
   char last_sd_write_status[32]{};
+
+  // GPS coordinates
+  double gps_latitude = 0.0;
+  double gps_longitude = 0.0;
+
+  // Race performance + timing
+  RaceMode race_mode = RaceMode::OFF;
+  bool race_enabled = false;
+  bool race_running = false;
+  bool race_use_metric_targets = false;
+  bool race_auto_start = true;
+  bool race_start_point_set = false;
+  bool race_data_valid = false;
+  uint8_t race_quality_percent = 0;
+  uint8_t race_validation_flags = 0;
+  uint8_t race_min_satellites = 6;
+  uint16_t race_sample_min_ms = 40;
+  uint16_t race_sample_max_ms = 450;
+  float race_start_finish_radius_m = 20.0f;
+  float race_start_latitude = 0.0f;
+  float race_start_longitude = 0.0f;
+
+  uint32_t race_run_start_ms = 0;
+  uint32_t race_elapsed_ms = 0;
+  float race_distance_m = 0.0f;
+  float race_0_30_s = -1.0f;
+  float race_0_60_s = -1.0f;
+  float race_60_130_s = -1.0f;
+  float race_100_150_kph_s = -1.0f;
+  float race_eighth_mile_et_s = -1.0f;
+  float race_quarter_mile_et_s = -1.0f;
+  float race_eighth_mile_trap_mph = 0.0f;
+  float race_quarter_mile_trap_mph = 0.0f;
+
+  uint16_t race_lap_count = 0;
+  float race_last_lap_s = -1.0f;
+  float race_best_lap_s = -1.0f;
+  float race_lap_delta_s = 0.0f;
+  uint32_t race_last_lap_ms = 0;
 };
 
 class VehicleStateStore {

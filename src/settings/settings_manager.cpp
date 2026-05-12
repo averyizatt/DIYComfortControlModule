@@ -52,6 +52,15 @@ void SettingsManager::load() {
   settings_.meth_iat_safety_threshold = static_cast<int8_t>(prefs_.getChar("meth_iat", settings_.meth_iat_safety_threshold));
   settings_.meth_max_pump_duty = prefs_.getUChar("meth_duty", settings_.meth_max_pump_duty);
   settings_.meth_can_loss_behavior = prefs_.getUChar("meth_closs", settings_.meth_can_loss_behavior);
+  settings_.race_use_metric_targets = prefs_.getBool("race_metric", settings_.race_use_metric_targets);
+  settings_.race_auto_start = prefs_.getBool("race_auto", settings_.race_auto_start);
+  settings_.race_min_satellites = prefs_.getUChar("race_sat", settings_.race_min_satellites);
+  settings_.race_sample_min_ms = prefs_.getUShort("race_smin", settings_.race_sample_min_ms);
+  settings_.race_sample_max_ms = prefs_.getUShort("race_smax", settings_.race_sample_max_ms);
+  settings_.race_start_finish_radius_m = prefs_.getFloat("race_rad", settings_.race_start_finish_radius_m);
+  settings_.race_start_latitude = prefs_.getFloat("race_lat", settings_.race_start_latitude);
+  settings_.race_start_longitude = prefs_.getFloat("race_lon", settings_.race_start_longitude);
+  settings_.race_start_point_set = prefs_.getBool("race_sf_set", settings_.race_start_point_set);
 
   settings_.wifi_ap_mode = prefs_.getBool("wifi_ap", settings_.wifi_ap_mode);
   const String ssid = prefs_.getString("wifi_ssid", "");
@@ -88,6 +97,15 @@ void SettingsManager::loadIntoState(state::VehicleState& s) const {
   s.meth_iat_safety_threshold = settings_.meth_iat_safety_threshold;
   s.meth_max_pump_duty = settings_.meth_max_pump_duty;
   s.meth_can_loss_behavior = static_cast<state::MethCanLossBehavior>(settings_.meth_can_loss_behavior);
+  s.race_use_metric_targets = settings_.race_use_metric_targets;
+  s.race_auto_start = settings_.race_auto_start;
+  s.race_min_satellites = settings_.race_min_satellites;
+  s.race_sample_min_ms = settings_.race_sample_min_ms;
+  s.race_sample_max_ms = settings_.race_sample_max_ms;
+  s.race_start_finish_radius_m = settings_.race_start_finish_radius_m;
+  s.race_start_latitude = settings_.race_start_latitude;
+  s.race_start_longitude = settings_.race_start_longitude;
+  s.race_start_point_set = settings_.race_start_point_set;
   s.wifi_ap_mode = settings_.wifi_ap_mode;
 }
 
@@ -117,6 +135,15 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.meth_iat_safety_threshold = s.meth_iat_safety_threshold;
   settings_.meth_max_pump_duty = s.meth_max_pump_duty;
   settings_.meth_can_loss_behavior = static_cast<uint8_t>(s.meth_can_loss_behavior);
+  settings_.race_use_metric_targets = s.race_use_metric_targets;
+  settings_.race_auto_start = s.race_auto_start;
+  settings_.race_min_satellites = s.race_min_satellites;
+  settings_.race_sample_min_ms = s.race_sample_min_ms;
+  settings_.race_sample_max_ms = s.race_sample_max_ms;
+  settings_.race_start_finish_radius_m = s.race_start_finish_radius_m;
+  settings_.race_start_latitude = s.race_start_latitude;
+  settings_.race_start_longitude = s.race_start_longitude;
+  settings_.race_start_point_set = s.race_start_point_set;
   settings_.wifi_ap_mode = s.wifi_ap_mode;
 }
 
@@ -146,6 +173,15 @@ bool SettingsManager::save() {
   prefs_.putChar("meth_iat", settings_.meth_iat_safety_threshold);
   prefs_.putUChar("meth_duty", settings_.meth_max_pump_duty);
   prefs_.putUChar("meth_closs", settings_.meth_can_loss_behavior);
+  prefs_.putBool("race_metric", settings_.race_use_metric_targets);
+  prefs_.putBool("race_auto", settings_.race_auto_start);
+  prefs_.putUChar("race_sat", settings_.race_min_satellites);
+  prefs_.putUShort("race_smin", settings_.race_sample_min_ms);
+  prefs_.putUShort("race_smax", settings_.race_sample_max_ms);
+  prefs_.putFloat("race_rad", settings_.race_start_finish_radius_m);
+  prefs_.putFloat("race_lat", settings_.race_start_latitude);
+  prefs_.putFloat("race_lon", settings_.race_start_longitude);
+  prefs_.putBool("race_sf_set", settings_.race_start_point_set);
 
   prefs_.putBool("wifi_ap", settings_.wifi_ap_mode);
   prefs_.putString("wifi_ssid", settings_.wifi_ssid);

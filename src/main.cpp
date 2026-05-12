@@ -6,6 +6,7 @@
 
 #include "can/can_manager.h"
 #include "led/led_manager.h"
+#include "race/race_manager.h"
 #include "settings/settings_manager.h"
 #include "state/vehicle_state.h"
 #include "storage/log_manager.h"
@@ -21,6 +22,7 @@ led::LedManager g_led;
 web::WebServerManager g_web;
 storage::SdManager g_sd;
 storage::LogManager g_logs;
+race::RacePerformanceManager g_race;
 touch::TouchManager g_touch;
 ui::AssetManager g_assets;
 
@@ -96,6 +98,13 @@ void webTask(void*) {
   }
 }
 
+void raceTask(void*) {
+  while (true) {
+    g_race.tick(millis());
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
+
 void touchTask(void*) {
   while (true) {
     const touch::TouchSample t = g_touch.read();
@@ -124,13 +133,18 @@ void storageTask(void*) {
       char canLine[96];
       char gpsLine[96];
       char methLine[96];
+      char raceLine[160];
       snprintf(canLine, sizeof(canLine), "rx=%lu,tx=%lu,last_id=%u", static_cast<unsigned long>(s.can_rx_count), static_cast<unsigned long>(s.can_tx_count),
                s.can_last_rx_id);
       snprintf(gpsLine, sizeof(gpsLine), "fix=%u,sat=%u,speed=%.1f", s.gps_fix ? 1U : 0U, s.gps_satellites, static_cast<double>(s.speed));
       snprintf(methLine, sizeof(methLine), "state=%u,ratio=%u,duty=%u", static_cast<uint8_t>(s.meth_state), s.meth_selected_ratio_percent, s.meth_pump_duty);
+      snprintf(raceLine, sizeof(raceLine), "mode=%u,running=%u,0_60=%.3f,qtr=%.3f,lap_best=%.3f,quality=%u", static_cast<uint8_t>(s.race_mode),
+               s.race_running ? 1U : 0U, static_cast<double>(s.race_0_60_s), static_cast<double>(s.race_quarter_mile_et_s),
+               static_cast<double>(s.race_best_lap_s), s.race_quality_percent);
       g_logs.enqueue("can", canLine);
       g_logs.enqueue("gps", gpsLine);
       g_logs.enqueue("meth", methLine);
+      g_logs.enqueue("race", raceLine);
       if (s.fault_flags != 0) {
         char faultLine[48];
         snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", s.fault_flags);
@@ -202,14 +216,16 @@ void setup() {
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
   g_logs.setSessionPrefix(String("boot_") + String(millis()));
+  g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
 
   g_led.begin(kPinLedData1, kPinLedData2, kPinLedData3, 18);
-  g_web.begin(&state::g_vehicle_state, &g_settings, &g_can);
+  g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
 
   xTaskCreatePinnedToCore(canTask, "can_task", 6144, nullptr, 3, nullptr, 0);
   xTaskCreatePinnedToCore(ledTask, "led_task", 4096, nullptr, 2, nullptr, 1);
   xTaskCreatePinnedToCore(webTask, "web_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(heartbeatTask, "hb_task", 3072, nullptr, 1, nullptr, 1);
 }

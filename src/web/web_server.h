@@ -5,6 +5,7 @@
 #include <ESPAsyncWebServer.h>
 
 #include "can/can_manager.h"
+#include "race/race_manager.h"
 #include "settings/settings_manager.h"
 #include "state/vehicle_state.h"
 
@@ -12,7 +13,7 @@ namespace web {
 
 class WebServerManager {
  public:
-  bool begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr);
+  bool begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr);
   void tick();
 
  private:
@@ -28,6 +29,7 @@ class WebServerManager {
   state::VehicleStateStore* stateStore_ = nullptr;
   settings::SettingsManager* settingsMgr_ = nullptr;
   canbus::CanManager* canMgr_ = nullptr;
+  race::RacePerformanceManager* raceMgr_ = nullptr;
   uint32_t lastWsPushMs_ = 0;
 };
 

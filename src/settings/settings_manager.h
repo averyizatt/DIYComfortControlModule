@@ -26,6 +26,16 @@ struct AppSettings {
   uint8_t meth_max_pump_duty = 200;
   uint8_t meth_can_loss_behavior = 0;
 
+  bool race_use_metric_targets = false;
+  bool race_auto_start = true;
+  uint8_t race_min_satellites = 6;
+  uint16_t race_sample_min_ms = 40;
+  uint16_t race_sample_max_ms = 450;
+  float race_start_finish_radius_m = 20.0f;
+  float race_start_latitude = 0.0f;
+  float race_start_longitude = 0.0f;
+  bool race_start_point_set = false;
+
   bool wifi_ap_mode = true;
   char wifi_ssid[33]{};
   char wifi_password[65]{};
