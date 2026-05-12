@@ -265,7 +265,7 @@ Use a hybrid coverage strategy:
 - Expected tile storage: **~38-58GB**
 
 #### One-pass export settings (exact starting point)
-- State bounding box (Colorado): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
+- State bounding box (Colorado, **WGS84 / EPSG:4326 lat/lon**): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
 - Base layer export:
   - bounds: Colorado bbox
   - zooms: profile-dependent statewide zoom range (z7-z15 or z7-z16)
