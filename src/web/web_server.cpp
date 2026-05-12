@@ -232,7 +232,11 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         return;
       }
       const uint8_t duty = obj["manual_test_duty"].as<uint8_t>();
-      if (duty == 0 || !canMgr_->sendMethManualTest(duty)) {
+      if (duty == 0) {
+        req->send(400, "application/json", "{\"error\":\"manual_test_duty must be > 0\"}");
+        return;
+      }
+      if (!canMgr_->sendMethManualTest(duty)) {
         req->send(409, "application/json", "{\"error\":\"manual test rejected by safety policy\"}");
         return;
       }

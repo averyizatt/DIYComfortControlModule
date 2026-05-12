@@ -164,19 +164,16 @@ bool CanManager::sendMethManualTest(uint8_t duty) {
   const uint32_t nowMs = millis();
   if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) return false;
 
-  uint8_t safeDuty = duty;
-  if (safeDuty > snapshot.meth_max_pump_duty) {
-    safeDuty = snapshot.meth_max_pump_duty;
-  }
-  if (safeDuty == 0) return false;
+  if (duty == 0) return false;
+  if (duty > snapshot.meth_max_pump_duty) return false;
 
   manualTestStartMs_ = nowMs;
-  state::g_vehicle_state.mutate([safeDuty](state::VehicleState& s) {
+  state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
-    s.meth_pump_duty = safeDuty;
+    s.meth_pump_duty = duty;
     s.manual_test_running = true;
   });
-  return sendFrame(can_protocol::packMethManualTest(safeDuty));
+  return sendFrame(can_protocol::packMethManualTest(duty));
 }
 
 bool CanManager::sendMethStopManualTest() {
