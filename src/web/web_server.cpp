@@ -68,7 +68,7 @@ a{display:inline-block;margin-bottom:10px;color:#8ec8ff;font-size:clamp(16px,2.2
 <body><header><h1>CAN Status</h1></header><main><a href='/'>← Back to Dashboard</a><div class='card'><pre id='canStatus'>Loading CAN status...</pre></div></main>
 <script>
 function pretty(text){try{return JSON.stringify(JSON.parse(text),null,2);}catch(_){return text;}}
-async function tick(){try{const r=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await r.text());}catch(_){}} 
+async function tick(){try{const r=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await r.text());}catch(_){}}
 setInterval(tick,600);tick();
 </script></body></html>
 )HTML";
