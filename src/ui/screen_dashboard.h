@@ -20,6 +20,8 @@ class ScreenDashboard {
   bool online() const { return online_; }
 
  private:
+  enum class Page : uint8_t { DASH = 0, METH = 1, RACE = 2, DIAG = 3 };
+
   struct Rect {
     int16_t x = 0;
     int16_t y = 0;
@@ -37,7 +39,13 @@ class ScreenDashboard {
   void drawStatusCard(const state::VehicleState& s);
   void drawControlCard(const state::VehicleState& s);
   void drawRaceCard(const state::VehicleState& s);
+  void drawDiagnosticsCard(const state::VehicleState& s);
+  void drawTabs();
   void drawButton(const Rect& r, const char* text, bool active);
+  void setPage(Page page);
+  void setActionFeedback(const char* text, uint32_t nowMs);
+  uint8_t uiPageFor(Page page) const;
+  Page pageFromUi(uint8_t uiPage) const;
   uint8_t nextMethRatio(uint8_t current) const;
   touch::TouchSample normalizeTouch(const touch::TouchSample& sample) const;
 
@@ -49,18 +57,27 @@ class ScreenDashboard {
   bool touchActive_ = false;
   uint32_t lastTouchMs_ = 0;
   uint32_t lastRenderMs_ = 0;
+  uint32_t actionFeedbackUntilMs_ = 0;
+  char actionFeedback_[32]{};
+  Page page_ = Page::DASH;
 
   static constexpr uint16_t kWidth = 320;
   static constexpr uint16_t kHeight = 480;
   static constexpr uint32_t kRenderIntervalMs = 100;
   static constexpr uint32_t kTouchDebounceMs = 180;
+  static constexpr uint32_t kActionFeedbackMs = 900;
 
-  Rect methArmBtn_{12, 258, 144, 42};
-  Rect methRatioBtn_{164, 258, 144, 42};
-  Rect raceStartAccelBtn_{12, 372, 72, 42};
-  Rect raceStartLapBtn_{90, 372, 72, 42};
-  Rect raceStopBtn_{168, 372, 72, 42};
-  Rect raceResetBtn_{246, 372, 62, 42};
+  Rect tabDashBtn_{8, 48, 74, 28};
+  Rect tabMethBtn_{86, 48, 74, 28};
+  Rect tabRaceBtn_{164, 48, 74, 28};
+  Rect tabDiagBtn_{242, 48, 70, 28};
+
+  Rect methArmBtn_{12, 258, 144, 50};
+  Rect methRatioBtn_{164, 258, 144, 50};
+  Rect raceStartAccelBtn_{12, 372, 144, 42};
+  Rect raceStartLapBtn_{164, 372, 144, 42};
+  Rect raceStopBtn_{12, 420, 144, 42};
+  Rect raceResetBtn_{164, 420, 144, 42};
 };
 
 }  // namespace ui

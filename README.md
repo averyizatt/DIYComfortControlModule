@@ -34,6 +34,7 @@ The design goal is an extensible platform with clear module boundaries, determin
 - 4" ST7796S capacitive touch dashboard
 - touch-first dashboard control (no button/potentiometer dependency)
 - on-screen high-contrast card layout aligned with web dashboard sections
+- touchscreen tab navigation (Dash / Meth / Race / Diag) with in-screen action feedback
 - ESP32 TWAI + transceiver CAN networking
 - stock tachometer integration
 - GPS integration
