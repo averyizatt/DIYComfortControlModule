@@ -60,7 +60,7 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc, uint8_
 
 void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
   if (!online_) return;
-  if ((nowMs - lastRenderMs_) < kRenderIntervalMs) return;
+  if (static_cast<int32_t>(nowMs - lastRenderMs_) < static_cast<int32_t>(kRenderIntervalMs)) return;
   lastRenderMs_ = nowMs;
   page_ = pageFromUi(s.ui_page);
   render(s);
@@ -311,7 +311,7 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     return;
   }
 
-  if (touchActive_ || ((nowMs - lastTouchMs_) < kTouchDebounceMs)) return;
+  if (touchActive_ || (static_cast<int32_t>(nowMs - lastTouchMs_) < static_cast<int32_t>(kTouchDebounceMs))) return;
   touchActive_ = true;
   lastTouchMs_ = nowMs;
 
