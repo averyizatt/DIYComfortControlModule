@@ -289,12 +289,16 @@ touch::TouchSample ScreenDashboard::normalizeTouch(const touch::TouchSample& sam
   if (!sample.touched) return sample;
   touch::TouchSample t = sample;
 
+  // Some FT62xx-style controllers report coordinates in a 480x320 landscape frame while
+  // the dashboard is rendered in 320x480 portrait. When values fit that pattern, rotate
+  // + remap into portrait space before hit-testing.
   if (t.x <= kHeight && t.y <= kWidth) {
     const uint16_t x = t.x;
     t.x = t.y;
     t.y = static_cast<uint16_t>(kHeight > x ? (kHeight - x) : 0U);
   }
 
+  // Fallback scaling for controllers reporting raw 12-bit (0..4095) coordinate ranges.
   if (t.x > kWidth) {
     t.x = static_cast<uint16_t>((static_cast<uint32_t>(t.x) * kWidth) / 4095U);
   }
