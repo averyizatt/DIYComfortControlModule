@@ -5,7 +5,7 @@
 - CAN TX: GPIO5
 - GPS RX: GPIO18
 - GPS TX: GPIO17
-- Tactile buttons: GPIO8/9/10 (up/down/select)
+- Touch controller: I2C + IRQ/RESET (see main firmware touch pin definitions)
 - Tach output: GPIO6 (LEDC)
 
 ## Power and Grounding Notes

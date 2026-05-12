@@ -32,7 +32,7 @@ The design goal is an extensible platform with clear module boundaries, determin
 ## Main Features
 
 - 4" ST7796S capacitive touch dashboard
-- physical tactile button fallback navigation
+- touch-first dashboard control (no button/potentiometer dependency)
 - ESP32 TWAI + transceiver CAN networking
 - stock tachometer integration
 - GPS integration
