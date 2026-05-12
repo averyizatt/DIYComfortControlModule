@@ -235,16 +235,16 @@ All animation timing is non-blocking (`millis()` scheduling), so LED effects do 
 
 ### Offline map tile packs (Colorado target)
 
-Recommended SD target for best visual quality and growth:
-- **64GB microSD** (preferred)
-- **32GB microSD** (safe fallback)
+Recommended SD target for balanced map quality + storage headroom:
+- **32GB microSD** (preferred for logs/UI/expansion headroom)
+- **64GB microSD** (optional higher-detail variant)
 
 Use a hybrid coverage strategy:
 - full-state baseline zoom coverage for Colorado
 - high-detail zooms only for major metros and key highway corridors
 - compressed raster tiles (prefer WebP-capable output) or compact tile DB format to keep SPI SD reads responsive
 
-#### Profile A: 32GB (safe)
+#### Profile A: 32GB (recommended default)
 - Colorado statewide: **z7-z15**
 - Selective detail: **z16** for:
   - Denver metro
@@ -254,7 +254,7 @@ Use a hybrid coverage strategy:
   - I-70 corridor
 - Expected tile storage: **~18-28GB**
 
-#### Profile B: 64GB (best visual, recommended)
+#### Profile B: 64GB (optional best visual)
 - Colorado statewide: **z7-z16**
 - Selective detail: **z17** for:
   - Denver metro
@@ -278,6 +278,7 @@ Use a hybrid coverage strategy:
   - raster tile pyramid or single compact tile DB
   - compression enabled (WebP if tooling supports it)
 - Keep at least **15-20% free SD capacity** for logs (`/logs/*`) and UI assets (`/ui/*`)
+- For this project target, default to **Profile A (32GB)** unless higher-detail map rendering is prioritized over SD headroom.
 
 ---
 
