@@ -23,7 +23,7 @@ const char kIndexHtml[] PROGMEM = R"HTML(
 document.getElementById('ratioWarn').textContent='{{RATIO_WARNING}}';
 const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=e.data;};
 async function raceCmd(action){await fetch('/api/race/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});}
-setInterval(async ()=>{try{const r=await fetch('/api/race/state');document.getElementById('race').textContent=await r.text();}catch(_){}} ,1000);
+setInterval(async ()=>{try{const r=await fetch('/api/race/state');document.getElementById('race').textContent=await r.text();}catch(_){}},1000);
 </script></main></body></html>
 )HTML";
 
