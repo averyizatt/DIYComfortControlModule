@@ -44,17 +44,17 @@ constexpr uint8_t kPinSdCs = 16;
 constexpr uint8_t kPinLedData1 = 38;
 constexpr uint8_t kPinLedData2 = 39;
 constexpr uint8_t kPinLedData3 = 40;
-constexpr uint32_t kTaskWatchdogTimeoutSec = 6;
+constexpr uint32_t kTaskWatchdogTimeoutS = 6;
 
 void initTaskWatchdog() {
 #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
   esp_task_wdt_config_t cfg{};
-  cfg.timeout_ms = kTaskWatchdogTimeoutSec * 1000;
+  cfg.timeout_ms = kTaskWatchdogTimeoutS * 1000;
   cfg.idle_core_mask = (1U << portNUM_PROCESSORS) - 1U;
   cfg.trigger_panic = true;
   esp_task_wdt_init(&cfg);
 #else
-  esp_task_wdt_init(kTaskWatchdogTimeoutSec, true);
+  esp_task_wdt_init(kTaskWatchdogTimeoutS, true);
 #endif
 }
 
