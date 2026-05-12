@@ -21,9 +21,9 @@ DesiredConfig fromVehicleState(const state::VehicleState& s) {
 }
 
 bool isSafeConfig(const DesiredConfig& cfg) {
-  if (cfg.boost_trigger_kpa < 20 || cfg.boost_trigger_kpa > 250) return false;
+  if (cfg.boost_trigger_kpa < kMinBoostTriggerKpa || cfg.boost_trigger_kpa > kMaxBoostTriggerKpa) return false;
   if (cfg.max_pump_duty > 255) return false;
-  if (cfg.iat_threshold_c < -20 || cfg.iat_threshold_c > 120) return false;
+  if (cfg.iat_threshold_c < kMinIatThresholdC || cfg.iat_threshold_c > kMaxIatThresholdC) return false;
   if (cfg.ratio_percent != 255 && cfg.ratio_percent > 100) return false;
   return true;
 }

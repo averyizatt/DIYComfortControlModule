@@ -14,6 +14,7 @@ constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
 constexpr uint32_t kGpsStaleTimeoutMs = 1000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
+// Cooldown to prevent rapid repeated manual pump tests from UI/API retries.
 constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
 

@@ -59,11 +59,11 @@ uint8_t sanitizeMethRatioValue(uint8_t ratio) {
 }
 
 uint8_t sanitizeMethBoostTriggerKpa(uint8_t kpa) {
-  return static_cast<uint8_t>(constrain(static_cast<int>(kpa), 20, 250));
+  return static_cast<uint8_t>(constrain(static_cast<int>(kpa), meth::kMinBoostTriggerKpa, meth::kMaxBoostTriggerKpa));
 }
 
 int8_t sanitizeMethIatThresholdC(int value) {
-  return static_cast<int8_t>(constrain(value, -20, 120));
+  return static_cast<int8_t>(constrain(value, meth::kMinIatThresholdC, meth::kMaxIatThresholdC));
 }
 
 void sanitizeMethConfig(state::VehicleState& s) {

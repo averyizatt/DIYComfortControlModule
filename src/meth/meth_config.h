@@ -7,6 +7,11 @@
 
 namespace meth {
 
+constexpr uint8_t kMinBoostTriggerKpa = 20;
+constexpr uint8_t kMaxBoostTriggerKpa = 250;
+constexpr int8_t kMinIatThresholdC = -20;
+constexpr int8_t kMaxIatThresholdC = 120;
+
 enum class RatioPreset : uint8_t {
   WATER_ONLY = 0,
   METH_25 = 25,
