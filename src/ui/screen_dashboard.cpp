@@ -23,6 +23,7 @@ constexpr uint16_t kBtn = 0x222F;
 constexpr uint16_t kBtnActive = 0x33D4;
 constexpr uint16_t kTab = 0x29A8;
 constexpr uint16_t kTabActive = 0x33D4;
+constexpr uint8_t kDiagPreviewChars = 26;
 
 #if CCM_HAS_ARDUINO_GFX
 Arduino_DataBus* g_bus = nullptr;
@@ -107,7 +108,8 @@ void ScreenDashboard::drawHeader(const state::VehicleState& s) {
   g_gfx->setCursor(8, 30);
   g_gfx->setTextColor(s.touch_online ? kOk : kWarn, kPanel);
   g_gfx->print(s.touch_online ? "TOUCH ONLINE" : "TOUCH OFFLINE");
-  if (millis() < actionFeedbackUntilMs_ && actionFeedback_[0] != '\0') {
+  const uint32_t nowMs = millis();
+  if (actionFeedback_[0] != '\0' && static_cast<int32_t>(actionFeedbackUntilMs_ - nowMs) > 0) {
     g_gfx->setTextColor(kOk, kPanel);
     g_gfx->setCursor(130, 30);
     g_gfx->print(actionFeedback_);
@@ -286,9 +288,9 @@ void ScreenDashboard::drawDiagnosticsCard(const state::VehicleState& s) {
   g_gfx->setCursor(14, 320);
   g_gfx->printf("UI FPS: %.1f", static_cast<double>(s.ui_fps));
   g_gfx->setCursor(14, 340);
-  g_gfx->printf("Log file: %.26s", s.current_log_file);
+  g_gfx->printf("Log file: %.*s", static_cast<int>(kDiagPreviewChars), s.current_log_file);
   g_gfx->setCursor(14, 360);
-  g_gfx->printf("SD status: %.26s", s.last_sd_write_status);
+  g_gfx->printf("SD status: %.*s", static_cast<int>(kDiagPreviewChars), s.last_sd_write_status);
 #else
   (void)s;
 #endif
