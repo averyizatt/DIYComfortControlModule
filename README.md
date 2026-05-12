@@ -111,6 +111,40 @@ The design goal is an extensible platform with clear module boundaries, determin
 - Keep inactive CS lines high.
 - SD operations must not block CAN/tach/UI-critical timing paths.
 
+### Recommended ESP32-S3 GPIO map (all listed peripherals)
+
+| Peripheral | Signal | Recommended GPIO |
+|---|---|---|
+| CAN transceiver | TX | 5 |
+| CAN transceiver | RX | 4 |
+| LCD ST7796S | CS | 10 |
+| LCD ST7796S | RST | 9 |
+| LCD ST7796S | DC | 8 |
+| LCD ST7796S | Backlight PWM | 7 |
+| Shared SPI (LCD + SD) | MOSI | 11 |
+| Shared SPI (LCD + SD) | MISO | 13 |
+| Shared SPI (LCD + SD) | SCK | 12 |
+| SD slot | CS | 16 |
+| Touch controller | SCL | 47 |
+| Touch controller | SDA | 48 |
+| Touch controller | RST | 14 |
+| Touch controller | INT | 15 |
+| Addressable LED Channel 1 | DATA | 38 |
+| Addressable LED Channel 2 | DATA | 39 |
+| Addressable LED Channel 3 | DATA | 40 |
+
+The firmware already drives **3 independent addressable LED data channels**. Pin assignments are now centralized and overridable via build flags:
+
+```ini
+build_flags =
+  ${env.build_flags}
+  -D CCM_PIN_LED_DATA1=38
+  -D CCM_PIN_LED_DATA2=39
+  -D CCM_PIN_LED_DATA3=40
+  -D CCM_PIN_CAN_TX=5
+  -D CCM_PIN_CAN_RX=4
+```
+
 ---
 
 ## System Architecture

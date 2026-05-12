@@ -7,6 +7,7 @@
 
 #include "can/can_manager.h"
 #include "led/led_manager.h"
+#include "pin_map.h"
 #include "race/race_manager.h"
 #include "settings/settings_manager.h"
 #include "state/vehicle_state.h"
@@ -29,23 +30,6 @@ touch::TouchManager g_touch;
 ui::AssetManager g_assets;
 ui::ScreenDashboard g_screen;
 
-// Hosyond 4.0" ST7796S + CTP + SD wiring placeholders.
-constexpr uint8_t kPinLcdCs = 10;
-constexpr uint8_t kPinLcdRst = 9;
-constexpr uint8_t kPinLcdDc = 8;
-constexpr uint8_t kPinLcdBacklight = 7;
-constexpr uint8_t kPinSpiMosi = 11;
-constexpr uint8_t kPinSpiMiso = 13;
-constexpr uint8_t kPinSpiSck = 12;
-constexpr uint8_t kPinTouchScl = 47;
-constexpr uint8_t kPinTouchSda = 48;
-constexpr uint8_t kPinTouchRst = 14;
-constexpr uint8_t kPinTouchInt = 15;
-constexpr uint8_t kPinSdCs = 16;
-
-constexpr uint8_t kPinLedData1 = 38;
-constexpr uint8_t kPinLedData2 = 39;
-constexpr uint8_t kPinLedData3 = 40;
 constexpr uint32_t kTaskWatchdogTimeoutS = 6;
 
 void initTaskWatchdog() {
@@ -271,32 +255,32 @@ void setup() {
   Serial.begin(115200);
   delay(50);
 
-  pinMode(kPinLcdRst, OUTPUT);
-  pinMode(kPinLcdDc, OUTPUT);
-  pinMode(kPinLcdBacklight, OUTPUT);
-  digitalWrite(kPinLcdRst, HIGH);
-  digitalWrite(kPinLcdDc, HIGH);
+  pinMode(pins::kLcdRst, OUTPUT);
+  pinMode(pins::kLcdDc, OUTPUT);
+  pinMode(pins::kLcdBacklight, OUTPUT);
+  digitalWrite(pins::kLcdRst, HIGH);
+  digitalWrite(pins::kLcdDc, HIGH);
 
   state::g_vehicle_state.begin();
   initTaskWatchdog();
   registerTaskWatchdog();
   g_settings.begin();
   applySettingsToState();
-  analogWrite(kPinLcdBacklight, state::g_vehicle_state.read().display_brightness);
+  analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
   setupWifiFromSettings();
 
   g_can.begin(true);
 
-  g_touch.begin(Wire, kPinTouchSda, kPinTouchScl, kPinTouchRst, kPinTouchInt);
-  g_sd.begin(kPinSpiSck, kPinSpiMiso, kPinSpiMosi, kPinLcdCs, kPinSdCs);
+  g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
+  g_sd.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kLcdCs, pins::kSdCs);
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
   g_logs.setSessionPrefix(String("boot_") + String(millis()));
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
   g_screen.attach(&g_can, &g_race, &g_settings);
-  g_screen.begin(kPinLcdCs, kPinLcdRst, kPinLcdDc, kPinSpiSck, kPinSpiMosi, kPinSpiMiso);
+  g_screen.begin(pins::kLcdCs, pins::kLcdRst, pins::kLcdDc, pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
 
-  g_led.begin(kPinLedData1, kPinLedData2, kPinLedData3, 18);
+  g_led.begin(pins::kLedData1, pins::kLedData2, pins::kLedData3, 18);
   g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
 
   xTaskCreatePinnedToCore(canTask, "can_task", 6144, nullptr, 3, nullptr, 0);

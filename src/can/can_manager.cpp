@@ -1,4 +1,5 @@
 #include "can/can_manager.h"
+#include "pin_map.h"
 
 #if __has_include(<driver/twai.h>)
 #include <driver/twai.h>
@@ -74,7 +75,8 @@ bool CanManager::begin(bool tryHardwareCan) {
 
 #if CCM_HAS_TWAI
   if (tryHardwareCan) {
-    twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+    twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(static_cast<gpio_num_t>(pins::kCanTx),
+                                                                 static_cast<gpio_num_t>(pins::kCanRx), TWAI_MODE_NORMAL);
     twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
