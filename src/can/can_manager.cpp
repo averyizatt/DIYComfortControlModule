@@ -19,6 +19,15 @@ constexpr uint32_t kManualTestTimeoutMs = 5000;
 constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
 
+namespace taillight_animation {
+constexpr uint8_t SEQUENTIAL_ID = 1;
+constexpr uint16_t SEQUENTIAL_DURATION_MS = 500;
+constexpr uint8_t SHOW_ID = 2;
+constexpr uint16_t SHOW_DURATION_MS = 800;
+constexpr uint8_t DEMO_ID = 3;
+constexpr uint16_t DEMO_DURATION_MS = 1200;
+}  // namespace taillight_animation
+
 namespace meth_manual_test_reject_reason {
 constexpr uint8_t NONE = 0;
 constexpr uint8_t OFFLINE = 1;
@@ -157,6 +166,38 @@ bool CanManager::clearTaillightOverride() {
 
 bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationMs, uint8_t param0, uint8_t param1) {
   return sendFrame(can_protocol::packTaillightCustomAnimation(animId, durationMs, param0, param1));
+}
+
+bool CanManager::sendTaillightMode(uint8_t mode) {
+  bool sent = false;
+  switch (mode) {
+    case can_protocol::taillight_mode::STOCK:
+      sent = clearTaillightOverride();
+      break;
+    case can_protocol::taillight_mode::SEQUENTIAL:
+      sent = sendTaillightCustomAnimation(taillight_animation::SEQUENTIAL_ID, taillight_animation::SEQUENTIAL_DURATION_MS, 0, 0);
+      break;
+    case can_protocol::taillight_mode::SHOW:
+      sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, 0, 0);
+      break;
+    case can_protocol::taillight_mode::DEMO:
+      sent = sendTaillightCustomAnimation(taillight_animation::DEMO_ID, taillight_animation::DEMO_DURATION_MS, 0, 0);
+      break;
+    default:
+      break;
+  }
+  if (sent) {
+    state::g_vehicle_state.mutate([mode](state::VehicleState& s) { s.taillight_mode_commanded = mode; });
+  }
+  return sent;
+}
+
+bool CanManager::sendTaillightShowOption(uint8_t option) {
+  const bool sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, option, 0);
+  if (sent) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.taillight_mode_commanded = can_protocol::taillight_mode::SHOW; });
+  }
+  return sent;
 }
 
 bool CanManager::sendMethArm(bool armed) {

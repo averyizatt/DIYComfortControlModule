@@ -24,6 +24,10 @@ constexpr uint16_t kBtnActive = 0x33D4;
 constexpr uint16_t kTab = 0x29A8;
 constexpr uint16_t kTabActive = 0x33D4;
 constexpr uint8_t kDiagPreviewChars = 26;
+constexpr uint8_t kTaillightShowOptionsPerPage = 6;
+constexpr uint8_t kTaillightShowOptionCount = 24;
+constexpr uint8_t kTaillightShowPageCount =
+    static_cast<uint8_t>((kTaillightShowOptionCount + kTaillightShowOptionsPerPage - 1U) / kTaillightShowOptionsPerPage);
 
 #if CCM_HAS_ARDUINO_GFX
 Arduino_DataBus* g_bus = nullptr;
@@ -82,6 +86,10 @@ void ScreenDashboard::render(const state::VehicleState& s) {
       drawStatusCard(s);
       drawControlCard(s);
       break;
+    case Page::TAIL:
+      drawStatusCard(s);
+      drawTaillightCard(s);
+      break;
     case Page::RACE:
       drawLiveCard(s);
       drawRaceCard(s);
@@ -123,6 +131,7 @@ void ScreenDashboard::drawTabs() {
 #if CCM_HAS_ARDUINO_GFX
   drawButton(tabDashBtn_, "DASH", page_ == Page::DASH);
   drawButton(tabMethBtn_, "METH", page_ == Page::METH);
+  drawButton(tabTailBtn_, "TAIL", page_ == Page::TAIL);
   drawButton(tabRaceBtn_, "RACE", page_ == Page::RACE);
   drawButton(tabDiagBtn_, "DIAG", page_ == Page::DIAG);
 #endif
@@ -234,6 +243,53 @@ void ScreenDashboard::drawControlCard(const state::VehicleState& s) {
 #endif
 }
 
+void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
+#if CCM_HAS_ARDUINO_GFX
+  g_gfx->fillRect(8, 248, 304, 220, kPanel);
+  g_gfx->drawRect(8, 248, 304, 220, kBorder);
+  g_gfx->setTextColor(kText, kPanel);
+  g_gfx->setTextSize(1);
+  g_gfx->setCursor(14, 258);
+  g_gfx->printf("Taillights  Online:%u  Bright:%u", s.taillight_online ? 1U : 0U, static_cast<unsigned>(s.taillight_brightness));
+  g_gfx->setCursor(14, 276);
+  g_gfx->printf("State L:%u R:%u  Derate:%u%%", static_cast<unsigned>(s.taillight_left_state), static_cast<unsigned>(s.taillight_right_state),
+                static_cast<unsigned>(s.taillight_thermal_derate));
+  g_gfx->setCursor(14, 294);
+  g_gfx->print("Mode command:");
+
+  if (!tailShowSubmenuActive_) {
+    drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == can_protocol::taillight_mode::STOCK);
+    drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == can_protocol::taillight_mode::SEQUENTIAL);
+    drawButton(tailShowBtn_, "SHOW MENU", s.taillight_mode_commanded == can_protocol::taillight_mode::SHOW);
+    drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == can_protocol::taillight_mode::DEMO);
+  } else {
+    const uint8_t page = tailShowPage_;
+    g_gfx->setCursor(14, 306);
+    g_gfx->setTextColor(kSubtle, kPanel);
+    g_gfx->printf("Show options page %u/%u", static_cast<unsigned>(page + 1U), static_cast<unsigned>(kTaillightShowPageCount));
+    drawButton(tailShowPrevBtn_, "PREV", false);
+    drawButton(tailShowBackBtn_, "BACK", false);
+    drawButton(tailShowNextBtn_, "NEXT", false);
+
+    Rect optionRects[kTaillightShowOptionsPerPage] = {tailShowOptBtn0_, tailShowOptBtn1_, tailShowOptBtn2_,
+                                                       tailShowOptBtn3_, tailShowOptBtn4_, tailShowOptBtn5_};
+    for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
+      const uint16_t optionValue = static_cast<uint16_t>(page) * kTaillightShowOptionsPerPage + i;
+      const uint8_t option = static_cast<uint8_t>(optionValue);
+      char label[16];
+      if (option < kTaillightShowOptionCount) {
+        snprintf(label, sizeof(label), "SHOW %u", static_cast<unsigned>(option + 1U));
+      } else {
+        snprintf(label, sizeof(label), "--");
+      }
+      drawButton(optionRects[i], label, false);
+    }
+  }
+#else
+  (void)s;
+#endif
+}
+
 void ScreenDashboard::drawRaceCard(const state::VehicleState& s) {
 #if CCM_HAS_ARDUINO_GFX
   g_gfx->fillRect(8, 248, 304, 220, kPanel);
@@ -304,6 +360,72 @@ uint8_t ScreenDashboard::nextMethRatio(uint8_t current) const {
   return 25U;
 }
 
+bool ScreenDashboard::decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const {
+  if (tailShowSubmenuActive_) return false;
+  if (tailStockBtn_.contains(x, y)) {
+    mode = can_protocol::taillight_mode::STOCK;
+    feedbackLabel = "TAIL STOCK";
+    return true;
+  }
+  if (tailSequentialBtn_.contains(x, y)) {
+    mode = can_protocol::taillight_mode::SEQUENTIAL;
+    feedbackLabel = "TAIL SEQUENTIAL";
+    return true;
+  }
+  if (tailShowBtn_.contains(x, y)) {
+    mode = can_protocol::taillight_mode::SHOW;
+    feedbackLabel = "TAIL SHOW";
+    return true;
+  }
+  if (tailDemoBtn_.contains(x, y)) {
+    mode = can_protocol::taillight_mode::DEMO;
+    feedbackLabel = "TAIL DEMO";
+    return true;
+  }
+  return false;
+}
+
+bool ScreenDashboard::decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, TaillightShowTouchAction& action) {
+  action = TaillightShowTouchAction::NONE;
+  if (!tailShowSubmenuActive_) return false;
+
+  if (tailShowPrevBtn_.contains(x, y)) {
+    if (tailShowPage_ == 0) {
+      tailShowPage_ = static_cast<uint8_t>(kTaillightShowPageCount - 1U);
+    } else {
+      tailShowPage_--;
+    }
+    action = TaillightShowTouchAction::PAGE_CHANGED;
+    return true;
+  }
+  if (tailShowNextBtn_.contains(x, y)) {
+    tailShowPage_ = static_cast<uint8_t>((tailShowPage_ + 1U) % kTaillightShowPageCount);
+    action = TaillightShowTouchAction::PAGE_CHANGED;
+    return true;
+  }
+  if (tailShowBackBtn_.contains(x, y)) {
+    tailShowSubmenuActive_ = false;
+    action = TaillightShowTouchAction::MENU_EXIT;
+    return true;
+  }
+
+  Rect optionRects[kTaillightShowOptionsPerPage] = {tailShowOptBtn0_, tailShowOptBtn1_, tailShowOptBtn2_, tailShowOptBtn3_, tailShowOptBtn4_,
+                                                     tailShowOptBtn5_};
+  for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
+    if (!optionRects[i].contains(x, y)) continue;
+    const uint16_t optionValue = static_cast<uint16_t>(tailShowPage_) * kTaillightShowOptionsPerPage + i;
+    const uint8_t option = static_cast<uint8_t>(optionValue);
+    if (option >= kTaillightShowOptionCount) {
+      action = TaillightShowTouchAction::EMPTY_SLOT;
+      return true;
+    }
+    showOption = option;
+    action = TaillightShowTouchAction::SEND_OPTION;
+    return true;
+  }
+  return false;
+}
+
 void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t nowMs) {
   const touch::TouchSample normalized = normalizeTouch(sample);
   if (!normalized.touched) {
@@ -327,6 +449,11 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
   if (tabMethBtn_.contains(normalized.x, normalized.y)) {
     setPage(Page::METH);
     setActionFeedback("PAGE METH", nowMs);
+    return;
+  }
+  if (tabTailBtn_.contains(normalized.x, normalized.y)) {
+    setPage(Page::TAIL);
+    setActionFeedback("PAGE TAIL", nowMs);
     return;
   }
   if (tabRaceBtn_.contains(normalized.x, normalized.y)) {
@@ -370,6 +497,54 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     return;
   }
 
+  uint8_t mode = can_protocol::taillight_mode::STOCK;
+  const char* modeLabel = nullptr;
+  if (decodeTaillightModeTouch(normalized.x, normalized.y, mode, modeLabel)) {
+    if (!canMgr_) return;
+    if (mode == can_protocol::taillight_mode::SHOW) {
+      tailShowSubmenuActive_ = true;
+      tailShowPage_ = 0;
+      setActionFeedback("SHOW MENU", nowMs);
+      return;
+    }
+    tailShowSubmenuActive_ = false;
+    const bool sent = canMgr_->sendTaillightMode(mode);
+    if (sent) {
+      setActionFeedback(modeLabel, nowMs);
+    } else {
+      setActionFeedback("TAIL CMD REJECTED", nowMs);
+    }
+    return;
+  }
+
+  uint8_t showOption = 0;
+  TaillightShowTouchAction showAction = TaillightShowTouchAction::NONE;
+  if (decodeTaillightShowTouch(normalized.x, normalized.y, showOption, showAction)) {
+    if (showAction == TaillightShowTouchAction::PAGE_CHANGED) {
+      setActionFeedback("SHOW PAGE", nowMs);
+      return;
+    }
+    if (showAction == TaillightShowTouchAction::MENU_EXIT) {
+      setActionFeedback("SHOW MENU EXIT", nowMs);
+      return;
+    }
+    if (showAction == TaillightShowTouchAction::EMPTY_SLOT) {
+      setActionFeedback("SHOW SLOT EMPTY", nowMs);
+      return;
+    }
+    if (showAction != TaillightShowTouchAction::SEND_OPTION) return;
+    if (!canMgr_) return;
+    const bool sent = canMgr_->sendTaillightShowOption(showOption);
+    if (sent) {
+      char feedback[32];
+      snprintf(feedback, sizeof(feedback), "SHOW %u", static_cast<unsigned>(showOption + 1U));
+      setActionFeedback(feedback, nowMs);
+    } else {
+      setActionFeedback("SHOW CMD REJECTED", nowMs);
+    }
+    return;
+  }
+
   if (!raceMgr_) return;
   if (raceStartAccelBtn_.contains(normalized.x, normalized.y)) {
     raceMgr_->startRun(state::RaceMode::ACCEL);
@@ -410,6 +585,8 @@ uint8_t ScreenDashboard::uiPageFor(Page page) const {
       return static_cast<uint8_t>(can_protocol::UiPage::DASH);
     case Page::METH:
       return static_cast<uint8_t>(can_protocol::UiPage::METH);
+    case Page::TAIL:
+      return static_cast<uint8_t>(can_protocol::UiPage::LIGHTING);
     case Page::RACE:
       return static_cast<uint8_t>(can_protocol::UiPage::ENVIRONMENT);
     case Page::DIAG:
@@ -420,6 +597,7 @@ uint8_t ScreenDashboard::uiPageFor(Page page) const {
 
 ScreenDashboard::Page ScreenDashboard::pageFromUi(uint8_t uiPage) const {
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::METH)) return Page::METH;
+  if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::LIGHTING)) return Page::TAIL;
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::DIAGNOSTICS)) return Page::DIAG;
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::ENVIRONMENT)) return Page::RACE;
   return Page::DASH;

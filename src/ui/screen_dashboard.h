@@ -20,7 +20,7 @@ class ScreenDashboard {
   bool online() const { return online_; }
 
  private:
-  enum class Page : uint8_t { DASH = 0, METH = 1, RACE = 2, DIAG = 3 };
+  enum class Page : uint8_t { DASH = 0, METH = 1, RACE = 2, DIAG = 3, TAIL = 4 };
 
   struct Rect {
     int16_t x = 0;
@@ -38,6 +38,7 @@ class ScreenDashboard {
   void drawLiveCard(const state::VehicleState& s);
   void drawStatusCard(const state::VehicleState& s);
   void drawControlCard(const state::VehicleState& s);
+  void drawTaillightCard(const state::VehicleState& s);
   void drawRaceCard(const state::VehicleState& s);
   void drawDiagnosticsCard(const state::VehicleState& s);
   void drawTabs();
@@ -47,6 +48,9 @@ class ScreenDashboard {
   uint8_t uiPageFor(Page page) const;
   Page pageFromUi(uint8_t uiPage) const;
   uint8_t nextMethRatio(uint8_t current) const;
+  bool decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const;
+  enum class TaillightShowTouchAction : uint8_t { NONE = 0, PAGE_CHANGED = 1, MENU_EXIT = 2, EMPTY_SLOT = 3, SEND_OPTION = 4 };
+  bool decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, TaillightShowTouchAction& action);
   touch::TouchSample normalizeTouch(const touch::TouchSample& sample) const;
 
   canbus::CanManager* canMgr_ = nullptr;
@@ -67,17 +71,33 @@ class ScreenDashboard {
   static constexpr uint32_t kTouchDebounceMs = 180;
   static constexpr uint32_t kActionFeedbackMs = 900;
 
-  Rect tabDashBtn_{8, 48, 74, 28};
-  Rect tabMethBtn_{86, 48, 74, 28};
-  Rect tabRaceBtn_{164, 48, 74, 28};
-  Rect tabDiagBtn_{242, 48, 70, 28};
+  Rect tabDashBtn_{8, 48, 56, 28};
+  Rect tabMethBtn_{70, 48, 56, 28};
+  Rect tabTailBtn_{132, 48, 56, 28};
+  Rect tabRaceBtn_{194, 48, 56, 28};
+  Rect tabDiagBtn_{256, 48, 56, 28};
 
   Rect methArmBtn_{12, 258, 144, 50};
   Rect methRatioBtn_{164, 258, 144, 50};
+  Rect tailStockBtn_{12, 318, 144, 50};
+  Rect tailSequentialBtn_{164, 318, 144, 50};
+  Rect tailShowBtn_{12, 376, 144, 50};
+  Rect tailDemoBtn_{164, 376, 144, 50};
+  Rect tailShowPrevBtn_{12, 318, 68, 42};
+  Rect tailShowBackBtn_{86, 318, 148, 42};
+  Rect tailShowNextBtn_{240, 318, 68, 42};
+  Rect tailShowOptBtn0_{12, 368, 94, 42};
+  Rect tailShowOptBtn1_{113, 368, 94, 42};
+  Rect tailShowOptBtn2_{214, 368, 94, 42};
+  Rect tailShowOptBtn3_{12, 418, 94, 42};
+  Rect tailShowOptBtn4_{113, 418, 94, 42};
+  Rect tailShowOptBtn5_{214, 418, 94, 42};
   Rect raceStartAccelBtn_{12, 372, 144, 42};
   Rect raceStartLapBtn_{164, 372, 144, 42};
   Rect raceStopBtn_{12, 420, 144, 42};
   Rect raceResetBtn_{164, 420, 144, 42};
+  bool tailShowSubmenuActive_ = false;
+  uint8_t tailShowPage_ = 0;
 };
 
 }  // namespace ui

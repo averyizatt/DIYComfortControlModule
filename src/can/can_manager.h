@@ -18,6 +18,8 @@ class CanManager {
   bool sendTaillightOverride(uint8_t leftState, uint8_t rightState);
   bool clearTaillightOverride();
   bool sendTaillightCustomAnimation(uint8_t animId, uint16_t durationMs, uint8_t param0, uint8_t param1);
+  bool sendTaillightMode(uint8_t mode);
+  bool sendTaillightShowOption(uint8_t option);
 
   // Water meth helpers
   bool sendMethArm(bool armed);

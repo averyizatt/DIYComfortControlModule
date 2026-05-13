@@ -86,6 +86,7 @@ struct VehicleState {
   uint8_t taillight_brightness = 0;
   int8_t taillight_die_temp_c = 0;
   uint8_t taillight_thermal_derate = 0;
+  uint8_t taillight_mode_commanded = 0;
 
   // Fault + diagnostics
   uint16_t fault_flags = 0;
