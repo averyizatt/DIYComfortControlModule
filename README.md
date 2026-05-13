@@ -1,487 +1,288 @@
 # DIYComfortControlModule
 
-Distributed automotive electronics and dashboard platform for a **1989 Foxbody Mustang** using multiple ESP32-based nodes over CAN bus.
+Firmware for a Foxbody Mustang ESP32-S3 master comfort and control module. This module acts as the central CAN bus master on a distributed multi-module network, coordinating a dash-mounted touchscreen display, GPS, environmental sensors, tach output, water/methanol injection control, and custom taillight sequencing.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Hardware Requirements](#hardware-requirements)
+- [Pin Assignments](#pin-assignments)
+- [Architecture](#architecture)
+- [CAN Protocol Reference](#can-protocol-reference)
+- [Getting Started](#getting-started)
+- [Repository Structure](#repository-structure)
+- [Configuration](#configuration)
+- [Demo Mode](#demo-mode)
+- [Submodules](#submodules)
+- [Bench Validation](#bench-validation)
+- [Roadmap](#roadmap)
 
 ---
 
-## Project Overview
+## Overview
 
-This project is a modular in-vehicle control ecosystem where each subsystem can run on its own controller while sharing state over a deterministic CAN network.
+The DIYComfortControlModule (CCM) is the brain of a modular Foxbody Mustang electronics upgrade. It runs on an Arduino Nano ESP32 (ESP32-S3) and communicates with peripheral slave modules over a 500 kbps CAN bus. A touchscreen LVGL UI surfaces real-time data across multiple pages (dashboard, environment, water/meth, lighting, diagnostics, and settings). FreeRTOS tasks keep each subsystem independent and non-blocking.
 
-The **Cabin Master (ESP32-S3)** is the primary node and acts as:
-- dashboard + control node
-- touchscreen UI controller
-- CAN gateway/orchestrator
-- tachometer interface node
-- GPS interface node
-- environmental monitoring node
-- ambient lighting controller
-- web dashboard + configuration host
-
-Additional ESP32 nodes can be assigned to:
-- taillight control
-- water/meth injection
-- engine bay sensors
-- additional lighting domains
-- future body/comfort systems
-
-The design goal is an extensible platform with clear module boundaries, deterministic communication, and automotive safety-first behavior.
+This repository contains the master module firmware. The taillight controller and water/meth injection controller are maintained as linked submodules.
 
 ---
 
-## Main Features
+## Features
 
-- 4" ST7796S capacitive touch dashboard
-- touch-first dashboard control (no button/potentiometer dependency)
-- on-screen high-contrast card layout aligned with web dashboard sections
-- touchscreen tab navigation (Dash / Meth / Race / Diag) with in-screen action feedback
-- ESP32 TWAI + transceiver CAN networking
-- stock tachometer integration
-- GPS integration
-- 3-channel addressable cabin ambient LED control
-- water/meth monitoring + configuration flow
-- environmental monitoring
-- SD card logging + UI asset storage
-- onboard WiFi web dashboard + config portal
-- modular CAN architecture with versioned packets
-- fail-safe design philosophy (engine bay safety autonomy)
-- `DEMO_MODE` for bench testing without full hardware
+- **CAN bus master** — 500 kbps, 11-bit standard IDs, heartbeat/timeout node management
+- **Touchscreen UI** — LVGL 8.3.11 dashboard with ~30 FPS refresh and multiple pages
+- **GPS integration** — Speed and position display via TinyGPSPlus
+- **Environmental sensors** — Cabin, engine bay, outside, and intake air temperature monitoring
+- **Tach output** — LEDC PWM output to drive an analog cluster tachometer; configurable RPM/15 and RPM/30 scaling modes, plus startup sweep
+- **Water/methanol injection control** — Arm/disarm, boost and IAT thresholds, pump duty, fault reporting (via slave module)
+- **Custom taillight sequencing** — Sequential, show, and demo animation modes (via slave module)
+- **Safety/fault subsystem** — Undervoltage detection, fault flag propagation, and degraded-mode fallback
+- **Demo mode** — Simulated CAN data for bench UI development without live hardware
 
 ---
 
-## Hardware
+## Hardware Requirements
 
-### Main Controller
-- **Arduino Nano ESP32** (ESP32-S3)
-- USB-C
-- dual-core MCU
-- WiFi + Bluetooth capability
-
-### Display Module
-- **Hosyond 4.0" 320x480 ST7796S SPI TFT**
-- capacitive touch controller over I2C
-- onboard microSD slot sharing SPI bus
-
-### CAN
-- ESP32 TWAI peripheral
-- SN65HVD230 (or compatible) transceiver
-- 500 kbit/s, standard 11-bit CAN
-
-### Lighting
-- WS2812B / SK6812 compatible LEDs
-- 3 independent data channels for cabin zones
-
-### GPS
-- UART GPS module
-
-### Tach
-- stock Foxbody tach frequency-driven interface
-- tach input capture + tach output generation/calibration path
-
-### Water/Meth
-- distributed engine-bay controller node
-- cabin sends desired config; engine node enforces local safety
-
----
-
-## Display Pinout
-
-| Module Label | Function |
+| Component | Details |
 |---|---|
-| VCC | Module power |
-| GND | Ground |
-| LCD_CS | LCD SPI chip select |
-| LCD_RST | LCD reset |
-| LCD_RS / DC | LCD data/command select |
-| SDI/MOSI | Shared SPI MOSI |
-| SDO/MISO | Shared SPI MISO |
-| SCK | Shared SPI clock |
-| LED | Backlight control (PWM-capable preferred) |
-| CTP_SCL | Touch I2C SCL |
-| CTP_SDA | Touch I2C SDA |
-| CTP_RST | Touch reset GPIO |
-| CTP_INT | Touch interrupt GPIO |
-| SD_CS | SD card SPI chip select |
+| Microcontroller | Arduino Nano ESP32 (ESP32-S3) |
+| Display | ST7796S (SPI, target) |
+| Touch | Capacitive touch panel |
+| CAN transceiver | Any 3.3 V-compatible SN65HVD23x or similar |
+| GPS module | UART NMEA GPS at 9600 baud |
+| Power | 12 V vehicle supply; module logic fed from clean branch |
 
-### Bus Rules
-- LCD and SD share SPI lines (MOSI/MISO/SCK).
-- Touch controller uses I2C.
-- Backlight should use PWM for brightness control where possible.
-- `LCD_CS` and `SD_CS` must never be active together.
-- Keep inactive CS lines high.
-- SD operations must not block CAN/tach/UI-critical timing paths.
+---
 
-### Recommended ESP32-S3 GPIO map (all listed peripherals)
+## Pin Assignments
 
-| Peripheral | Signal | Recommended GPIO |
+| Signal | GPIO |
+|---|---|
+| CAN TX | 5 |
+| CAN RX | 4 |
+| GPS RX (UART1 in) | 18 |
+| GPS TX (UART1 out) | 17 |
+| Button — Up | 8 |
+| Button — Down | 9 |
+| Button — Select | 10 |
+| Tach Output (LEDC ch 0) | 6 |
+
+See [`docs/CONNECTOR_PINOUT_AND_EXTENSION_POINTS.md`](docs/CONNECTOR_PINOUT_AND_EXTENSION_POINTS.md) for power/grounding notes and reserved expansion headers.
+
+---
+
+## Architecture
+
+The firmware is structured around a set of FreeRTOS tasks pinned to the two ESP32-S3 cores. Tasks communicate exclusively through FreeRTOS queues — there is no shared mutable state outside of the protected `VehicleState` object.
+
+| Task | Core | Purpose |
 |---|---|---|
-| CAN (ESP32 TWAI transceiver path) | TX | 5 |
-| CAN (ESP32 TWAI transceiver path) | RX | 4 |
-| MCP2515 CAN module | CS | 17 |
-| MCP2515 CAN module | INT | 18 |
-| MCP2515 CAN module | RST (optional) | 21 |
-| LCD ST7796S | CS | 10 |
-| LCD ST7796S | RST | 9 |
-| LCD ST7796S | DC | 8 |
-| LCD ST7796S | Backlight PWM | 7 |
-| Shared SPI (LCD + SD + MCP2515) | MOSI | 11 |
-| Shared SPI (LCD + SD + MCP2515) | MISO | 13 |
-| Shared SPI (LCD + SD + MCP2515) | SCK | 12 |
-| SD slot | CS | 16 |
-| Touch controller | SCL | 47 |
-| Touch controller | SDA | 48 |
-| Touch controller | RST | 14 |
-| Touch controller | INT | 15 |
-| GPS (NEO-6M) | RX (ESP32 RX from GPS TX) | 41 |
-| GPS (NEO-6M) | TX (ESP32 TX to GPS RX) | 42 |
-| Tach output (LEDC) | OUT | 6 |
-| Tach input capture | IN | 2 |
-| Gyro/IMU (I2C shared bus) | SCL | 47 |
-| Gyro/IMU (I2C shared bus) | SDA | 48 |
-| Gyro/IMU | INT | 3 |
-| Addressable LED Channel 1 | DATA | 38 |
-| Addressable LED Channel 2 | DATA | 39 |
-| Addressable LED Channel 3 | DATA | 40 |
-| Auxiliary digital output | OUT1 | 33 |
-| Auxiliary digital output | OUT2 | 34 |
+| `can_task` | 0 | TWAI TX/RX, pack/unpack CAN frames |
+| `sensor_task` | 1 | Poll environmental sensors |
+| `gps_task` | 1 | Parse NMEA sentences |
+| `tach_task` | 1 | Update LEDC frequency from RPM |
+| `ui_task` | 1 | LVGL render loop |
+| `diagnostics_task` | 0 | Safety evaluation, fault flag management |
+| `hb_task` | 1 | Master state and input flag heartbeat |
 
-The firmware already drives **3 independent addressable LED data channels**. Pin assignments are centralized in `src/pin_map.h` and overridable via build flags:
+**Key source files:**
 
-```ini
-build_flags =
-  ${env.build_flags}
-  -D CCM_PIN_CAN_SPI_CS=17
-  -D CCM_PIN_CAN_SPI_INT=18
-  -D CCM_PIN_CAN_SPI_RST=21
-  -D CCM_PIN_LED_DATA1=38
-  -D CCM_PIN_LED_DATA2=39
-  -D CCM_PIN_LED_DATA3=40
-  -D CCM_PIN_GPS_RX=41
-  -D CCM_PIN_GPS_TX=42
-  -D CCM_PIN_TACH_OUT=6
-  -D CCM_PIN_TACH_IN=2
-  -D CCM_PIN_GYRO_INT=3
-  -D CCM_PIN_AUX_OUT1=33
-  -D CCM_PIN_AUX_OUT2=34
+| Path | Role |
+|---|---|
+| `src/main.cpp` | Entry point; initialises tasks |
+| `include/core/Application.hpp` | Top-level application class |
+| `include/config/SystemConfig.hpp` | Compile-time pin and timing constants |
+| `src/can/can_protocol.h` | Legacy CAN ID, struct, and pack/unpack definitions |
+| `include/can/CanProtocol.hpp` | Modern namespaced CAN ID and type definitions |
+| `src/can/can_manager.h/.cpp` | CAN manager layer |
+| `src/state/vehicle_state.h/.cpp` | Thread-safe shared vehicle state |
+| `include/hal/` | Hardware abstraction layer interfaces |
+| `include/safety/SafetyManager.hpp` | Fault evaluation hooks |
+
+---
+
+## CAN Protocol Reference
+
+All frames use standard 11-bit IDs at **500 kbps**. IDs are divided into reserved blocks:
+
+| Block base | Owner |
+|---|---|
+| `0x100` | Taillight controller (compatibility — do not change) |
+| `0x200` | CCM master (cabin) |
+| `0x300` | Engine/water-meth controller |
+| `0x400` | GPS |
+| `0x500` | Comfort expansion |
+| `0x600` | Future use |
+
+### Taillight block (0x100–0x102)
+
+| ID | Direction | DLC | Period | Description |
+|---|---|---|---|---|
+| `0x100` | Slave → Master | 7 | 100 ms | Taillight state (left/right state, input flags, brightness, die temp, thermal derate, status) |
+| `0x101` | Master → Slave | varies | on demand | Taillight command (set brightness, set/clear override, trigger animation) |
+| `0x102` | Slave → Master | 4 | on fault | Taillight fault (code, severity, data) |
+
+### Master block (0x200–0x203)
+
+| ID | Direction | DLC | Period | Description |
+|---|---|---|---|---|
+| `0x200` | Master → All | 8 | 100 ms | Master heartbeat (master state, UI page, fault flags) |
+| `0x201` | Any → Master | varies | on demand | Master command (set UI page, set brightness, trigger tach sweep, set drive mode) |
+| `0x202` | Master → All | 8 | 20 ms | Tach/RPM state |
+| `0x203` | Master → All | 8 | 250 ms | GPS state |
+
+### Engine/meth block (0x300–0x303)
+
+| ID | Direction | DLC | Period | Description |
+|---|---|---|---|---|
+| `0x300` | Slave → Master | 8 | 50 ms | Meth state (state, pump duty, tank %, flow status, boost kPa, IAT, bay temp, faults) |
+| `0x301` | Master → Slave | varies | on demand | Meth command (arm, manual test duty, stop test, set boost/IAT threshold, clear faults) |
+| `0x302` | Slave → Master | 4 | on fault | Meth fault (code, severity, data) |
+| `0x303` | Slave → Master | 8 | 250 ms | Extended engine sensors |
+
+**Encoding conventions:**
+- Temperatures are `+40` offset encoded (e.g. `uint8_t = celsius + 40`), range −40 °C … +215 °C.
+- Voltages are `×10` encoded (e.g. `uint8_t = volts × 10`).
+- Multi-byte integers are big-endian.
+- Nodes that do not transmit their expected heartbeat within `kNodeTimeoutMs` (1500 ms) are flagged offline.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation.html) (CLI) or the PlatformIO IDE extension for VS Code
+- USB cable to Arduino Nano ESP32
+
+### Clone with submodules
+
+```bash
+git clone --recurse-submodules https://github.com/averyizatt/DIYComfortControlModule.git
+cd DIYComfortControlModule
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Build
+
+```bash
+# Debug build (CCM_BUILD_DEBUG=1)
+pio run -e nano_esp32_debug
+
+# Release build
+pio run -e nano_esp32_release
+```
+
+### Flash
+
+```bash
+pio run -e nano_esp32_release --target upload
+```
+
+### Serial monitor
+
+```bash
+pio device monitor --baud 115200
 ```
 
 ---
 
-## System Architecture
+## Repository Structure
 
-Distributed node model over deterministic CAN message flow.
-
-### CAN ID ranges
-- `0x100–0x10F` taillight ECU
-- `0x200–0x20F` cabin master
-- `0x300–0x30F` engine bay / water meth
-- `0x400–0x40F` GPS / logging
-- `0x500–0x50F` comfort / climate
-- `0x600–0x60F` future expansion
-
-### Protocol characteristics
-- standard 11-bit CAN IDs
-- 500 kbit/s
-- fixed-length embedded-friendly packets
-- simple and deterministic scheduling
-
----
-
-## Existing Taillight Compatibility
-
-The existing taillight contract is preserved:
-- `0x100` taillight state broadcast
-- `0x101` taillight command frame
-- `0x102` taillight fault frame
-
-Cabin master capabilities:
-- view taillight state
-- set brightness
-- trigger custom animations
-- clear/override modes
-- show taillight fault telemetry
-
----
-
-## Water Meth System
-
-### Responsibility split
-- **Cabin Master** stores and broadcasts user intent/config.
-- **Engine Bay Module** owns immediate pump safety and local enforcement.
-
-### Frames
-- `0x300` `ENGINE_METH_STATE`
-- `0x301` `ENGINE_METH_COMMAND`
-- `0x302` `ENGINE_METH_FAULT`
-- `0x304` `METH_CONFIG_BROADCAST`
-- `0x305` `METH_CONFIG_REQUEST`
-- `0x306` `METH_CONFIG_ACK`
-
-### Safety behavior
-- boots disarmed
-- manual test requires explicit confirmation and timeout
-- manual test commands are safety-gated (online/fault/cooldown/duty constraints)
-- critical faults latch and force safe output behavior
-- CAN loss must not trigger spraying
-- engine module can run from last known safe config or disarm policy
-- engine module remains autonomous for safety-critical decisions
-- ESP32 task watchdog supervision is enabled for core runtime tasks
-
-> ⚠️ **Mixture ratio warning:** Selected meth ratio is user-configured and **not sensor-verified** unless a real concentration sensor is installed.
-
----
-
-## Tachometer System
-
-- Supports stock Foxbody tach use-cases (frequency-driven behavior).
-- RPM-to-frequency scaling path is configurable/calibratable.
-- Startup sweep support for gauge verification.
-- Designed with LM1819-style air-core tach assumptions in mind.
-
-Important electrical note:
-- ESP32 generates only the conditioned tach signal path.
-- Tach power/ground for the gauge remain in proper vehicle electrical domains.
-
----
-
-## Ambient LED System
-
-- 3 independent addressable LED channels:
-  1. driver accent
-  2. passenger accent
-  3. dash/console accent
-- supports brightness, color, per-channel mode, and themes
-- supports startup animation and special status behaviors
-- includes non-blocking modes such as breathing, rainbow, RPM-reactive, warning, meth-active, CAN-fault handling
-- supports night dimming behavior
-
-All animation timing is non-blocking (`millis()` scheduling), so LED effects do not block CAN/tach/UI/GPS tasks.
-
----
-
-## SD Card Logging
-
-### Intended logs
-- CAN logs
-- GPS logs
-- fault logs
-- water/meth logs
-- tach calibration/session logs
-
-### Suggested structure
-
-```text
-/logs/
-  can/
-  gps/
-  meth/
-  faults/
-  tach/
-/ui/
-  images/
-  icons/
-  themes/
-  splash/
+```
+DIYComfortControlModule/
+├── docs/
+│   ├── BENCH_VALIDATION_CHECKLIST.md
+│   └── CONNECTOR_PINOUT_AND_EXTENSION_POINTS.md
+├── include/
+│   ├── can/          # Modern CAN protocol types (CanProtocol.hpp)
+│   ├── config/       # Compile-time system configuration
+│   ├── core/         # Application, shared types, system state, task contracts
+│   ├── gps/          # GPS service interface
+│   ├── hal/          # Hardware abstraction layer interfaces
+│   ├── safety/       # Safety manager interface
+│   ├── sensors/      # Environment service interface
+│   ├── tach/         # Tach controller interface
+│   └── ui/           # UI manager interface
+├── modules/
+│   ├── tailights/    # Submodule: CustomTaillights firmware
+│   └── water-meth/   # Submodule: DIYWaterMethInjection firmware
+├── src/
+│   ├── can/          # CAN manager + legacy protocol definitions
+│   ├── core/         # Application implementation
+│   ├── gps/          # GPS service implementation
+│   ├── hal/          # Hardware adapter implementations
+│   ├── safety/       # Safety manager implementation
+│   ├── sensors/      # Environment service implementation
+│   ├── state/        # Thread-safe vehicle state
+│   ├── tach/         # Tach controller implementation
+│   ├── ui/           # UI manager implementation
+│   └── main.cpp      # Entry point
+└── platformio.ini
 ```
 
-### Design expectations
-- buffered writes
-- periodic flushes
-- immediate critical-fault flush attempt
-- GPS timestamps when available, uptime fallback otherwise
-- system must operate safely if SD is absent or fails to mount
+---
 
-### Offline map tile packs (Colorado target)
+## Configuration
 
-Recommended SD target for balanced map quality + storage headroom:
-- **32GB microSD** (preferred for logs/UI/expansion headroom)
-- **64GB microSD** (optional higher-detail variant)
+Compile-time constants live in [`include/config/SystemConfig.hpp`](include/config/SystemConfig.hpp). Key values:
 
-Use a hybrid coverage strategy:
-- full-state baseline zoom coverage for Colorado
-- high-detail zooms only for major metros and key highway corridors
-- compressed raster tiles (prefer WebP-capable output) or compact tile DB format to keep SPI SD reads responsive
+| Constant | Default | Description |
+|---|---|---|
+| `kCanBitrate` | 500 000 | CAN bus speed (bps) |
+| `kCanTxPin` / `kCanRxPin` | 5 / 4 | TWAI GPIO pins |
+| `kGpsBaud` | 9 600 | GPS UART baud rate |
+| `kUndervoltageThreshold` | 11.6 V | Voltage below which degraded mode is entered |
+| `kDashboardRefreshMs` | 33 ms | UI task target period (~30 FPS) |
+| `kCanHeartbeatMs` | 250 ms | Master heartbeat transmit interval |
+| `kNodeTimeoutMs` | 1 500 ms | CAN node offline detection window |
 
-#### Profile A: 32GB (recommended default)
-- Colorado statewide: **z7-z15**
-- Selective detail: **z16** for:
-  - Denver metro
-  - Colorado Springs metro
-  - Fort Collins metro
-  - I-25 corridor
-  - I-70 corridor
-- Expected tile storage: **~18-28GB**
+Build flags in `platformio.ini`:
 
-#### Profile B: 64GB (optional best visual)
-- Colorado statewide: **z7-z16**
-- Selective detail: **z17** for:
-  - Denver metro
-  - Colorado Springs metro
-  - Fort Collins metro
-  - I-25 corridor
-  - I-70 corridor
-- Expected tile storage: **~38-58GB**
-
-#### One-pass export settings (exact starting point)
-- State bounding box (Colorado, **WGS84 / EPSG:4326 lat/lon**, all values in **degrees**): **west -109.0603, south 36.9924, east -102.0416, north 41.0034**
-  - Units/order: decimal degrees, listed as **[west_lon, south_lat, east_lon, north_lat]**
-  - Use tools/exporters that accept EPSG:4326 bbox input in minLon,minLat,maxLon,maxLat order
-- Base layer export:
-  - bounds: Colorado bbox
-  - zooms: profile-dependent statewide zoom range (z7-z15 or z7-z16)
-- High-detail overlays:
-  - bounds: individual metro polygons + buffered I-25 and I-70 corridors
-  - zooms: profile-dependent selective zoom (z16 for 32GB, z17 for 64GB)
-- Output:
-  - raster tile pyramid or single compact tile DB
-  - compression enabled (WebP if tooling supports it)
-- Keep at least **15-20% free SD capacity** for logs (`/logs/*`) and UI assets (`/ui/*`)
-- For this project target, default to **Profile A (32GB)** unless higher-detail map rendering is prioritized over SD headroom.
+| Flag | Description |
+|---|---|
+| `CCM_CAN_BITRATE` | CAN bitrate (matches `kCanBitrate`) |
+| `CCM_CAN_PROTOCOL_VERSION` | Protocol version embedded in heartbeat |
+| `CCM_BUILD_DEBUG` | 1 in debug builds, 0 in release |
+| `DEMO_MODE` | 1 to enable simulated CAN data |
 
 ---
 
-## Web Dashboard
+## Demo Mode
 
-Planned/implemented LAN-focused web control portal:
-- live dashboard
-- dedicated CAN status page (`/can`)
-- settings/config page
-- LED control
-- water/meth control
-- diagnostics
-- taillight control
+When `DEMO_MODE=1` (currently the default in `[env]`), the CAN manager substitutes simulated frame data instead of requiring live CAN hardware. This allows full UI development and bench testing without a wired CAN network.
 
-### API endpoints
-- `GET /api/state`
-- `GET /api/settings`
-- `POST /api/settings`
-- `POST /api/led`
-- `POST /api/meth`
-- `POST /api/taillights`
-- `POST /api/tach`
-- `GET /api/diagnostics`
-- `GET /api/can/status`
-
-Design notes:
-- JSON APIs
-- live updates by WebSocket/SSE
-- local-network operation focus
-- high-contrast large-text layout for in-car readability
-- confirmation required for unsafe actions
+To build without demo mode, override the flag in a release environment or set `DEMO_MODE=0` in your `platformio.ini`.
 
 ---
 
-## Software Architecture
+## Submodules
 
-```text
-src/
-  ui/
-  can/
-  gps/
-  tach/
-  led/
-  web/
-  storage/
-  touch/
-  settings/
-  meth/
-  state/
-```
-
-### Module roles
-- `state/`: shared `VehicleState` and synchronization
-- `can/`: protocol definitions + transport/scheduling
-- `meth/`: meth config model/packing/validation
-- `settings/`: NVS-backed persistent configuration
-- `led/`: non-blocking ambient LED engine
-- `web/`: HTTP/WebSocket APIs + dashboard hosting
-- `touch/`: capacitive touch manager abstraction
-- `storage/`: SD mount + buffered logging
-- `ui/`: touchscreen dashboard rendering, touch actions, and assets
-- `gps/`: GNSS ingest and validity tracking
-- `tach/`: tach input/output control paths
-
-### VehicleState pattern
-- producers (CAN/GPS/sensors/tasks) update one central `VehicleState`
-- consumers (UI/web/diagnostics) read the same state object
-- avoids fragmented ownership and keeps telemetry coherent
+| Submodule | Path | Repository |
+|---|---|---|
+| Water/methanol injection controller | `modules/water-meth` | [averyizatt/DIYWaterMethInjection](https://github.com/averyizatt/DIYWaterMethInjection) |
+| Custom taillight controller | `modules/tailights` | [averyizatt/CustomTaillights](https://github.com/averyizatt/CustomTaillights) |
 
 ---
 
-## Automotive Electrical Design (Safety + Protection)
+## Bench Validation
 
-Recommended protections:
-- TVS diodes on automotive-exposed rails
-- reverse polarity protection
-- quality buck conversion for logic rails
-- flyback protection on inductive loads
-- star grounding strategy
-- separate dirty/high-current and clean/signal grounds
-- bulk capacitance near load domains
-- series GPIO protection resistors where appropriate
-- protected MOSFET output stages for high-current controls
-
-### Strong warnings
-- Do **not** connect raw automotive signals directly to ESP GPIO.
-- Do **not** share heavy motor/pump grounds directly with sensitive signal returns.
-- Do **not** run pumps/fans/solenoids without flyback/transient suppression.
+A structured checklist covering display/UI, CAN, tach, GPS/sensors, and reliability soak testing is provided in [`docs/BENCH_VALIDATION_CHECKLIST.md`](docs/BENCH_VALIDATION_CHECKLIST.md).
 
 ---
 
-## Recommended PCB Layout Philosophy
+## Roadmap
 
-- split dirty/high-current and clean/logic board zones
-- keep high-current loops short
-- use appropriately thick power/ground copper
-- route CAN cleanly (controlled path, robust connector strategy)
-- place decoupling close to each IC power pin
-- design for serviceability and modular replacement
-- use locking automotive-capable connectors where practical
-
----
-
-## DEMO_MODE
-
-`DEMO_MODE` supports bench validation without full vehicle integration:
-- fake/simulated CAN telemetry
-- simulated tach behavior
-- fake GPS + sensor data
-- dashboard and UI workflow testing without live bus hardware
-
----
-
-## Future Roadmap
-
-Potential next features:
-- launch control integration
-- digital gauges and advanced pages
-- shift lights
-- fan/thermal control
-- vehicle security/immobilizer features
-- OTA updates
-- Bluetooth companion app
-- audio integration
-- camera integration
-- suspension monitoring
-- richer data export workflows
-- track mode + lap timing
-
----
-
-## Contributing
-
-Please keep contributions aligned with project goals:
-- keep CAN protocol updates documented
-- avoid blocking loops in runtime tasks
-- preserve fail-safe behavior
-- comment packet meanings/bitfields
-- verify `DEMO_MODE` compatibility
-- preserve taillight compatibility (`0x100/0x101/0x102`)
-
-Safety-first and modularity-first changes are preferred over feature speed.
-
----
-
-## License
-
-License to be added.
+- [ ] Implement ST7796S SPI display driver and LVGL display flush
+- [ ] Implement capacitive touch HAL
+- [ ] Implement production TWAI CAN backend (replace stub)
+- [ ] Implement production sensor and tach input circuits
+- [ ] Wire up full Application task graph in `src/core/Application.cpp`
+- [ ] Add OTA update support via WiFi
+- [ ] BLE/WiFi diagnostics bridge on expansion Header C

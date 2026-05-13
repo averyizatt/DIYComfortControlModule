@@ -1,0 +1,6 @@
+[submodule "modules/water-meth"]
+	path = modules/water-meth
+	url = https://github.com/averyizatt/DIYWaterMethInjection
+[submodule "modules/tailights"]
+	path = modules/tailights
+	url = https://github.com/averyizatt/CustomTaillights
