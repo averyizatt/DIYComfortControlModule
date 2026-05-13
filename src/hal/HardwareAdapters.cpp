@@ -171,8 +171,10 @@ bool BoardSensorAdapter::begin() {
   analogSetPinAttenuation(config::kBatterySensePin, ADC_11db);
 #endif
 
-  pinMode(config::kGyroAddrSelPin, OUTPUT);
-  digitalWrite(config::kGyroAddrSelPin, LOW);
+  if (config::kGyroAddrSelPin != 255) {
+    pinMode(config::kGyroAddrSelPin, OUTPUT);
+    digitalWrite(config::kGyroAddrSelPin, LOW);
+  }
   pinMode(config::kGyroIntPin, INPUT_PULLUP);
   Wire.begin(config::kGyroSdaPin, config::kGyroSclPin);
 

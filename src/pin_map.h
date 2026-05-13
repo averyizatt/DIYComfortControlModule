@@ -111,7 +111,7 @@ namespace pins {
 #define CCM_PIN_GYRO_INT 3
 #endif
 #ifndef CCM_PIN_GYRO_ADDR_SEL
-#define CCM_PIN_GYRO_ADDR_SEL 1
+#define CCM_PIN_GYRO_ADDR_SEL 255
 #endif
 
 #ifndef CCM_PIN_AUX_OUT1
