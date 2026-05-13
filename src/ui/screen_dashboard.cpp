@@ -253,10 +253,10 @@ void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
   g_gfx->setCursor(14, 294);
   g_gfx->print("Mode command:");
 
-  drawButton(tailStockBtn_, "STOCK", taillightMode_ == 0);
-  drawButton(tailSequentialBtn_, "SEQUENTIAL", taillightMode_ == 1);
-  drawButton(tailShowBtn_, "SHOW", taillightMode_ == 2);
-  drawButton(tailDemoBtn_, "DEMO", taillightMode_ == 3);
+  drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == 0);
+  drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == 1);
+  drawButton(tailShowBtn_, "SHOW", s.taillight_mode_commanded == 2);
+  drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == 3);
 #else
   (void)s;
 #endif
@@ -421,7 +421,6 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
 
     const bool sent = canMgr_->sendTaillightMode(mode);
     if (sent) {
-      taillightMode_ = mode;
       setActionFeedback(modeLabel, nowMs);
     } else {
       setActionFeedback("TAIL CMD REJECTED", nowMs);

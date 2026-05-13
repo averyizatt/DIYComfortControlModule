@@ -84,7 +84,6 @@ class ScreenDashboard {
   Rect raceStartLapBtn_{164, 372, 144, 42};
   Rect raceStopBtn_{12, 420, 144, 42};
   Rect raceResetBtn_{164, 420, 144, 42};
-  uint8_t taillightMode_ = 0;
 };
 
 }  // namespace ui

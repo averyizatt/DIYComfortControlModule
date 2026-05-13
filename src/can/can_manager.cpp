@@ -26,6 +26,15 @@ constexpr uint8_t SHOW = 2;
 constexpr uint8_t DEMO = 3;
 }  // namespace taillight_mode
 
+namespace taillight_animation {
+constexpr uint8_t SEQUENTIAL_ID = 1;
+constexpr uint16_t SEQUENTIAL_DURATION_MS = 500;
+constexpr uint8_t SHOW_ID = 2;
+constexpr uint16_t SHOW_DURATION_MS = 800;
+constexpr uint8_t DEMO_ID = 3;
+constexpr uint16_t DEMO_DURATION_MS = 1200;
+}  // namespace taillight_animation
+
 namespace meth_manual_test_reject_reason {
 constexpr uint8_t NONE = 0;
 constexpr uint8_t OFFLINE = 1;
@@ -167,18 +176,28 @@ bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationM
 }
 
 bool CanManager::sendTaillightMode(uint8_t mode) {
+  bool sent = false;
   switch (mode) {
     case taillight_mode::STOCK:
-      return clearTaillightOverride();
+      sent = clearTaillightOverride();
+      break;
     case taillight_mode::SEQUENTIAL:
-      return sendTaillightCustomAnimation(1, 500, 0, 0);
+      sent = sendTaillightCustomAnimation(taillight_animation::SEQUENTIAL_ID, taillight_animation::SEQUENTIAL_DURATION_MS, 0, 0);
+      break;
     case taillight_mode::SHOW:
-      return sendTaillightCustomAnimation(2, 800, 0, 0);
+      sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, 0, 0);
+      break;
     case taillight_mode::DEMO:
-      return sendTaillightCustomAnimation(3, 1200, 0, 0);
+      sent = sendTaillightCustomAnimation(taillight_animation::DEMO_ID, taillight_animation::DEMO_DURATION_MS, 0, 0);
+      break;
     default:
-      return false;
+      sent = false;
+      break;
   }
+  if (sent) {
+    state::g_vehicle_state.mutate([mode](state::VehicleState& s) { s.taillight_mode_commanded = mode; });
+  }
+  return sent;
 }
 
 bool CanManager::sendMethArm(bool armed) {
