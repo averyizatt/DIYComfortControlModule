@@ -14,3 +14,5 @@ build_flags =
 ```
 
 (or an equivalent relative path from each module project root).
+
+This header is intentionally Arduino-agnostic (`<cstdint>` only) so all module repos can consume the same contract without framework coupling.
