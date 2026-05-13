@@ -35,6 +35,7 @@ class TwaiCanAdapter : public CanHal {
 
  private:
   uint32_t bitrate_ = 0;
+  bool started_ = false;
 };
 
 class UartGpsAdapter : public GpsHal {
@@ -83,11 +84,14 @@ class LedcTachAdapter : public TachHal {
   bool initialized_ = false;
 };
 
-class StubSensorAdapter : public SensorHal {
+class BoardSensorAdapter : public SensorHal {
  public:
-  bool begin() override { return true; }
+  bool begin() override;
   core::EnvironmentData readEnvironment() override;
   core::PowerData readPower() override;
+
+ private:
+  bool gyroOnline_ = false;
 };
 
 }  // namespace ccm::hal

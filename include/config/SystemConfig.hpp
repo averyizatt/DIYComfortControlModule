@@ -33,6 +33,15 @@ constexpr uint8_t kGyroAddrSelPin = pins::kGyroAddrSel;
 
 constexpr uint8_t kAuxOut1Pin = pins::kAuxOut1;
 constexpr uint8_t kAuxOut2Pin = pins::kAuxOut2;
+constexpr uint8_t kBatterySensePin = pins::kBatterySense;
+
+constexpr uint8_t kGyroI2cAddrPrimary = pins::kGyroI2cAddrPrimary;
+constexpr uint8_t kGyroI2cAddrSecondary = pins::kGyroI2cAddrSecondary;
+
+constexpr float kBatteryDividerTopOhms = pins::kBatteryDividerTopOhms;
+constexpr float kBatteryDividerBottomOhms = pins::kBatteryDividerBottomOhms;
+constexpr float kAdcRefVoltage = 3.3f;
+constexpr float kAdcMaxCount = 4095.0f;
 
 constexpr float kUndervoltageThreshold = 11.6f;
 constexpr uint32_t kDashboardRefreshMs = 33;

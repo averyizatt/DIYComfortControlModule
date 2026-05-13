@@ -121,6 +121,24 @@ namespace pins {
 #define CCM_PIN_AUX_OUT2 34
 #endif
 
+#ifndef CCM_PIN_BATTERY_SENSE
+#define CCM_PIN_BATTERY_SENSE 46
+#endif
+
+#ifndef CCM_GYRO_I2C_ADDR_PRIMARY
+#define CCM_GYRO_I2C_ADDR_PRIMARY 0x68
+#endif
+#ifndef CCM_GYRO_I2C_ADDR_SECONDARY
+#define CCM_GYRO_I2C_ADDR_SECONDARY 0x69
+#endif
+
+#ifndef CCM_BATTERY_DIVIDER_TOP_OHMS
+#define CCM_BATTERY_DIVIDER_TOP_OHMS 100000.0f
+#endif
+#ifndef CCM_BATTERY_DIVIDER_BOTTOM_OHMS
+#define CCM_BATTERY_DIVIDER_BOTTOM_OHMS 20000.0f
+#endif
+
 #ifndef CCM_PIN_LED_DATA1
 #define CCM_PIN_LED_DATA1 38
 #endif
@@ -173,6 +191,13 @@ static constexpr uint8_t kGyroAddrSel = CCM_PIN_GYRO_ADDR_SEL;
 
 static constexpr uint8_t kAuxOut1 = CCM_PIN_AUX_OUT1;
 static constexpr uint8_t kAuxOut2 = CCM_PIN_AUX_OUT2;
+static constexpr uint8_t kBatterySense = CCM_PIN_BATTERY_SENSE;
+
+static constexpr uint8_t kGyroI2cAddrPrimary = CCM_GYRO_I2C_ADDR_PRIMARY;
+static constexpr uint8_t kGyroI2cAddrSecondary = CCM_GYRO_I2C_ADDR_SECONDARY;
+
+static constexpr float kBatteryDividerTopOhms = CCM_BATTERY_DIVIDER_TOP_OHMS;
+static constexpr float kBatteryDividerBottomOhms = CCM_BATTERY_DIVIDER_BOTTOM_OHMS;
 
 static constexpr uint8_t kLedData1 = CCM_PIN_LED_DATA1;
 static constexpr uint8_t kLedData2 = CCM_PIN_LED_DATA2;
