@@ -44,9 +44,8 @@ class Application {
   hal::NullTouch touch_;
   hal::TwaiCanAdapter can_;
   hal::UartGpsAdapter gpsHal_;
-  hal::GpioButtonAdapter buttons_;
   hal::LedcTachAdapter tachHal_;
-  hal::StubSensorAdapter sensorsHal_;
+  hal::BoardSensorAdapter sensorsHal_;
 
   gps::GpsService gps_;
   sensors::EnvironmentService env_;

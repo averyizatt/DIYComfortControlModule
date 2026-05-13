@@ -39,6 +39,9 @@ constexpr uint16_t ID_ENGINE_METH_STATE = 0x300;    // TX every 50ms, DLC 8
 constexpr uint16_t ID_ENGINE_METH_COMMAND = 0x301;  // RX, DLC varies
 constexpr uint16_t ID_ENGINE_METH_FAULT = 0x302;    // TX on demand, DLC 4
 constexpr uint16_t ID_ENGINE_SENSOR_EXT = 0x303;    // TX every 250ms, DLC 8
+constexpr uint16_t ID_METH_CONFIG_BROADCAST = 0x304; // TX every 500ms, DLC 8
+constexpr uint16_t ID_METH_CONFIG_REQUEST = 0x305;   // RX/TX as needed, DLC 1
+constexpr uint16_t ID_METH_CONFIG_ACK = 0x306;       // RX/TX as needed, DLC 4
 
 enum class MasterState : uint8_t { BOOT = 0, RUN = 1, WARN = 2, FAULT = 3, CONFIG = 4 };
 enum class UiPage : uint8_t { DASH = 0, ENVIRONMENT = 1, METH = 2, LIGHTING = 3, DIAGNOSTICS = 4, SETTINGS = 5 };
@@ -296,6 +299,109 @@ inline CanFrame packMethClearFaults() {
   frame.id = ID_ENGINE_METH_COMMAND;
   frame.dlc = 1;
   frame.data[0] = meth_command::CLEAR_FAULTS;
+  return frame;
+}
+
+struct MethConfigBroadcast {
+  uint8_t version = 0;
+  uint8_t desired_armed = 0;
+  uint8_t ratio_percent = 255;    // 255 = unknown/custom
+  uint8_t boost_trigger_kpa = 0;
+  uint8_t iat_threshold_offset40 = 0;
+  uint8_t max_pump_duty = 0;
+  uint8_t failsafe_flags = 0;
+  uint8_t checksum = 0;
+};
+
+struct MethConfigRequest {
+  uint8_t reason = 0;  // 0 boot, 1 config expired, 2 user requested, 3 checksum mismatch
+};
+
+struct MethConfigAck {
+  uint8_t accepted_version = 0;
+  uint8_t status = 0;  // 0 OK, 1 rejected, 2 partial, 3 fault locked
+  uint8_t reject_reason = 0;
+  uint8_t active_ratio_percent = 255;
+};
+
+inline uint8_t simpleXorChecksum(const uint8_t* data, uint8_t len) {
+  uint8_t checksum = 0;
+  for (uint8_t i = 0; i < len; ++i) {
+    checksum ^= data[i];
+  }
+  return checksum;
+}
+
+inline bool validateMethConfigChecksum(const MethConfigBroadcast& cfg) {
+  const uint8_t data[7] = {
+      cfg.version, cfg.desired_armed, cfg.ratio_percent, cfg.boost_trigger_kpa, cfg.iat_threshold_offset40, cfg.max_pump_duty, cfg.failsafe_flags};
+  return cfg.checksum == simpleXorChecksum(data, 7);
+}
+
+inline bool unpackMethConfigBroadcast(const CanFrame& frame, MethConfigBroadcast& out) {
+  if (frame.id != ID_METH_CONFIG_BROADCAST || frame.dlc < 8) return false;
+  out.version = frame.data[0];
+  out.desired_armed = frame.data[1];
+  out.ratio_percent = frame.data[2];
+  out.boost_trigger_kpa = frame.data[3];
+  out.iat_threshold_offset40 = frame.data[4];
+  out.max_pump_duty = frame.data[5];
+  out.failsafe_flags = frame.data[6];
+  out.checksum = frame.data[7];
+  return true;
+}
+
+inline bool unpackMethConfigRequest(const CanFrame& frame, MethConfigRequest& out) {
+  if (frame.id != ID_METH_CONFIG_REQUEST || frame.dlc < 1) return false;
+  out.reason = frame.data[0];
+  return true;
+}
+
+inline bool unpackMethConfigAck(const CanFrame& frame, MethConfigAck& out) {
+  if (frame.id != ID_METH_CONFIG_ACK || frame.dlc < 4) return false;
+  out.accepted_version = frame.data[0];
+  out.status = frame.data[1];
+  out.reject_reason = frame.data[2];
+  out.active_ratio_percent = frame.data[3];
+  return true;
+}
+
+inline CanFrame packMethConfigBroadcast(const MethConfigBroadcast& cfgInput) {
+  MethConfigBroadcast cfg = cfgInput;
+  const uint8_t data[7] = {
+      cfg.version, cfg.desired_armed, cfg.ratio_percent, cfg.boost_trigger_kpa, cfg.iat_threshold_offset40, cfg.max_pump_duty, cfg.failsafe_flags};
+  cfg.checksum = simpleXorChecksum(data, 7);
+
+  CanFrame frame{};
+  frame.id = ID_METH_CONFIG_BROADCAST;
+  frame.dlc = 8;
+  frame.data[0] = cfg.version;
+  frame.data[1] = cfg.desired_armed;
+  frame.data[2] = cfg.ratio_percent;
+  frame.data[3] = cfg.boost_trigger_kpa;
+  frame.data[4] = cfg.iat_threshold_offset40;
+  frame.data[5] = cfg.max_pump_duty;
+  frame.data[6] = cfg.failsafe_flags;
+  frame.data[7] = cfg.checksum;
+  return frame;
+}
+
+inline CanFrame packMethConfigRequest(uint8_t reason) {
+  CanFrame frame{};
+  frame.id = ID_METH_CONFIG_REQUEST;
+  frame.dlc = 1;
+  frame.data[0] = reason;
+  return frame;
+}
+
+inline CanFrame packMethConfigAck(uint8_t acceptedVersion, uint8_t status, uint8_t rejectReason, uint8_t activeRatioPercent) {
+  CanFrame frame{};
+  frame.id = ID_METH_CONFIG_ACK;
+  frame.dlc = 4;
+  frame.data[0] = acceptedVersion;
+  frame.data[1] = status;
+  frame.data[2] = rejectReason;
+  frame.data[3] = activeRatioPercent;
   return frame;
 }
 
