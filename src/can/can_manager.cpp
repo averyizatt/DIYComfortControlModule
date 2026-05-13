@@ -1,4 +1,5 @@
 #include "can/can_manager.h"
+#include "pin_map.h"
 
 #if __has_include(<driver/twai.h>)
 #include <driver/twai.h>
@@ -14,6 +15,18 @@ constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
 constexpr uint32_t kGpsStaleTimeoutMs = 1000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
+// Cooldown to prevent rapid repeated manual pump tests from UI/API retries.
+constexpr uint32_t kManualTestCooldownMs = 3000;
+constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
+
+namespace meth_manual_test_reject_reason {
+constexpr uint8_t NONE = 0;
+constexpr uint8_t OFFLINE = 1;
+constexpr uint8_t FAULT = 2;
+constexpr uint8_t COOLDOWN = 3;
+constexpr uint8_t DUTY_ZERO = 4;
+constexpr uint8_t DUTY_OVER_MAX = 5;
+}  // namespace meth_manual_test_reject_reason
 
 void packMasterHeartbeat(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.id = can_protocol::ID_MASTER_HEARTBEAT;
@@ -50,6 +63,11 @@ void packGpsState(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.data[6] = s.gps_status_flags;
   out.data[7] = 0;
 }
+
+can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) {
+  const meth::DesiredConfig desired = meth::fromVehicleState(s);
+  return meth::toCanBroadcast(desired);
+}
 }  // namespace
 
 bool CanManager::begin(bool tryHardwareCan) {
@@ -57,7 +75,8 @@ bool CanManager::begin(bool tryHardwareCan) {
 
 #if CCM_HAS_TWAI
   if (tryHardwareCan) {
-    twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+    twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(static_cast<gpio_num_t>(pins::kCanTx),
+                                                                 static_cast<gpio_num_t>(pins::kCanRx), TWAI_MODE_NORMAL);
     twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -110,6 +129,13 @@ void CanManager::tick() {
       mustStopManualTest = true;
     }
 
+    const uint32_t elapsedSinceManualStop = nowMs - lastManualTestStopMs_;
+    if (elapsedSinceManualStop < kManualTestCooldownMs) {
+      s.meth_manual_test_cooldown_ms_remaining = static_cast<uint16_t>(kManualTestCooldownMs - elapsedSinceManualStop);
+    } else {
+      s.meth_manual_test_cooldown_ms_remaining = 0;
+    }
+
     s.uptime_ms = nowMs;
   });
   if (mustStopManualTest) {
@@ -134,26 +160,59 @@ bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationM
 }
 
 bool CanManager::sendMethArm(bool armed) {
-  if (!armed) {
+  if (armed) {
+    const state::VehicleState snapshot = state::g_vehicle_state.read();
+    if (!snapshot.meth_online) return false;
+    if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) return false;
+  } else {
     state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.meth_desired_armed = false;
       s.meth_state = state::MethState::OFF;
       s.meth_pump_duty = 0;
+      s.manual_test_running = false;
     });
   }
   return sendFrame(can_protocol::packMethArm(armed));
 }
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
-  manualTestStartMs_ = millis();
+  const state::VehicleState snapshot = state::g_vehicle_state.read();
+  if (!snapshot.meth_online) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::OFFLINE; });
+    return false;
+  }
+  if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::FAULT; });
+    return false;
+  }
+
+  const uint32_t nowMs = millis();
+  if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::COOLDOWN; });
+    return false;
+  }
+
+  if (duty == 0) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_ZERO; });
+    return false;
+  }
+  if (duty > snapshot.meth_max_pump_duty) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_OVER_MAX; });
+    return false;
+  }
+
+  manualTestStartMs_ = nowMs;
   state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
     s.meth_pump_duty = duty;
     s.manual_test_running = true;
+    s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::NONE;
   });
   return sendFrame(can_protocol::packMethManualTest(duty));
 }
 
 bool CanManager::sendMethStopManualTest() {
+  lastManualTestStopMs_ = millis();
   state::g_vehicle_state.mutate([](state::VehicleState& s) {
     s.meth_pump_duty = 0;
     s.manual_test_running = false;
@@ -176,7 +235,14 @@ bool CanManager::sendMethClearFaults() {
   return sendFrame(can_protocol::packMethClearFaults());
 }
 
+bool CanManager::sendMethConfigBroadcast() {
+  state::g_vehicle_state.mutate([&](state::VehicleState& live) { live.meth_config_version++; });
+  state::VehicleState s = state::g_vehicle_state.read();
+  return sendFrame(packMethConfigState(s));
+}
+
 bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
+  bool sent = false;
 #if CCM_HAS_TWAI
   if (hwCanReady_) {
     twai_message_t tx{};
@@ -187,10 +253,22 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       tx.data[i] = frame.data[i];
     }
-    return twai_transmit(&tx, 0) == ESP_OK;
+    sent = twai_transmit(&tx, 0) == ESP_OK;
+  } else {
+    sent = true;
   }
+#else
+  sent = true;
 #endif
-  return true;
+
+  if (sent) {
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.can_tx_count++;
+      s.can_last_tx_id = frame.id;
+      s.can_last_tx_ms = millis();
+    });
+  }
+  return sent;
 }
 
 bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
@@ -205,6 +283,11 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       frame.data[i] = rx.data[i];
     }
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.can_rx_count++;
+      s.can_last_rx_id = frame.id;
+      s.can_last_rx_ms = millis();
+    });
     return true;
   }
 #endif
@@ -278,6 +361,8 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
         s.master_state = static_cast<uint8_t>(can_protocol::MasterState::FAULT);
         s.meth_state = state::MethState::FAULT;
         s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
+        s.manual_test_running = false;
       }
     });
     return;
@@ -301,6 +386,34 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
           break;
       }
     });
+  }
+
+  if (frame.id == can_protocol::ID_METH_CONFIG_REQUEST) {
+    can_protocol::MethConfigRequest req{};
+    if (!can_protocol::unpackMethConfigRequest(frame, req)) return;
+    (void)req;
+    lastMethConfigTxMs_ = 0;  // Force immediate rebroadcast on next scheduler tick.
+    return;
+  }
+
+  if (frame.id == can_protocol::ID_METH_CONFIG_ACK) {
+    can_protocol::MethConfigAck ack{};
+    if (!can_protocol::unpackMethConfigAck(frame, ack)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.meth_config_version = ack.accepted_version;
+      if (ack.active_ratio_percent <= 100 || ack.active_ratio_percent == 255) {
+        s.meth_selected_ratio_percent = ack.active_ratio_percent;
+      }
+      if (ack.status == 0) {
+        s.meth_online = true;
+      } else if (ack.status == 3) {
+        s.meth_state = state::MethState::FAULT;
+        s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
+        s.manual_test_running = false;
+      }
+    });
+    return;
   }
 }
 
@@ -327,6 +440,11 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
     sendFrame(gps);
     lastGpsTxMs_ = nowMs;
   }
+
+  if ((nowMs - lastMethConfigTxMs_) >= kMethConfigBroadcastIntervalMs) {
+    sendMethConfigBroadcast();
+    lastMethConfigTxMs_ = nowMs;
+  }
 }
 
 void CanManager::updateTimeouts(uint32_t nowMs) {
@@ -341,9 +459,12 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
 
     // Fail-safe local behavior view: if meth module offline, force OFF and zero duty.
     if (!s.meth_online) {
-      s.meth_state = state::MethState::OFF;
-      s.meth_pump_duty = 0;
-      s.manual_test_running = false;
+      if (s.meth_can_loss_behavior == state::MethCanLossBehavior::DISARM) {
+        s.meth_state = state::MethState::OFF;
+        s.meth_pump_duty = 0;
+        s.meth_desired_armed = false;
+        s.manual_test_running = false;
+      }
     }
   });
 }
@@ -371,6 +492,8 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.gps_fix_type = 2;
     s.last_gps_ms = nowMs;
     s.gps_altitude_m = 128;
+    s.gps_latitude = 40.7608 + 0.0002 * sinf(t * 0.05f);
+    s.gps_longitude = -111.8910 + 0.0002 * cosf(t * 0.05f);
 
     s.taillight_left_state = static_cast<uint8_t>(static_cast<int>(t * 2) % 4);
     s.taillight_right_state = static_cast<uint8_t>((static_cast<int>(t * 2) + 1) % 4);
@@ -394,6 +517,10 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.coolant_temp = 84.0f + 3.0f * sinf(t * 0.2f);
     s.intercooler_temp = 32.0f + 2.0f * sinf(t * 0.2f);
     s.battery_voltage = 12.8f;
+    s.heap_free_bytes = ESP.getFreeHeap();
+    s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());
+    s.tach_input_frequency_hz = s.raw_tach_hz10 / 10.0f;
+    s.tach_generated_frequency_hz = s.generated_tach_hz10 / 10.0f;
   });
 }
 

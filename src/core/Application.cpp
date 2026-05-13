@@ -4,11 +4,10 @@ namespace ccm::core {
 
 Application::Application()
     : gpsHal_(Serial1),
-      buttons_(config::kButtonUpPin, config::kButtonDownPin, config::kButtonSelectPin),
       gps_(gpsHal_),
       env_(sensorsHal_),
       tach_(tachHal_),
-      ui_(display_, touch_, buttons_) {}
+      ui_(display_, touch_) {}
 
 void Application::begin() {
   qUiActions_ = xQueueCreate(8, sizeof(UiAction));
