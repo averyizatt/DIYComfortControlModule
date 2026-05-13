@@ -336,6 +336,30 @@ uint8_t ScreenDashboard::nextMethRatio(uint8_t current) const {
   return 25U;
 }
 
+bool ScreenDashboard::decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const {
+  if (tailStockBtn_.contains(x, y)) {
+    mode = kTaillightModeStock;
+    feedbackLabel = "TAIL STOCK";
+    return true;
+  }
+  if (tailSequentialBtn_.contains(x, y)) {
+    mode = kTaillightModeSequential;
+    feedbackLabel = "TAIL SEQUENTIAL";
+    return true;
+  }
+  if (tailShowBtn_.contains(x, y)) {
+    mode = kTaillightModeShow;
+    feedbackLabel = "TAIL SHOW";
+    return true;
+  }
+  if (tailDemoBtn_.contains(x, y)) {
+    mode = kTaillightModeDemo;
+    feedbackLabel = "TAIL DEMO";
+    return true;
+  }
+  return false;
+}
+
 void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t nowMs) {
   const touch::TouchSample normalized = normalizeTouch(sample);
   if (!normalized.touched) {
@@ -407,22 +431,10 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     return;
   }
 
-  if (tailStockBtn_.contains(normalized.x, normalized.y) || tailSequentialBtn_.contains(normalized.x, normalized.y) ||
-      tailShowBtn_.contains(normalized.x, normalized.y) || tailDemoBtn_.contains(normalized.x, normalized.y)) {
+  uint8_t mode = kTaillightModeStock;
+  const char* modeLabel = nullptr;
+  if (decodeTaillightModeTouch(normalized.x, normalized.y, mode, modeLabel)) {
     if (!canMgr_) return;
-    uint8_t mode = kTaillightModeStock;
-    const char* modeLabel = "TAIL STOCK";
-    if (tailSequentialBtn_.contains(normalized.x, normalized.y)) {
-      mode = kTaillightModeSequential;
-      modeLabel = "TAIL SEQUENTIAL";
-    } else if (tailShowBtn_.contains(normalized.x, normalized.y)) {
-      mode = kTaillightModeShow;
-      modeLabel = "TAIL SHOW";
-    } else if (tailDemoBtn_.contains(normalized.x, normalized.y)) {
-      mode = kTaillightModeDemo;
-      modeLabel = "TAIL DEMO";
-    }
-
     const bool sent = canMgr_->sendTaillightMode(mode);
     if (sent) {
       setActionFeedback(modeLabel, nowMs);
