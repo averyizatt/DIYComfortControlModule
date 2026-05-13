@@ -1,6 +1,14 @@
 #include "hal/HardwareAdapters.hpp"
 
 #include <esp32-hal-ledc.h>
+#include <Wire.h>
+
+#if __has_include(<driver/twai.h>)
+#include <driver/twai.h>
+#define CCM_HAS_TWAI 1
+#else
+#define CCM_HAS_TWAI 0
+#endif
 
 #include "config/SystemConfig.hpp"
 
@@ -8,15 +16,72 @@ namespace ccm::hal {
 
 bool TwaiCanAdapter::begin(uint32_t bitrate) {
   bitrate_ = bitrate;
-  return bitrate_ > 0;
+#if CCM_HAS_TWAI
+  twai_timing_config_t tConfig{};
+  if (bitrate == 125000) {
+    tConfig = TWAI_TIMING_CONFIG_125KBITS();
+  } else if (bitrate == 250000) {
+    tConfig = TWAI_TIMING_CONFIG_250KBITS();
+  } else if (bitrate == 500000) {
+    tConfig = TWAI_TIMING_CONFIG_500KBITS();
+  } else if (bitrate == 1000000) {
+    tConfig = TWAI_TIMING_CONFIG_1MBITS();
+  } else {
+    return false;
+  }
+
+  const twai_general_config_t gConfig =
+      TWAI_GENERAL_CONFIG_DEFAULT(static_cast<gpio_num_t>(config::kCanTxPin), static_cast<gpio_num_t>(config::kCanRxPin), TWAI_MODE_NORMAL);
+  const twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+  if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
+    return false;
+  }
+  if (twai_start() != ESP_OK) {
+    twai_driver_uninstall();
+    return false;
+  }
+  started_ = true;
+  return true;
+#else
+  return false;
+#endif
 }
 
 bool TwaiCanAdapter::send(const can::CanFrame& frame) {
-  return frame.dlc <= 8 && bitrate_ > 0;
+#if CCM_HAS_TWAI
+  if (!started_ || frame.dlc > 8) return false;
+
+  twai_message_t tx{};
+  tx.identifier = frame.id;
+  tx.extd = 0;
+  tx.rtr = 0;
+  tx.data_length_code = frame.dlc;
+  for (uint8_t i = 0; i < frame.dlc; ++i) {
+    tx.data[i] = frame.data[i];
+  }
+  return twai_transmit(&tx, 0) == ESP_OK;
+#else
+  (void)frame;
+  return false;
+#endif
 }
 
-bool TwaiCanAdapter::receive(can::CanFrame&) {
+bool TwaiCanAdapter::receive(can::CanFrame& frame) {
+#if CCM_HAS_TWAI
+  if (!started_) return false;
+  twai_message_t rx{};
+  if (twai_receive(&rx, 0) != ESP_OK) return false;
+  frame.id = static_cast<uint16_t>(rx.identifier & 0x7FFU);
+  frame.dlc = rx.data_length_code;
+  for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
+    frame.data[i] = rx.data[i];
+  }
+  return true;
+#else
+  (void)frame;
   return false;
+#endif
 }
 
 bool UartGpsAdapter::begin(uint32_t baud) {
@@ -99,20 +164,46 @@ void LedcTachAdapter::setFrequencyHz(uint32_t hz, uint8_t duty) {
 #endif
 }
 
-core::EnvironmentData StubSensorAdapter::readEnvironment() {
+bool BoardSensorAdapter::begin() {
+  pinMode(config::kBatterySensePin, INPUT);
+  analogReadResolution(12);
+#if defined(ADC_11db)
+  analogSetPinAttenuation(config::kBatterySensePin, ADC_11db);
+#endif
+
+  if (config::kGyroAddrSelPin != 255) {
+    pinMode(config::kGyroAddrSelPin, OUTPUT);
+    digitalWrite(config::kGyroAddrSelPin, LOW);
+  }
+  pinMode(config::kGyroIntPin, INPUT_PULLUP);
+  Wire.begin(config::kGyroSdaPin, config::kGyroSclPin);
+
+  Wire.beginTransmission(config::kGyroI2cAddrPrimary);
+  gyroOnline_ = (Wire.endTransmission() == 0);
+  if (!gyroOnline_) {
+    Wire.beginTransmission(config::kGyroI2cAddrSecondary);
+    gyroOnline_ = (Wire.endTransmission() == 0);
+  }
+  return true;
+}
+
+core::EnvironmentData BoardSensorAdapter::readEnvironment() {
   core::EnvironmentData env;
-  const uint32_t elapsedSeconds = millis() / 1000;
-  env.cabinC = 26.0f + sinf(elapsedSeconds * 0.01f);
-  env.engineBayC = 55.0f + sinf(elapsedSeconds * 0.03f);
-  env.outsideC = 22.0f + sinf(elapsedSeconds * 0.008f);
-  env.intakeC = 33.0f + sinf(elapsedSeconds * 0.02f);
-  env.humidity = 45.0f;
+  env.cabinC = NAN;
+  env.engineBayC = static_cast<float>(temperatureRead());
+  env.outsideC = NAN;
+  env.intakeC = NAN;
+  env.humidity = NAN;
+  (void)gyroOnline_;
   return env;
 }
 
-core::PowerData StubSensorAdapter::readPower() {
+core::PowerData BoardSensorAdapter::readPower() {
   core::PowerData p;
-  p.batteryV = 12.9f;
+  const uint16_t raw = analogRead(config::kBatterySensePin);
+  const float adcVolts = (static_cast<float>(raw) / config::kAdcMaxCount) * config::kAdcRefVoltage;
+  const float dividerScale = (config::kBatteryDividerTopOhms + config::kBatteryDividerBottomOhms) / config::kBatteryDividerBottomOhms;
+  p.batteryV = adcVolts * dividerScale;
   p.undervoltage = p.batteryV < config::kUndervoltageThreshold;
   return p;
 }
