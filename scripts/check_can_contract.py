@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SHARED_HEADER = ROOT / "shared" / "can_contract" / "include" / "can_contract" / "can_protocol.h"
 COMFORT_SHIM = ROOT / "src" / "can" / "can_protocol.h"
 MODULES_DIR = ROOT / "modules"
+REQUIRED_MODULES = ("water-meth", "taillights")
+SOURCE_GLOBS = ("*.h", "*.hpp", "*.c", "*.cpp", "*.ino")
 
 REQUIRED_SYMBOLS = {
     "CAN_PROTOCOL_SCHEMA_VERSION": r"constexpr\s+uint16_t\s+CAN_PROTOCOL_SCHEMA_VERSION\s*=\s*(\d+)\s*;",
@@ -24,6 +26,34 @@ REQUIRED_SYMBOLS = {
 def fail(message: str) -> int:
     print(f"FAIL: {message}")
     return 1
+
+
+def module_has_source(module_dir: Path) -> bool:
+    for pattern in SOURCE_GLOBS:
+        if any(module_dir.rglob(pattern)):
+            return True
+    return False
+
+
+def module_uses_shared_contract(module_dir: Path) -> bool:
+    for pattern in SOURCE_GLOBS:
+        for source in module_dir.rglob(pattern):
+            try:
+                text = source.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if '"can_contract/can_protocol.h"' in text:
+                return True
+
+    for ini_file in module_dir.rglob("platformio.ini"):
+        try:
+            ini_text = ini_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "shared/can_contract/include" in ini_text:
+            return True
+
+    return False
 
 
 def main() -> int:
@@ -62,7 +92,22 @@ def main() -> int:
                 f"Schema mismatch for {pin.relative_to(ROOT)}: expected {schema_version}, found {pin_value or '<empty>'}"
             )
 
-    print("PASS: shared CAN contract symbols and module schema pins are compatible")
+    for module_name in REQUIRED_MODULES:
+        module_dir = MODULES_DIR / module_name
+        if not module_dir.exists():
+            return fail(f"Missing required module directory: {module_dir.relative_to(ROOT)}")
+
+        if not module_has_source(module_dir):
+            return fail(
+                f"Module {module_dir.relative_to(ROOT)} has no source files; ensure external module repo is present instead of placeholder files"
+            )
+
+        if not module_uses_shared_contract(module_dir):
+            return fail(
+                f"Module {module_dir.relative_to(ROOT)} does not appear to include shared can_contract/can_protocol.h or shared include path"
+            )
+
+    print("PASS: shared CAN contract symbols, module schema pins, and module contract usage are compatible")
     return 0
 
 

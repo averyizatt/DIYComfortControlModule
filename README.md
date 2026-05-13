@@ -65,6 +65,8 @@ The check verifies:
 - shared contract contains required taillight + meth IDs
 - comfort shim includes shared contract header
 - each module schema pin (`modules/*/CAN_PROTOCOL_SCHEMA_VERSION`) matches `CAN_PROTOCOL_SCHEMA_VERSION`
+- `modules/water-meth/` and `modules/taillights/` contain real module source files (not placeholders)
+- each required external module appears to consume the shared CAN contract (`can_contract/can_protocol.h` or shared include path)
 
 ## External Repo Setup
 
