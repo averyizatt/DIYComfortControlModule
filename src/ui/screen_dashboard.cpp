@@ -24,6 +24,10 @@ constexpr uint16_t kBtnActive = 0x33D4;
 constexpr uint16_t kTab = 0x29A8;
 constexpr uint16_t kTabActive = 0x33D4;
 constexpr uint8_t kDiagPreviewChars = 26;
+constexpr uint8_t kTaillightModeStock = 0;
+constexpr uint8_t kTaillightModeSequential = 1;
+constexpr uint8_t kTaillightModeShow = 2;
+constexpr uint8_t kTaillightModeDemo = 3;
 
 #if CCM_HAS_ARDUINO_GFX
 Arduino_DataBus* g_bus = nullptr;
@@ -253,10 +257,10 @@ void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
   g_gfx->setCursor(14, 294);
   g_gfx->print("Mode command:");
 
-  drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == 0);
-  drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == 1);
-  drawButton(tailShowBtn_, "SHOW", s.taillight_mode_commanded == 2);
-  drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == 3);
+  drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == kTaillightModeStock);
+  drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == kTaillightModeSequential);
+  drawButton(tailShowBtn_, "SHOW", s.taillight_mode_commanded == kTaillightModeShow);
+  drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == kTaillightModeDemo);
 #else
   (void)s;
 #endif
@@ -406,16 +410,16 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
   if (tailStockBtn_.contains(normalized.x, normalized.y) || tailSequentialBtn_.contains(normalized.x, normalized.y) ||
       tailShowBtn_.contains(normalized.x, normalized.y) || tailDemoBtn_.contains(normalized.x, normalized.y)) {
     if (!canMgr_) return;
-    uint8_t mode = 0;
+    uint8_t mode = kTaillightModeStock;
     const char* modeLabel = "TAIL STOCK";
     if (tailSequentialBtn_.contains(normalized.x, normalized.y)) {
-      mode = 1;
+      mode = kTaillightModeSequential;
       modeLabel = "TAIL SEQUENTIAL";
     } else if (tailShowBtn_.contains(normalized.x, normalized.y)) {
-      mode = 2;
+      mode = kTaillightModeShow;
       modeLabel = "TAIL SHOW";
     } else if (tailDemoBtn_.contains(normalized.x, normalized.y)) {
-      mode = 3;
+      mode = kTaillightModeDemo;
       modeLabel = "TAIL DEMO";
     }
 
