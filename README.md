@@ -22,7 +22,7 @@ Firmware for a Foxbody Mustang ESP32-S3 master comfort and control module. This 
 
 ## Overview
 
-The DIYComfortControlModule (CCM) is the brain of a modular Foxbody Mustang electronics upgrade. It runs on an Arduino Nano ESP32 (ESP32-S3) and communicates with peripheral slave modules over a 500 kbps CAN bus. A touchscreen LVGL UI surfaces real-time data across multiple pages (dashboard, environment, water/meth, lighting, diagnostics, and settings). FreeRTOS tasks keep each subsystem independent and non-blocking.
+The DIYComfortControlModule (CCM) is the brain of a modular Foxbody Mustang electronics upgrade. It runs on an Espressif ESP32-S3 DevKitC-1 and communicates with peripheral slave modules over a 500 kbps CAN bus. A touchscreen LVGL UI surfaces real-time data across multiple pages (dashboard, environment, water/meth, lighting, diagnostics, and settings). FreeRTOS tasks keep each subsystem independent and non-blocking.
 
 This repository contains the master module firmware. The taillight controller and water/meth injection controller are maintained as linked submodules.
 
@@ -46,7 +46,7 @@ This repository contains the master module firmware. The taillight controller an
 
 | Component | Details |
 |---|---|
-| Microcontroller | Arduino Nano ESP32 (ESP32-S3) |
+| Microcontroller | Espressif ESP32-S3 DevKitC-1 |
 | Display | ST7796S (SPI, target) |
 | Touch | Capacitive touch panel |
 | CAN transceiver | Any 3.3 V-compatible SN65HVD23x or similar |
@@ -154,7 +154,7 @@ All frames use standard 11-bit IDs at **500 kbps**. IDs are divided into reserve
 ### Prerequisites
 
 - [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation.html) (CLI) or the PlatformIO IDE extension for VS Code
-- USB cable to Arduino Nano ESP32
+- USB cable to the ESP32-S3 DevKitC-1
 
 ### Clone with submodules
 
@@ -173,16 +173,16 @@ git submodule update --init --recursive
 
 ```bash
 # Debug build (CCM_BUILD_DEBUG=1)
-pio run -e nano_esp32_debug
+pio run -e esp32s3_devkit_debug
 
 # Release build
-pio run -e nano_esp32_release
+pio run -e esp32s3_devkit_release
 ```
 
 ### Flash
 
 ```bash
-pio run -e nano_esp32_release --target upload
+pio run -e esp32s3_devkit_release --target upload
 ```
 
 ### Serial monitor
@@ -256,7 +256,7 @@ Build flags in `platformio.ini`:
 
 ## Demo Mode
 
-When `DEMO_MODE=1` (currently the default in `[env]`), the CAN manager substitutes simulated frame data instead of requiring live CAN hardware. This allows full UI development and bench testing without a wired CAN network.
+When `DEMO_MODE=1` (available in `esp32s3_devkit_demo`), the CAN manager substitutes simulated frame data instead of requiring live CAN hardware. This allows full UI development and bench testing without a wired CAN network.
 
 To build without demo mode, override the flag in a release environment or set `DEMO_MODE=0` in your `platformio.ini`.
 
