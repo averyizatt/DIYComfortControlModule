@@ -109,7 +109,7 @@ void ScreenDashboard::drawHeader(const state::VehicleState& s) {
   g_gfx->setTextColor(s.touch_online ? kOk : kWarn, kPanel);
   g_gfx->print(s.touch_online ? "TOUCH ONLINE" : "TOUCH OFFLINE");
   const uint32_t nowMs = millis();
-  if (actionFeedback_[0] != '\0' && (actionFeedbackUntilMs_ - nowMs) <= kActionFeedbackMs) {
+  if (actionFeedback_[0] != '\0' && (nowMs < actionFeedbackUntilMs_) && ((actionFeedbackUntilMs_ - nowMs) <= kActionFeedbackMs)) {
     g_gfx->setTextColor(kOk, kPanel);
     g_gfx->setCursor(130, 30);
     g_gfx->print(actionFeedback_);
