@@ -1,5 +1,8 @@
 #pragma once
 
+// Shared CAN protocol contract for comfort, water-meth, and taillight modules.
+// Keep IDs/packing stable across repos and bump CAN_PROTOCOL_SCHEMA_VERSION
+// when a compatibility-breaking schema change is introduced.
 #include <cstdint>
 
 namespace can_protocol {
