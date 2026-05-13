@@ -256,7 +256,7 @@ Build flags in `platformio.ini`:
 
 ## Demo Mode
 
-When `DEMO_MODE=1` (available in `esp32s3_devkit_demo`), the CAN manager substitutes simulated frame data instead of requiring live CAN hardware. This allows full UI development and bench testing without a wired CAN network.
+When building with `pio run -e esp32s3_devkit_demo`, `DEMO_MODE=1` causes the CAN manager to substitute simulated frame data instead of requiring live CAN hardware. This allows full UI development and bench testing without a wired CAN network.
 
 To build without demo mode, override the flag in a release environment or set `DEMO_MODE=0` in your `platformio.ini`.
 
