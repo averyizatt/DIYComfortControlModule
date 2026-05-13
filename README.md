@@ -40,6 +40,8 @@ pio run -e <env>
 pio run -e <env> -t upload
 ```
 
+Upstream repo: `https://github.com/averyizatt/DIYWaterMethInjection`
+
 ### Taillights module (external repo in `modules/taillights/`)
 
 ```bash
@@ -47,6 +49,8 @@ cd modules/taillights
 pio run -e <env>
 pio run -e <env> -t upload
 ```
+
+Upstream repo: `https://github.com/averyizatt/CustomTaillights`
 
 ## Lightweight Integration Check
 
@@ -70,3 +74,11 @@ Place your other firmware repositories at:
 - `modules/taillights/`
 
 You can use either submodules or vendored copies.
+
+Recommended submodule commands:
+
+```bash
+git submodule add https://github.com/averyizatt/DIYWaterMethInjection modules/water-meth
+git submodule add https://github.com/averyizatt/CustomTaillights modules/taillights
+git submodule update --init --recursive
+```
