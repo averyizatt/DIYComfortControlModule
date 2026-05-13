@@ -184,7 +184,6 @@ bool CanManager::sendTaillightMode(uint8_t mode) {
       sent = sendTaillightCustomAnimation(taillight_animation::DEMO_ID, taillight_animation::DEMO_DURATION_MS, 0, 0);
       break;
     default:
-      sent = false;
       break;
   }
   if (sent) {
