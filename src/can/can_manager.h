@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "can/can_protocol.h"
+#include "meth/meth_config.h"
 #include "state/vehicle_state.h"
 
 namespace canbus {
@@ -25,6 +26,7 @@ class CanManager {
   bool sendMethSetBoostThreshold(uint8_t kpa);
   bool sendMethSetIatThreshold(int8_t tempC);
   bool sendMethClearFaults();
+  bool sendMethConfigBroadcast();
 
  private:
   bool sendFrame(const can_protocol::CanFrame& frame);
@@ -40,6 +42,8 @@ class CanManager {
   uint32_t lastGpsTxMs_ = 0;
   uint32_t lastDemoMs_ = 0;
   uint32_t manualTestStartMs_ = 0;
+  uint32_t lastManualTestStopMs_ = 0;
+  uint32_t lastMethConfigTxMs_ = 0;
 };
 
 }  // namespace canbus
