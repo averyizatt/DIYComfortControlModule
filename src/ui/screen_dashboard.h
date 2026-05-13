@@ -20,7 +20,7 @@ class ScreenDashboard {
   bool online() const { return online_; }
 
  private:
-  enum class Page : uint8_t { DASH = 0, METH = 1, TAIL = 2, RACE = 3, DIAG = 4 };
+  enum class Page : uint8_t { DASH = 0, METH = 1, RACE = 2, DIAG = 3, TAIL = 4 };
 
   struct Rect {
     int16_t x = 0;
