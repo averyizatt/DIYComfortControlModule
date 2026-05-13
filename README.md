@@ -1,45 +1,72 @@
-# DIYComfortControlModule
+# DIYComfortControlModule Workspace
 
-Firmware skeleton for a Foxbody Mustang ESP32-S3 master comfort/control module.
+Firmware workspace for Foxbody Mustang distributed modules.
 
-## Project Status
-This repository now includes:
-- PlatformIO ESP32-S3 Arduino foundation (`platformio.ini`) with debug/release profiles
-- Modular architecture folders for core/ui/can/gps/tach/sensors/hal/safety/config
-- Queue-based non-blocking FreeRTOS task architecture scaffold
-- CAN protocol schema with water/meth and taillight command channels
-- Tach output control scaffold with configurable scaling modes
-- GPS and environmental monitoring service scaffolds
-- Diagnostics + safety fault evaluation hooks
-- Bench validation and connector/extension-point documentation in `docs/`
-- Shared CAN protocol + manager layer for Foxbody distributed modules:
-  - `src/can/can_protocol.h`
-  - `src/can/can_manager.h/.cpp`
-  - `src/state/vehicle_state.h/.cpp`
+## Workspace Layout
 
-## Shared CAN Protocol Highlights
-- Preserves taillight compatibility IDs:
-  - `0x100` taillight state broadcast
-  - `0x101` taillight command
-  - `0x102` taillight fault broadcast
-- Adds cabin master frames:
-  - `0x200` heartbeat
-  - `0x201` master command
-  - `0x202` tach state
-  - `0x203` GPS state
-- Adds engine/water meth frames:
-  - `0x300` meth state
-  - `0x301` meth command
-  - `0x302` meth fault
-  - `0x303` extended sensors
-- Includes pack/unpack helpers, DLC checks, and timeout-based node online/offline logic.
-- Includes `DEMO_MODE` CAN simulation fallback for bench UI testing when hardware CAN is unavailable.
+- `.` (root): current **comfort/master** PlatformIO firmware project
+- `shared/can_contract/`: shared CAN protocol contract used by all modules
+- `modules/comfort/`: comfort module metadata/schema pin
+- `modules/water-meth/`: placeholder path for external water-meth repo
+- `modules/taillights/`: placeholder path for external custom taillights repo
 
-## Build
+This keeps each firmware independent while sharing one CAN contract definition.
+
+## Shared CAN Contract
+
+Canonical CAN protocol definitions live in:
+
+- `shared/can_contract/include/can_contract/can_protocol.h`
+
+The comfort project consumes this through:
+
+- `src/can/can_protocol.h` (shim include)
+
+## Build / Flash
+
+### Comfort module (this repo root)
+
 ```bash
 pio run -e nano_esp32_debug
 pio run -e nano_esp32_release
+pio run -e nano_esp32_release -t upload
 ```
 
-## Next Steps
-Implement concrete hardware drivers for the ST7796S + capacitive touch stack, TWAI backend, and production sensor/tach input circuits.
+### Water-meth module (external repo in `modules/water-meth/`)
+
+```bash
+cd modules/water-meth
+pio run -e <env>
+pio run -e <env> -t upload
+```
+
+### Taillights module (external repo in `modules/taillights/`)
+
+```bash
+cd modules/taillights
+pio run -e <env>
+pio run -e <env> -t upload
+```
+
+## Lightweight Integration Check
+
+Run from workspace root:
+
+```bash
+python scripts/check_can_contract.py
+```
+
+The check verifies:
+
+- shared contract contains required taillight + meth IDs
+- comfort shim includes shared contract header
+- each module schema pin (`modules/*/CAN_PROTOCOL_SCHEMA_VERSION`) matches `CAN_PROTOCOL_SCHEMA_VERSION`
+
+## External Repo Setup
+
+Place your other firmware repositories at:
+
+- `modules/water-meth/`
+- `modules/taillights/`
+
+You can use either submodules or vendored copies.
