@@ -115,34 +115,54 @@ The design goal is an extensible platform with clear module boundaries, determin
 
 | Peripheral | Signal | Recommended GPIO |
 |---|---|---|
-| CAN transceiver | TX | 5 |
-| CAN transceiver | RX | 4 |
+| CAN (ESP32 TWAI transceiver path) | TX | 5 |
+| CAN (ESP32 TWAI transceiver path) | RX | 4 |
+| MCP2515 CAN module | CS | 17 |
+| MCP2515 CAN module | INT | 18 |
+| MCP2515 CAN module | RST (optional) | 21 |
 | LCD ST7796S | CS | 10 |
 | LCD ST7796S | RST | 9 |
 | LCD ST7796S | DC | 8 |
 | LCD ST7796S | Backlight PWM | 7 |
-| Shared SPI (LCD + SD) | MOSI | 11 |
-| Shared SPI (LCD + SD) | MISO | 13 |
-| Shared SPI (LCD + SD) | SCK | 12 |
+| Shared SPI (LCD + SD + MCP2515) | MOSI | 11 |
+| Shared SPI (LCD + SD + MCP2515) | MISO | 13 |
+| Shared SPI (LCD + SD + MCP2515) | SCK | 12 |
 | SD slot | CS | 16 |
 | Touch controller | SCL | 47 |
 | Touch controller | SDA | 48 |
 | Touch controller | RST | 14 |
 | Touch controller | INT | 15 |
+| GPS (NEO-6M) | RX (ESP32 RX from GPS TX) | 41 |
+| GPS (NEO-6M) | TX (ESP32 TX to GPS RX) | 42 |
+| Tach output (LEDC) | OUT | 6 |
+| Tach input capture | IN | 2 |
+| Gyro/IMU (I2C shared bus) | SCL | 47 |
+| Gyro/IMU (I2C shared bus) | SDA | 48 |
+| Gyro/IMU | INT | 3 |
 | Addressable LED Channel 1 | DATA | 38 |
 | Addressable LED Channel 2 | DATA | 39 |
 | Addressable LED Channel 3 | DATA | 40 |
+| Auxiliary digital output | OUT1 | 33 |
+| Auxiliary digital output | OUT2 | 34 |
 
-The firmware already drives **3 independent addressable LED data channels**. Pin assignments are now centralized and overridable via build flags:
+The firmware already drives **3 independent addressable LED data channels**. Pin assignments are centralized in `src/pin_map.h` and overridable via build flags:
 
 ```ini
 build_flags =
   ${env.build_flags}
+  -D CCM_PIN_CAN_SPI_CS=17
+  -D CCM_PIN_CAN_SPI_INT=18
+  -D CCM_PIN_CAN_SPI_RST=21
   -D CCM_PIN_LED_DATA1=38
   -D CCM_PIN_LED_DATA2=39
   -D CCM_PIN_LED_DATA3=40
-  -D CCM_PIN_CAN_TX=5
-  -D CCM_PIN_CAN_RX=4
+  -D CCM_PIN_GPS_RX=41
+  -D CCM_PIN_GPS_TX=42
+  -D CCM_PIN_TACH_OUT=6
+  -D CCM_PIN_TACH_IN=2
+  -D CCM_PIN_GYRO_INT=3
+  -D CCM_PIN_AUX_OUT1=33
+  -D CCM_PIN_AUX_OUT2=34
 ```
 
 ---
