@@ -49,7 +49,8 @@ class ScreenDashboard {
   Page pageFromUi(uint8_t uiPage) const;
   uint8_t nextMethRatio(uint8_t current) const;
   bool decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const;
-  bool decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, const char*& feedbackLabel);
+  enum class TaillightShowTouchAction : uint8_t { NONE = 0, PAGE_CHANGED = 1, MENU_EXIT = 2, EMPTY_SLOT = 3, SEND_OPTION = 4 };
+  bool decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, TaillightShowTouchAction& action);
   touch::TouchSample normalizeTouch(const touch::TouchSample& sample) const;
 
   canbus::CanManager* canMgr_ = nullptr;

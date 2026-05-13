@@ -274,7 +274,8 @@ void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
     Rect optionRects[kTaillightShowOptionsPerPage] = {tailShowOptBtn0_, tailShowOptBtn1_, tailShowOptBtn2_,
                                                        tailShowOptBtn3_, tailShowOptBtn4_, tailShowOptBtn5_};
     for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
-      const uint8_t option = static_cast<uint8_t>(page * kTaillightShowOptionsPerPage + i);
+      const uint16_t optionValue = static_cast<uint16_t>(page) * kTaillightShowOptionsPerPage + i;
+      const uint8_t option = static_cast<uint8_t>(optionValue);
       char label[16];
       if (option < kTaillightShowOptionCount) {
         snprintf(label, sizeof(label), "SHOW %u", static_cast<unsigned>(option + 1U));
@@ -384,7 +385,8 @@ bool ScreenDashboard::decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& 
   return false;
 }
 
-bool ScreenDashboard::decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, const char*& feedbackLabel) {
+bool ScreenDashboard::decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, TaillightShowTouchAction& action) {
+  action = TaillightShowTouchAction::NONE;
   if (!tailShowSubmenuActive_) return false;
 
   if (tailShowPrevBtn_.contains(x, y)) {
@@ -393,17 +395,17 @@ bool ScreenDashboard::decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& 
     } else {
       tailShowPage_--;
     }
-    feedbackLabel = "SHOW PAGE";
+    action = TaillightShowTouchAction::PAGE_CHANGED;
     return true;
   }
   if (tailShowNextBtn_.contains(x, y)) {
     tailShowPage_ = static_cast<uint8_t>((tailShowPage_ + 1U) % kTaillightShowPageCount);
-    feedbackLabel = "SHOW PAGE";
+    action = TaillightShowTouchAction::PAGE_CHANGED;
     return true;
   }
   if (tailShowBackBtn_.contains(x, y)) {
     tailShowSubmenuActive_ = false;
-    feedbackLabel = "SHOW MENU EXIT";
+    action = TaillightShowTouchAction::MENU_EXIT;
     return true;
   }
 
@@ -411,13 +413,14 @@ bool ScreenDashboard::decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& 
                                                      tailShowOptBtn5_};
   for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
     if (!optionRects[i].contains(x, y)) continue;
-    const uint8_t option = static_cast<uint8_t>(tailShowPage_ * kTaillightShowOptionsPerPage + i);
+    const uint16_t optionValue = static_cast<uint16_t>(tailShowPage_) * kTaillightShowOptionsPerPage + i;
+    const uint8_t option = static_cast<uint8_t>(optionValue);
     if (option >= kTaillightShowOptionCount) {
-      feedbackLabel = "SHOW SLOT EMPTY";
+      action = TaillightShowTouchAction::EMPTY_SLOT;
       return true;
     }
     showOption = option;
-    feedbackLabel = "SHOW OPTION";
+    action = TaillightShowTouchAction::SEND_OPTION;
     return true;
   }
   return false;
@@ -515,12 +518,21 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
   }
 
   uint8_t showOption = 0;
-  const char* showLabel = nullptr;
-  if (decodeTaillightShowTouch(normalized.x, normalized.y, showOption, showLabel)) {
-    if (strcmp(showLabel, "SHOW PAGE") == 0 || strcmp(showLabel, "SHOW MENU EXIT") == 0 || strcmp(showLabel, "SHOW SLOT EMPTY") == 0) {
-      setActionFeedback(showLabel, nowMs);
+  TaillightShowTouchAction showAction = TaillightShowTouchAction::NONE;
+  if (decodeTaillightShowTouch(normalized.x, normalized.y, showOption, showAction)) {
+    if (showAction == TaillightShowTouchAction::PAGE_CHANGED) {
+      setActionFeedback("SHOW PAGE", nowMs);
       return;
     }
+    if (showAction == TaillightShowTouchAction::MENU_EXIT) {
+      setActionFeedback("SHOW MENU EXIT", nowMs);
+      return;
+    }
+    if (showAction == TaillightShowTouchAction::EMPTY_SLOT) {
+      setActionFeedback("SHOW SLOT EMPTY", nowMs);
+      return;
+    }
+    if (showAction != TaillightShowTouchAction::SEND_OPTION) return;
     if (!canMgr_) return;
     const bool sent = canMgr_->sendTaillightShowOption(showOption);
     if (sent) {
