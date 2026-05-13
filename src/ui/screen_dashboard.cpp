@@ -263,7 +263,7 @@ void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
     drawButton(tailShowBtn_, "SHOW MENU", s.taillight_mode_commanded == can_protocol::taillight_mode::SHOW);
     drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == can_protocol::taillight_mode::DEMO);
   } else {
-    const uint8_t page = (tailShowPage_ < kTaillightShowPageCount) ? tailShowPage_ : 0U;
+    const uint8_t page = tailShowPage_;
     g_gfx->setCursor(14, 306);
     g_gfx->setTextColor(kSubtle, kPanel);
     g_gfx->printf("Show options page %u/%u", static_cast<unsigned>(page + 1U), static_cast<unsigned>(kTaillightShowPageCount));
@@ -517,7 +517,6 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
   uint8_t showOption = 0;
   const char* showLabel = nullptr;
   if (decodeTaillightShowTouch(normalized.x, normalized.y, showOption, showLabel)) {
-    if (!showLabel) return;
     if (strcmp(showLabel, "SHOW PAGE") == 0 || strcmp(showLabel, "SHOW MENU EXIT") == 0 || strcmp(showLabel, "SHOW SLOT EMPTY") == 0) {
       setActionFeedback(showLabel, nowMs);
       return;
@@ -525,7 +524,7 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     if (!canMgr_) return;
     const bool sent = canMgr_->sendTaillightShowOption(showOption);
     if (sent) {
-      char feedback[20];
+      char feedback[32];
       snprintf(feedback, sizeof(feedback), "SHOW %u", static_cast<unsigned>(showOption + 1U));
       setActionFeedback(feedback, nowMs);
     } else {
