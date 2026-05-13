@@ -49,6 +49,7 @@ class ScreenDashboard {
   Page pageFromUi(uint8_t uiPage) const;
   uint8_t nextMethRatio(uint8_t current) const;
   bool decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const;
+  bool decodeTaillightShowTouch(uint16_t x, uint16_t y, uint8_t& showOption, const char*& feedbackLabel);
   touch::TouchSample normalizeTouch(const touch::TouchSample& sample) const;
 
   canbus::CanManager* canMgr_ = nullptr;
@@ -81,10 +82,21 @@ class ScreenDashboard {
   Rect tailSequentialBtn_{164, 318, 144, 50};
   Rect tailShowBtn_{12, 376, 144, 50};
   Rect tailDemoBtn_{164, 376, 144, 50};
+  Rect tailShowPrevBtn_{12, 318, 68, 42};
+  Rect tailShowBackBtn_{86, 318, 148, 42};
+  Rect tailShowNextBtn_{240, 318, 68, 42};
+  Rect tailShowOptBtn0_{12, 368, 94, 42};
+  Rect tailShowOptBtn1_{113, 368, 94, 42};
+  Rect tailShowOptBtn2_{214, 368, 94, 42};
+  Rect tailShowOptBtn3_{12, 418, 94, 42};
+  Rect tailShowOptBtn4_{113, 418, 94, 42};
+  Rect tailShowOptBtn5_{214, 418, 94, 42};
   Rect raceStartAccelBtn_{12, 372, 144, 42};
   Rect raceStartLapBtn_{164, 372, 144, 42};
   Rect raceStopBtn_{12, 420, 144, 42};
   Rect raceResetBtn_{164, 420, 144, 42};
+  bool tailShowSubmenuActive_ = false;
+  uint8_t tailShowPage_ = 0;
 };
 
 }  // namespace ui

@@ -192,6 +192,14 @@ bool CanManager::sendTaillightMode(uint8_t mode) {
   return sent;
 }
 
+bool CanManager::sendTaillightShowOption(uint8_t option) {
+  const bool sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, option, 0);
+  if (sent) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.taillight_mode_commanded = can_protocol::taillight_mode::SHOW; });
+  }
+  return sent;
+}
+
 bool CanManager::sendMethArm(bool armed) {
   if (armed) {
     const state::VehicleState snapshot = state::g_vehicle_state.read();
