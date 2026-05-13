@@ -20,7 +20,7 @@ class ScreenDashboard {
   bool online() const { return online_; }
 
  private:
-  enum class Page : uint8_t { DASH = 0, METH = 1, RACE = 2, DIAG = 3 };
+  enum class Page : uint8_t { DASH = 0, METH = 1, TAIL = 2, RACE = 3, DIAG = 4 };
 
   struct Rect {
     int16_t x = 0;
@@ -38,6 +38,7 @@ class ScreenDashboard {
   void drawLiveCard(const state::VehicleState& s);
   void drawStatusCard(const state::VehicleState& s);
   void drawControlCard(const state::VehicleState& s);
+  void drawTaillightCard(const state::VehicleState& s);
   void drawRaceCard(const state::VehicleState& s);
   void drawDiagnosticsCard(const state::VehicleState& s);
   void drawTabs();
@@ -67,17 +68,23 @@ class ScreenDashboard {
   static constexpr uint32_t kTouchDebounceMs = 180;
   static constexpr uint32_t kActionFeedbackMs = 900;
 
-  Rect tabDashBtn_{8, 48, 74, 28};
-  Rect tabMethBtn_{86, 48, 74, 28};
-  Rect tabRaceBtn_{164, 48, 74, 28};
-  Rect tabDiagBtn_{242, 48, 70, 28};
+  Rect tabDashBtn_{8, 48, 56, 28};
+  Rect tabMethBtn_{70, 48, 56, 28};
+  Rect tabTailBtn_{132, 48, 56, 28};
+  Rect tabRaceBtn_{194, 48, 56, 28};
+  Rect tabDiagBtn_{256, 48, 56, 28};
 
   Rect methArmBtn_{12, 258, 144, 50};
   Rect methRatioBtn_{164, 258, 144, 50};
+  Rect tailStockBtn_{12, 318, 144, 50};
+  Rect tailSequentialBtn_{164, 318, 144, 50};
+  Rect tailShowBtn_{12, 376, 144, 50};
+  Rect tailDemoBtn_{164, 376, 144, 50};
   Rect raceStartAccelBtn_{12, 372, 144, 42};
   Rect raceStartLapBtn_{164, 372, 144, 42};
   Rect raceStopBtn_{12, 420, 144, 42};
   Rect raceResetBtn_{164, 420, 144, 42};
+  uint8_t taillightMode_ = 0;
 };
 
 }  // namespace ui

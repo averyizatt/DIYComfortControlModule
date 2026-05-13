@@ -366,6 +366,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
   auto tailHandler = new AsyncCallbackJsonWebHandler("/api/taillights", [this](AsyncWebServerRequest* req, JsonVariant& json) {
     if (!checkAuth(req)) return;
     JsonObject obj = json.as<JsonObject>();
+    if (obj.containsKey("mode")) canMgr_->sendTaillightMode(obj["mode"].as<uint8_t>());
     if (obj.containsKey("brightness")) canMgr_->sendTaillightBrightness(obj["brightness"].as<uint8_t>());
     if ((obj["clear_override"] | false) == true) canMgr_->clearTaillightOverride();
     if (obj.containsKey("anim_id")) {

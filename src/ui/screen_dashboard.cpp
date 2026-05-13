@@ -82,6 +82,10 @@ void ScreenDashboard::render(const state::VehicleState& s) {
       drawStatusCard(s);
       drawControlCard(s);
       break;
+    case Page::TAIL:
+      drawStatusCard(s);
+      drawTaillightCard(s);
+      break;
     case Page::RACE:
       drawLiveCard(s);
       drawRaceCard(s);
@@ -123,6 +127,7 @@ void ScreenDashboard::drawTabs() {
 #if CCM_HAS_ARDUINO_GFX
   drawButton(tabDashBtn_, "DASH", page_ == Page::DASH);
   drawButton(tabMethBtn_, "METH", page_ == Page::METH);
+  drawButton(tabTailBtn_, "TAIL", page_ == Page::TAIL);
   drawButton(tabRaceBtn_, "RACE", page_ == Page::RACE);
   drawButton(tabDiagBtn_, "DIAG", page_ == Page::DIAG);
 #endif
@@ -234,6 +239,29 @@ void ScreenDashboard::drawControlCard(const state::VehicleState& s) {
 #endif
 }
 
+void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
+#if CCM_HAS_ARDUINO_GFX
+  g_gfx->fillRect(8, 248, 304, 220, kPanel);
+  g_gfx->drawRect(8, 248, 304, 220, kBorder);
+  g_gfx->setTextColor(kText, kPanel);
+  g_gfx->setTextSize(1);
+  g_gfx->setCursor(14, 258);
+  g_gfx->printf("Taillights  Online:%u  Bright:%u", s.taillight_online ? 1U : 0U, static_cast<unsigned>(s.taillight_brightness));
+  g_gfx->setCursor(14, 276);
+  g_gfx->printf("State L:%u R:%u  Derate:%u%%", static_cast<unsigned>(s.taillight_left_state), static_cast<unsigned>(s.taillight_right_state),
+                static_cast<unsigned>(s.taillight_thermal_derate));
+  g_gfx->setCursor(14, 294);
+  g_gfx->print("Mode command:");
+
+  drawButton(tailStockBtn_, "STOCK", taillightMode_ == 0);
+  drawButton(tailSequentialBtn_, "SEQUENTIAL", taillightMode_ == 1);
+  drawButton(tailShowBtn_, "SHOW", taillightMode_ == 2);
+  drawButton(tailDemoBtn_, "DEMO", taillightMode_ == 3);
+#else
+  (void)s;
+#endif
+}
+
 void ScreenDashboard::drawRaceCard(const state::VehicleState& s) {
 #if CCM_HAS_ARDUINO_GFX
   g_gfx->fillRect(8, 248, 304, 220, kPanel);
@@ -329,6 +357,11 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     setActionFeedback("PAGE METH", nowMs);
     return;
   }
+  if (tabTailBtn_.contains(normalized.x, normalized.y)) {
+    setPage(Page::TAIL);
+    setActionFeedback("PAGE TAIL", nowMs);
+    return;
+  }
   if (tabRaceBtn_.contains(normalized.x, normalized.y)) {
     setPage(Page::RACE);
     setActionFeedback("PAGE RACE", nowMs);
@@ -367,6 +400,32 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
       canMgr_->sendMethConfigBroadcast();
     }
     setActionFeedback("METH RATIO UPDATED", nowMs);
+    return;
+  }
+
+  if (tailStockBtn_.contains(normalized.x, normalized.y) || tailSequentialBtn_.contains(normalized.x, normalized.y) ||
+      tailShowBtn_.contains(normalized.x, normalized.y) || tailDemoBtn_.contains(normalized.x, normalized.y)) {
+    if (!canMgr_) return;
+    uint8_t mode = 0;
+    const char* modeLabel = "TAIL STOCK";
+    if (tailSequentialBtn_.contains(normalized.x, normalized.y)) {
+      mode = 1;
+      modeLabel = "TAIL SEQUENTIAL";
+    } else if (tailShowBtn_.contains(normalized.x, normalized.y)) {
+      mode = 2;
+      modeLabel = "TAIL SHOW";
+    } else if (tailDemoBtn_.contains(normalized.x, normalized.y)) {
+      mode = 3;
+      modeLabel = "TAIL DEMO";
+    }
+
+    const bool sent = canMgr_->sendTaillightMode(mode);
+    if (sent) {
+      taillightMode_ = mode;
+      setActionFeedback(modeLabel, nowMs);
+    } else {
+      setActionFeedback("TAIL CMD REJECTED", nowMs);
+    }
     return;
   }
 
@@ -410,6 +469,8 @@ uint8_t ScreenDashboard::uiPageFor(Page page) const {
       return static_cast<uint8_t>(can_protocol::UiPage::DASH);
     case Page::METH:
       return static_cast<uint8_t>(can_protocol::UiPage::METH);
+    case Page::TAIL:
+      return static_cast<uint8_t>(can_protocol::UiPage::LIGHTING);
     case Page::RACE:
       return static_cast<uint8_t>(can_protocol::UiPage::ENVIRONMENT);
     case Page::DIAG:
@@ -420,6 +481,7 @@ uint8_t ScreenDashboard::uiPageFor(Page page) const {
 
 ScreenDashboard::Page ScreenDashboard::pageFromUi(uint8_t uiPage) const {
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::METH)) return Page::METH;
+  if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::LIGHTING)) return Page::TAIL;
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::DIAGNOSTICS)) return Page::DIAG;
   if (uiPage == static_cast<uint8_t>(can_protocol::UiPage::ENVIRONMENT)) return Page::RACE;
   return Page::DASH;
