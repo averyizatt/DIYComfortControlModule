@@ -24,10 +24,6 @@ constexpr uint16_t kBtnActive = 0x33D4;
 constexpr uint16_t kTab = 0x29A8;
 constexpr uint16_t kTabActive = 0x33D4;
 constexpr uint8_t kDiagPreviewChars = 26;
-constexpr uint8_t kTaillightModeStock = 0;
-constexpr uint8_t kTaillightModeSequential = 1;
-constexpr uint8_t kTaillightModeShow = 2;
-constexpr uint8_t kTaillightModeDemo = 3;
 
 #if CCM_HAS_ARDUINO_GFX
 Arduino_DataBus* g_bus = nullptr;
@@ -257,10 +253,10 @@ void ScreenDashboard::drawTaillightCard(const state::VehicleState& s) {
   g_gfx->setCursor(14, 294);
   g_gfx->print("Mode command:");
 
-  drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == kTaillightModeStock);
-  drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == kTaillightModeSequential);
-  drawButton(tailShowBtn_, "SHOW", s.taillight_mode_commanded == kTaillightModeShow);
-  drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == kTaillightModeDemo);
+  drawButton(tailStockBtn_, "STOCK", s.taillight_mode_commanded == can_protocol::taillight_mode::STOCK);
+  drawButton(tailSequentialBtn_, "SEQUENTIAL", s.taillight_mode_commanded == can_protocol::taillight_mode::SEQUENTIAL);
+  drawButton(tailShowBtn_, "SHOW", s.taillight_mode_commanded == can_protocol::taillight_mode::SHOW);
+  drawButton(tailDemoBtn_, "DEMO", s.taillight_mode_commanded == can_protocol::taillight_mode::DEMO);
 #else
   (void)s;
 #endif
@@ -338,22 +334,22 @@ uint8_t ScreenDashboard::nextMethRatio(uint8_t current) const {
 
 bool ScreenDashboard::decodeTaillightModeTouch(uint16_t x, uint16_t y, uint8_t& mode, const char*& feedbackLabel) const {
   if (tailStockBtn_.contains(x, y)) {
-    mode = kTaillightModeStock;
+    mode = can_protocol::taillight_mode::STOCK;
     feedbackLabel = "TAIL STOCK";
     return true;
   }
   if (tailSequentialBtn_.contains(x, y)) {
-    mode = kTaillightModeSequential;
+    mode = can_protocol::taillight_mode::SEQUENTIAL;
     feedbackLabel = "TAIL SEQUENTIAL";
     return true;
   }
   if (tailShowBtn_.contains(x, y)) {
-    mode = kTaillightModeShow;
+    mode = can_protocol::taillight_mode::SHOW;
     feedbackLabel = "TAIL SHOW";
     return true;
   }
   if (tailDemoBtn_.contains(x, y)) {
-    mode = kTaillightModeDemo;
+    mode = can_protocol::taillight_mode::DEMO;
     feedbackLabel = "TAIL DEMO";
     return true;
   }
@@ -431,7 +427,7 @@ void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t now
     return;
   }
 
-  uint8_t mode = kTaillightModeStock;
+  uint8_t mode = can_protocol::taillight_mode::STOCK;
   const char* modeLabel = nullptr;
   if (decodeTaillightModeTouch(normalized.x, normalized.y, mode, modeLabel)) {
     if (!canMgr_) return;

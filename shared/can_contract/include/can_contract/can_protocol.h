@@ -72,6 +72,13 @@ constexpr uint8_t CLEAR_OVERRIDE = 0x03;
 constexpr uint8_t TRIGGER_CUSTOM_ANIMATION = 0x04;
 }  // namespace taillight_command
 
+namespace taillight_mode {
+constexpr uint8_t STOCK = 0;
+constexpr uint8_t SEQUENTIAL = 1;
+constexpr uint8_t SHOW = 2;
+constexpr uint8_t DEMO = 3;
+}  // namespace taillight_mode
+
 namespace meth_command {
 constexpr uint8_t ARM = 0x01;                  // DLC 2, B1 0/1
 constexpr uint8_t MANUAL_TEST_DUTY = 0x02;     // DLC 2, B1 duty

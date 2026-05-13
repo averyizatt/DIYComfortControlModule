@@ -19,13 +19,6 @@ constexpr uint32_t kManualTestTimeoutMs = 5000;
 constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
 
-namespace taillight_mode {
-constexpr uint8_t STOCK = 0;
-constexpr uint8_t SEQUENTIAL = 1;
-constexpr uint8_t SHOW = 2;
-constexpr uint8_t DEMO = 3;
-}  // namespace taillight_mode
-
 namespace taillight_animation {
 constexpr uint8_t SEQUENTIAL_ID = 1;
 constexpr uint16_t SEQUENTIAL_DURATION_MS = 500;
@@ -178,16 +171,16 @@ bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationM
 bool CanManager::sendTaillightMode(uint8_t mode) {
   bool sent = false;
   switch (mode) {
-    case taillight_mode::STOCK:
+    case can_protocol::taillight_mode::STOCK:
       sent = clearTaillightOverride();
       break;
-    case taillight_mode::SEQUENTIAL:
+    case can_protocol::taillight_mode::SEQUENTIAL:
       sent = sendTaillightCustomAnimation(taillight_animation::SEQUENTIAL_ID, taillight_animation::SEQUENTIAL_DURATION_MS, 0, 0);
       break;
-    case taillight_mode::SHOW:
+    case can_protocol::taillight_mode::SHOW:
       sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, 0, 0);
       break;
-    case taillight_mode::DEMO:
+    case can_protocol::taillight_mode::DEMO:
       sent = sendTaillightCustomAnimation(taillight_animation::DEMO_ID, taillight_animation::DEMO_DURATION_MS, 0, 0);
       break;
     default:
