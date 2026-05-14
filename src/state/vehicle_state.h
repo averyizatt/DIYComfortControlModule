@@ -4,6 +4,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#include "can/can_protocol.h"
+
 namespace state {
 
 enum class MethState : uint8_t {
@@ -24,11 +26,6 @@ enum class LedMode : uint8_t {
   METH_ACTIVE = 6,
   CAN_FAULT = 7,
   STARTUP_SWEEP = 8,
-};
-
-enum class MethCanLossBehavior : uint8_t {
-  DISARM = 0,
-  HOLD_LAST_VALID = 1,
 };
 
 enum class RaceMode : uint8_t {
@@ -53,19 +50,15 @@ struct VehicleState {
   float intake_temp = 25.0f;
   float intercooler_temp = 24.0f;
 
-  // Water meth
+  // Water meth — CCM controls only enable/disable and mixture ratio.
+  // All injection thresholds (boost trigger, IAT, max duty) are owned by the meth module itself.
   MethState meth_state = MethState::OFF;
   uint8_t meth_pump_duty = 0;
   uint8_t meth_tank_level = 100;
   uint8_t meth_flow_status = 0;
-  uint8_t meth_selected_ratio_percent = 50;
+  uint8_t meth_selected_ratio_percent = 50;  // % methanol in tank (0=water-only, 100=pure meth)
   uint8_t meth_config_version = 0;
-  bool meth_desired_armed = false;
-  uint8_t meth_boost_trigger_kpa = 120;
-  int8_t meth_iat_safety_threshold = 55;
-  uint8_t meth_max_pump_duty = 200;
-  MethCanLossBehavior meth_can_loss_behavior = MethCanLossBehavior::DISARM;
-  bool meth_manual_test_confirmation_required = true;
+  bool meth_desired_armed = false;            // CCM enable/disable
 
   // GPS / CAN health
   bool gps_fix = false;
@@ -90,7 +83,7 @@ struct VehicleState {
 
   // Fault + diagnostics
   uint16_t fault_flags = 0;
-  uint8_t master_state = 1;             // RUN
+  uint8_t master_state = static_cast<uint8_t>(can_protocol::MasterState::RUN);  // RUN
   uint8_t ui_page = 0;                  // DASH
   uint8_t input_flags = 0;
   uint16_t generated_tach_hz10 = 0;

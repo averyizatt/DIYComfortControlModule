@@ -279,10 +279,11 @@ A structured checklist covering display/UI, CAN, tach, GPS/sensors, and reliabil
 
 ## Roadmap
 
-- [ ] Implement ST7796S SPI display driver and LVGL display flush
-- [ ] Implement capacitive touch HAL
-- [ ] Implement production TWAI CAN backend (replace stub)
-- [ ] Implement production sensor and tach input circuits
-- [ ] Wire up full Application task graph in `src/core/Application.cpp`
+- [x] Implement ST7796S SPI display driver and LVGL display flush (Arduino GFX + ST7796, 5-tab dashboard)
+- [x] Implement capacitive touch HAL (`src/touch/touch_manager`)
+- [x] Implement production TWAI CAN backend (`src/can/can_manager`)
+- [x] Implement production sensor and tach input circuits (`src/sensors/`, `src/tach/`)
+- [x] Wire up full Application task graph in `src/core/Application.cpp`
+- [x] Standalone water/meth architecture — CCM sends arm + ratio, reads back MAP/IAT/bay temp
 - [ ] Add OTA update support via WiFi
 - [ ] BLE/WiFi diagnostics bridge on expansion Header C

@@ -25,8 +25,6 @@ class CanManager {
   bool sendMethArm(bool armed);
   bool sendMethManualTest(uint8_t duty);
   bool sendMethStopManualTest();
-  bool sendMethSetBoostThreshold(uint8_t kpa);
-  bool sendMethSetIatThreshold(int8_t tempC);
   bool sendMethClearFaults();
   bool sendMethConfigBroadcast();
 
@@ -39,6 +37,7 @@ class CanManager {
   void runDemoGenerator(uint32_t nowMs);
 
   bool hwCanReady_ = false;
+  uint32_t canStartMs_ = 0;        // time begin() was called; used for startup grace period
   uint32_t lastHeartbeatTxMs_ = 0;
   uint32_t lastTachTxMs_ = 0;
   uint32_t lastGpsTxMs_ = 0;

@@ -261,8 +261,11 @@ void RacePerformanceManager::tickLapMode(const state::VehicleState& s, uint32_t 
 
 void RacePerformanceManager::maybeAutoStart(const state::VehicleState& s, float speedMph) {
   if (!s.race_enabled || s.race_running || !s.race_auto_start) return;
-  if (speedMph < 1.0f) return;
   if (s.race_mode == state::RaceMode::OFF) return;
+  // Require a stationary-to-moving transition: vehicle must have been at rest
+  // (prevSpeedMph_ < 2 MPH) before we declare a standing-start trigger.  This
+  // prevents auto-start from firing while already rolling or coasting.
+  if (prevSpeedMph_ >= 2.0f || speedMph < 2.0f) return;
   startRun(s.race_mode, false);
 }
 

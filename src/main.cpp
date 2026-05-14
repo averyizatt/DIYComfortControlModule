@@ -240,9 +240,9 @@ void heartbeatTask(void*) {
     state::g_vehicle_state.mutate([](state::VehicleState& s) {
       s.input_flags = 0;
       if (s.fault_flags != 0) {
-        s.master_state = 2;
+        s.master_state = static_cast<uint8_t>(can_protocol::MasterState::WARN);
       } else {
-        s.master_state = 1;
+        s.master_state = static_cast<uint8_t>(can_protocol::MasterState::RUN);
       }
     });
     feedTaskWatchdog();

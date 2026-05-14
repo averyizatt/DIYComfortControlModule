@@ -54,7 +54,20 @@ void Application::runCanTask() {
         frame.rpm = static_cast<uint16_t>((incoming.data[0] << 8) | incoming.data[1]);
         queueOverwrite(qRpm_, &frame);
       }
-      nodeBitmask |= 1;
+      // Map CAN ID blocks to bitmask positions so each module has its own bit.
+      // Block 0x100: lighting/taillight (bit 0)
+      // Block 0x200: master (bit 1 — loopback from another master)
+      // Block 0x300: meth controller (bit 2)
+      // Block 0x400+: future nodes (bit 3)
+      if (incoming.id >= 0x300 && incoming.id < 0x400) {
+        nodeBitmask |= (1U << 2);
+      } else if (incoming.id >= 0x100 && incoming.id < 0x200) {
+        nodeBitmask |= (1U << 0);
+      } else if (incoming.id >= 0x200 && incoming.id < 0x300) {
+        nodeBitmask |= (1U << 1);
+      } else {
+        nodeBitmask |= (1U << 3);
+      }
     }
 
     if ((now - lastHeartbeat) >= config::kCanHeartbeatMs) {
@@ -81,7 +94,7 @@ void Application::runCanTask() {
     HealthFrame health{};
     health.timestampMs = now;
     health.canOnline = true;
-    health.gpsOnline = false;
+    health.gpsOnline = state_.readDashboard().gpsOnline;
     health.nodeBitmask = nodeBitmask;
     queueOverwrite(qHealth_, &health);
 

@@ -6,9 +6,13 @@ void CanScheduler::begin() {
   heartbeatLastMs_ = 0;
 }
 
-bool CanScheduler::shouldSendHeartbeat(uint32_t nowMs) const {
+bool CanScheduler::shouldSendHeartbeat(uint32_t nowMs) {
   constexpr uint32_t kIntervalMs = 250;
-  return (nowMs - heartbeatLastMs_) >= kIntervalMs;
+  if ((nowMs - heartbeatLastMs_) >= kIntervalMs) {
+    heartbeatLastMs_ = nowMs;
+    return true;
+  }
+  return false;
 }
 
 bool CanScheduler::isNodeTimedOut(uint32_t nowMs, uint32_t lastSeenMs, uint32_t timeoutMs) const {

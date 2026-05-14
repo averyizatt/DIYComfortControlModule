@@ -106,6 +106,7 @@ bool CanManager::begin(bool tryHardwareCan) {
 #endif
 
   state::g_vehicle_state.mutate([this](state::VehicleState& s) { s.can_online = hwCanReady_; });
+  canStartMs_ = millis();
   return hwCanReady_;
 }
 
@@ -237,7 +238,7 @@ bool CanManager::sendMethManualTest(uint8_t duty) {
     state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_ZERO; });
     return false;
   }
-  if (duty > snapshot.meth_max_pump_duty) {
+  if (duty > 100) {
     state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_OVER_MAX; });
     return false;
   }
@@ -262,14 +263,6 @@ bool CanManager::sendMethStopManualTest() {
     }
   });
   return sendFrame(can_protocol::packMethStopManualTest());
-}
-
-bool CanManager::sendMethSetBoostThreshold(uint8_t kpa) {
-  return sendFrame(can_protocol::packMethSetBoostThreshold(kpa));
-}
-
-bool CanManager::sendMethSetIatThreshold(int8_t tempC) {
-  return sendFrame(can_protocol::packMethSetIatThreshold(tempC));
 }
 
 bool CanManager::sendMethClearFaults() {
@@ -489,23 +482,26 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
 }
 
 void CanManager::updateTimeouts(uint32_t nowMs) {
+  // Allow 5 seconds at startup for modules to announce themselves before
+  // treating their absence as a fault.
+  constexpr uint32_t kStartupGraceMs = 5000;
+  const bool inStartupGrace = (nowMs - canStartMs_) < kStartupGraceMs;
+
   state::g_vehicle_state.mutate([&](state::VehicleState& s) {
     s.taillight_online = (nowMs - s.last_taillight_ms) <= kTaillightTimeoutMs;
     s.meth_online = (nowMs - s.last_meth_ms) <= kMethTimeoutMs;
     s.gps_stale = (nowMs - s.last_gps_ms) > kGpsStaleTimeoutMs;
 
-    if (!s.taillight_online || !s.meth_online) {
+    if (!inStartupGrace && (!s.taillight_online || !s.meth_online)) {
       s.fault_flags |= 0x0080;
     }
 
-    // Fail-safe local behavior view: if meth module offline, force OFF and zero duty.
+    // Fail-safe local behavior: if meth module offline, force OFF and zero duty.
     if (!s.meth_online) {
-      if (s.meth_can_loss_behavior == state::MethCanLossBehavior::DISARM) {
-        s.meth_state = state::MethState::OFF;
-        s.meth_pump_duty = 0;
-        s.meth_desired_armed = false;
-        s.manual_test_running = false;
-      }
+      s.meth_state = state::MethState::OFF;
+      s.meth_pump_duty = 0;
+      s.meth_desired_armed = false;
+      s.manual_test_running = false;
     }
   });
 }

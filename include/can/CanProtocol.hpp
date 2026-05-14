@@ -63,7 +63,7 @@ struct NodeHealth {
 class CanScheduler {
  public:
   void begin();
-  bool shouldSendHeartbeat(uint32_t nowMs) const;
+  bool shouldSendHeartbeat(uint32_t nowMs);
   bool isNodeTimedOut(uint32_t nowMs, uint32_t lastSeenMs, uint32_t timeoutMs) const;
 
  private:

@@ -20,11 +20,7 @@ struct AppSettings {
   uint8_t led_global_brightness = 180;
   uint8_t led_theme = 0;
 
-  uint8_t meth_selected_ratio_percent = 50;
-  uint8_t meth_boost_trigger_kpa = 120;
-  int8_t meth_iat_safety_threshold = 55;
-  uint8_t meth_max_pump_duty = 200;
-  uint8_t meth_can_loss_behavior = 0;
+  uint8_t meth_selected_ratio_percent = 50;  // % methanol in tank
 
   bool race_use_metric_targets = false;
   bool race_auto_start = true;

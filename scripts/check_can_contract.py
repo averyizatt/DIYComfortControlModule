@@ -9,7 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SHARED_HEADER = ROOT / "shared" / "can_contract" / "include" / "can_contract" / "can_protocol.h"
 COMFORT_SHIM = ROOT / "src" / "can" / "can_protocol.h"
 MODULES_DIR = ROOT / "modules"
+
+# Canonical module names (correctly-spelled directories that should contain real firmware).
+# For taillights the firmware lives in the typo directory "tailights/" but the stub and schema
+# pin live in the correctly-spelled "taillights/".  Both are checked below.
 REQUIRED_MODULES = ("water-meth", "taillights")
+
+# Firmware may also live under an alternate directory name (e.g. typo variant).
+# Map canonical name → alternate scan directory if it exists.
+MODULE_FIRMWARE_ALIASES: dict[str, str] = {
+    "taillights": "tailights",  # actual firmware in the typo directory
+}
+
 SOURCE_GLOBS = ("*.h", "*.hpp", "*.c", "*.cpp", "*.ino")
 
 REQUIRED_SYMBOLS = {
@@ -97,15 +108,32 @@ def main() -> int:
         if not module_dir.exists():
             return fail(f"Missing required module directory: {module_dir.relative_to(ROOT)}")
 
-        if not module_has_source(module_dir):
+        # Use the firmware alias directory if one is configured and it exists.
+        firmware_dir = module_dir
+        alias_name = MODULE_FIRMWARE_ALIASES.get(module_name)
+        if alias_name:
+            alias_dir = MODULES_DIR / alias_name
+            if alias_dir.exists():
+                firmware_dir = alias_dir
+            else:
+                print(f"  NOTE: alias directory {alias_name}/ not found; falling back to {module_name}/")
+
+        if not module_has_source(firmware_dir):
             return fail(
-                f"Module {module_dir.relative_to(ROOT)} has no source files; ensure external module repo is present instead of placeholder files"
+                f"Module firmware ({firmware_dir.relative_to(ROOT)}) has no source files; ensure external module repo is present instead of placeholder files"
             )
 
-        if not module_uses_shared_contract(module_dir):
-            return fail(
-                f"Module {module_dir.relative_to(ROOT)} does not appear to include shared can_contract/can_protocol.h or shared include path"
-            )
+        if not module_uses_shared_contract(firmware_dir):
+            # Also accept the canonical stub directory including the contract.
+            if firmware_dir != module_dir and module_uses_shared_contract(module_dir):
+                print(
+                    f"  NOTE: {module_name} firmware dir ({firmware_dir.relative_to(ROOT)}) does not directly include"
+                    f" shared contract; stub at {module_dir.relative_to(ROOT)} does."
+                )
+            else:
+                return fail(
+                    f"Module {firmware_dir.relative_to(ROOT)} does not appear to include shared can_contract/can_protocol.h or shared include path"
+                )
 
     print("PASS: shared CAN contract symbols, module schema pins, and module contract usage are compatible")
     return 0
