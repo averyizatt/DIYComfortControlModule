@@ -10,13 +10,65 @@ constexpr uint32_t kCanFaultFlashMs = 100;
 constexpr uint32_t kStartupSweepDurationMs = 1800;
 constexpr uint32_t kStartupStepMs = 40;
 constexpr uint16_t kRpmBrightnessScaleDivisor = 30;
+constexpr uint16_t kRpmGaugeMax = 7000;
+// RPM startup animation phases (ms from boot)
+constexpr uint32_t kRpmStartupWipeEnd   = 700U;   // green wipe 0→6
+constexpr uint32_t kRpmStartupColorEnd  = 1400U;  // flip to RPM colors
+constexpr uint32_t kRpmStartupHoldEnd   = 1700U;  // hold all on
+constexpr uint32_t kRpmStartupFadeEnd   = 2200U;  // fade to black
 }  // namespace
 
-bool LedManager::begin(uint8_t pin1, uint8_t pin2, uint8_t pin3, uint16_t ledsPerChannel) {
+uint32_t LedManager::rpmGaugeColor(uint16_t ledIdx, uint16_t numLeds) {
+  // Smooth green→yellow→red gradient across all LEDs
+  const uint8_t pos = (numLeds > 1)
+      ? static_cast<uint8_t>(ledIdx * 255U / (numLeds - 1U))
+      : 0U;
+  const uint8_t r = pos;
+  const uint8_t g = static_cast<uint8_t>(255U - pos);
+  return (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8);
+}
+
+void LedManager::renderRpmStartup(Channel& ch, uint32_t elapsed) {
+  if (!ch.strip) return;
+  const uint16_t n   = ch.strip->numPixels();
+  const uint32_t step = (n > 0) ? (kRpmStartupWipeEnd / n) : kRpmStartupWipeEnd;
+
+  if (elapsed < kRpmStartupWipeEnd) {
+    // Phase 0: wipe green in from LED 0 → n-1
+    const uint16_t lit = static_cast<uint16_t>(min<uint32_t>(n, elapsed / step + 1));
+    ch.strip->clear();
+    for (uint16_t i = 0; i < lit; ++i) ch.strip->setPixelColor(i, 0x00C800U);
+  } else if (elapsed < kRpmStartupColorEnd) {
+    // Phase 1: flip each LED to its RPM gradient colour, left→right
+    const uint32_t t2 = elapsed - kRpmStartupWipeEnd;
+    const uint16_t flipped = static_cast<uint16_t>(min<uint32_t>(n, t2 / step + 1));
+    for (uint16_t i = 0; i < n; ++i) {
+      ch.strip->setPixelColor(i, i < flipped ? rpmGaugeColor(i, n) : 0x00C800U);
+    }
+  } else if (elapsed < kRpmStartupHoldEnd) {
+    // Phase 2: all LEDs on in final RPM colours
+    ch.strip->setBrightness(200);
+    for (uint16_t i = 0; i < n; ++i) ch.strip->setPixelColor(i, rpmGaugeColor(i, n));
+  } else if (elapsed < kRpmStartupFadeEnd) {
+    // Phase 3: fade brightness to black
+    const float alpha = 1.0f - static_cast<float>(elapsed - kRpmStartupHoldEnd) /
+                                static_cast<float>(kRpmStartupFadeEnd - kRpmStartupHoldEnd);
+    ch.strip->setBrightness(static_cast<uint8_t>(200.0f * alpha));
+    for (uint16_t i = 0; i < n; ++i) ch.strip->setPixelColor(i, rpmGaugeColor(i, n));
+  } else {
+    ch.strip->setBrightness(200);
+    ch.strip->clear();
+  }
+  ch.strip->show();
+}
+
+bool LedManager::begin(uint8_t pin1, uint8_t pin2, uint8_t pin3,
+                       uint16_t ledsPerChannel, uint16_t ledsChannel3) {
+  const uint16_t leds3 = (ledsChannel3 > 0) ? ledsChannel3 : ledsPerChannel;
   ledsPerChannel_ = ledsPerChannel;
   strip1_.updateLength(ledsPerChannel_);
   strip2_.updateLength(ledsPerChannel_);
-  strip3_.updateLength(ledsPerChannel_);
+  strip3_.updateLength(leds3);
   strip1_.setPin(pin1);
   strip2_.setPin(pin2);
   strip3_.setPin(pin3);
@@ -120,6 +172,19 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
       ch.strip->setPixelColor(pos, scaleColor(ch.color, channelBrightness));
       break;
     }
+    case state::LedMode::RPM_GAUGE: {
+      const uint16_t n = ch.strip->numPixels();
+      // Number of lit LEDs proportional to RPM (at least 1 if engine is turning)
+      const uint8_t lit = (s.rpm == 0U) ? 0U
+          : static_cast<uint8_t>(max<uint32_t>(
+                1U, min<uint32_t>(n,
+                    (static_cast<uint32_t>(s.rpm) * n + kRpmGaugeMax - 1U) / kRpmGaugeMax)));
+      for (uint16_t i = 0; i < n; ++i) {
+        ch.strip->setPixelColor(i,
+            i < lit ? scaleColor(rpmGaugeColor(i, n), channelBrightness) : 0U);
+      }
+      break;
+    }
     case state::LedMode::OFF:
     default:
       fillStrip(*ch.strip, 0);
@@ -155,10 +220,14 @@ void LedManager::tick(const state::VehicleState& s) {
   if (startupSweepActive_) {
     const uint32_t elapsed = nowMs - startupStartMs_;
     for (uint8_t i = 0; i < 3; ++i) {
-      channels_[i].mode = state::LedMode::STARTUP_SWEEP;
-      renderChannel(channels_[i], s, nowMs + i * 80U, i);
+      if (channels_[i].mode == state::LedMode::RPM_GAUGE) {
+        renderRpmStartup(channels_[i], elapsed);
+      } else {
+        channels_[i].mode = state::LedMode::STARTUP_SWEEP;
+        renderChannel(channels_[i], s, nowMs + i * 80U, i);
+      }
     }
-    if (elapsed > kStartupSweepDurationMs && !s.led_startup_preview) {
+    if (elapsed > kRpmStartupFadeEnd && !s.led_startup_preview) {
       startupSweepActive_ = false;
     }
     return;

@@ -86,6 +86,20 @@ bool TwaiCanAdapter::receive(can::CanFrame& frame) {
 
 bool UartGpsAdapter::begin(uint32_t baud) {
   serial_.begin(baud, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
+  // Send UBX-CFG-SBAS to enable WAAS/EGNOS/MSAS augmentation for faster fixes.
+  // Checksum covers bytes from class through end of payload.
+  static const uint8_t kUbxEnableSbas[] = {
+    0xB5, 0x62,                          // UBX sync
+    0x06, 0x16,                          // class=CFG, id=SBAS
+    0x08, 0x00,                          // payload length = 8
+    0x01,                                // mode: enable SBAS
+    0x07,                                // usage: range + diff corr + integrity
+    0x03,                                // maxSBAS channels
+    0x00,                                // scanmode2
+    0x00, 0x00, 0x00, 0x00,             // scanmode1 (auto-scan)
+    0x2F, 0xD5                           // CK_A, CK_B
+  };
+  serial_.write(kUbxEnableSbas, sizeof(kUbxEnableSbas));
   return true;
 }
 

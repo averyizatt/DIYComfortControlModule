@@ -9,7 +9,9 @@ namespace led {
 
 class LedManager {
  public:
-  bool begin(uint8_t pin1, uint8_t pin2, uint8_t pin3, uint16_t ledsPerChannel = 16);
+  // ledsChannel3: if non-zero, overrides ledsPerChannel for channel 3 only.
+  bool begin(uint8_t pin1, uint8_t pin2, uint8_t pin3,
+             uint16_t ledsPerChannel = 16, uint16_t ledsChannel3 = 0);
   void tick(const state::VehicleState& s);
   void triggerStartupSweep();
 
@@ -23,9 +25,11 @@ class LedManager {
   };
 
   void renderChannel(Channel& ch, const state::VehicleState& s, uint32_t nowMs, uint8_t idx);
+  void renderRpmStartup(Channel& ch, uint32_t elapsed);
   uint32_t scaleColor(uint32_t rgb, uint8_t brightness) const;
   void fillStrip(Adafruit_NeoPixel& strip, uint32_t rgb);
   uint32_t wheel(uint8_t p) const;
+  static uint32_t rpmGaugeColor(uint16_t ledIdx, uint16_t numLeds);
 
   Adafruit_NeoPixel strip1_{1, 1, NEO_GRB + NEO_KHZ800};
   Adafruit_NeoPixel strip2_{1, 1, NEO_GRB + NEO_KHZ800};

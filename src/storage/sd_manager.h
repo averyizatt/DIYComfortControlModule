@@ -8,7 +8,8 @@ namespace storage {
 
 class SdManager {
  public:
-  bool begin(uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin, uint8_t lcdCsPin, uint8_t sdCsPin);
+  // SPI bus must be initialised externally (SPI.begin) before calling begin().
+  bool begin(uint8_t lcdCsPin, uint8_t sdCsPin);
   bool mounted() const { return mounted_; }
   uint64_t totalBytes() const;
   uint64_t usedBytes() const;
@@ -21,7 +22,6 @@ class SdManager {
  private:
   void setStatus(const char* s, bool isError);
 
-  SPIClass spi_{FSPI};
   bool mounted_ = false;
   uint8_t lcdCsPin_ = 255;
   uint8_t sdCsPin_ = 255;

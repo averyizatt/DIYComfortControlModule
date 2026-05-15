@@ -13,30 +13,53 @@ namespace ui {
 
 class ScreenDashboard {
  public:
-  bool begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc, uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso);
+  bool begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
+             uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso);
   void tick(const state::VehicleState& s, uint32_t nowMs);
-  /// Feeds a raw touch sample into the LVGL input device. Called from the touch task.
   void handleTouch(const touch::TouchSample& sample, uint32_t nowMs);
-
-  void attach(canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr, settings::SettingsManager* settingsMgr);
+  void attach(canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr,
+              settings::SettingsManager* settingsMgr);
   bool online() const { return online_; }
 
  private:
+  // ---- Layout constants -----------------------------------------------
+  static constexpr uint16_t kWidth    = 480;
+  static constexpr uint16_t kHeight   = 320;
+  static constexpr uint16_t kHdrH     = 36;
+  static constexpr uint16_t kNavH     = 52;
+  static constexpr uint16_t kContentH = kHeight - kHdrH - kNavH;  // 232
+  static constexpr uint16_t kArcSize  = 180;
+  static constexpr uint8_t  kPageCount = 7;
+  static constexpr uint32_t kActionFeedbackMs             = 1200;
+  static constexpr uint8_t  kTaillightShowOptionsPerPage  = 6;
+  static constexpr uint8_t  kTaillightShowOptionCount     = 24;
+  static constexpr uint8_t  kTaillightShowPageCount       =
+      static_cast<uint8_t>((kTaillightShowOptionCount + kTaillightShowOptionsPerPage - 1U)
+                           / kTaillightShowOptionsPerPage);
+
   // ---- UI construction ------------------------------------------------
   void buildUi();
-  void buildDashTab(lv_obj_t* parent);
-  void buildMethTab(lv_obj_t* parent);
-  void buildTailTab(lv_obj_t* parent);
-  void buildRaceTab(lv_obj_t* parent);
-  void buildDiagTab(lv_obj_t* parent);
+  void buildHeader(lv_obj_t* scr);
+  void buildContentArea(lv_obj_t* scr);
+  void buildNavBar(lv_obj_t* scr);
+  void buildDashPage(lv_obj_t* parent);
+  void buildMethPage(lv_obj_t* parent);
+  void buildTailPage(lv_obj_t* parent);
+  void buildLedsPage(lv_obj_t* parent);
+  void buildGpsPage(lv_obj_t* parent);
+  void buildTempsPage(lv_obj_t* parent);
+  void buildDiagPage(lv_obj_t* parent);
+  void showPage(uint8_t idx);
 
-  // ---- Per-tick update ------------------------------------------------
+  // ---- Per-tick updates -----------------------------------------------
   void updateHeader(const state::VehicleState& s, uint32_t nowMs);
-  void updateDashTab(const state::VehicleState& s);
-  void updateMethTab(const state::VehicleState& s, uint32_t nowMs);
-  void updateTailTab(const state::VehicleState& s);
-  void updateRaceTab(const state::VehicleState& s);
-  void updateDiagTab(const state::VehicleState& s);
+  void updateDashPage(const state::VehicleState& s);
+  void updateMethPage(const state::VehicleState& s, uint32_t nowMs);
+  void updateTailPage(const state::VehicleState& s);
+  void updateLedsPage(const state::VehicleState& s);
+  void updateGpsPage(const state::VehicleState& s);
+  void updateTempsPage(const state::VehicleState& s);
+  void updateDiagPage(const state::VehicleState& s);
 
   // ---- Helpers --------------------------------------------------------
   void    setActionFeedback(const char* text, uint32_t nowMs);
@@ -47,7 +70,9 @@ class ScreenDashboard {
   static void lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colors);
   static void lvglTouchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data);
 
-  // ---- Button event handlers -----------------------------------------
+  // ---- Event handlers -------------------------------------------------
+  static void onNavClicked(lv_event_t* e);
+  static void onLedModeClicked(lv_event_t* e);
   static void onMethArmClicked(lv_event_t* e);
   static void onMethRatioClicked(lv_event_t* e);
   static void onTailStockClicked(lv_event_t* e);
@@ -71,26 +96,41 @@ class ScreenDashboard {
   bool     online_                = false;
   uint32_t actionFeedbackUntilMs_ = 0;
   char     actionFeedback_[48]    = {};
+  uint8_t  activePage_            = 0;
 
-  /// Latest normalized touch state; written by handleTouch(), read by lvglTouchReadCb().
   touch::TouchSample lastTouch_ = {};
 
-  // ---- LVGL widget pointers (created once in buildUi) -----------------
+  // ---- LVGL widget pointers -------------------------------------------
 
   // Header
-  lv_obj_t* titleLabel_    = nullptr;
-  lv_obj_t* feedbackLabel_ = nullptr;
+  lv_obj_t* hdrBatLabel_      = nullptr;  // left:   "12.6V"
+  lv_obj_t* hdrTitleLabel_    = nullptr;  // center: page name (cyan)
+  lv_obj_t* hdrFaultDot_      = nullptr;  // right:  status indicator
+  lv_obj_t* hdrFeedbackLabel_ = nullptr;  // far-right: action feedback
 
-  // Tab view
-  lv_obj_t* tabview_ = nullptr;
+  // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG)
+  lv_obj_t* navBtns_[7]     = {};
+  lv_obj_t* navBtnIcons_[7] = {};
 
-  // DASH tab
-  lv_obj_t* dashLiveLabel_   = nullptr;  // RPM / speed / boost / IAT
-  lv_obj_t* dashEnvLabel_    = nullptr;  // battery / cabin / outside / GPS
-  lv_obj_t* dashStatusLabel_ = nullptr;  // CAN / METH / GPS online, faults
-  lv_obj_t* dashRaceLabel_   = nullptr;  // quick race stats
+  // Page content panels (one visible at a time)
+  lv_obj_t* pages_[7] = {};
 
-  // METH tab
+  // -- DASH page --
+  lv_obj_t* rpmArc_          = nullptr;
+  lv_obj_t* spdArc_          = nullptr;   // speed arc gauge (right)
+  lv_obj_t* rpmValLabel_     = nullptr;  // large RPM number
+  lv_obj_t* spdValLabel_     = nullptr;  // large speed number
+  lv_obj_t* boostBar_        = nullptr;
+  lv_obj_t* boostValLabel_   = nullptr;
+  lv_obj_t* dashEnvLabel_    = nullptr;  // bat / cabin / IAT / sats
+  lv_obj_t* dashStatusLabel_ = nullptr;  // CAN / METH / TAIL online
+  lv_obj_t* dashRaceLabel_   = nullptr;  // 0-60 / 1/4 stats
+  lv_obj_t* raceAccelBtn_    = nullptr;
+  lv_obj_t* raceLapBtn_      = nullptr;
+  lv_obj_t* raceStopBtn_     = nullptr;
+  lv_obj_t* raceResetBtn_    = nullptr;
+
+  // -- METH page --
   lv_obj_t* methStateLabel_    = nullptr;
   lv_obj_t* methSensorLabel_   = nullptr;
   lv_obj_t* methParamLabel_    = nullptr;
@@ -99,14 +139,14 @@ class ScreenDashboard {
   lv_obj_t* methRatioBtn_      = nullptr;
   lv_obj_t* methRatioBtnLabel_ = nullptr;
 
-  // TAIL tab
+  // -- TAIL page --
   lv_obj_t* tailStatusLabel_   = nullptr;
-  lv_obj_t* tailModePanel_     = nullptr;  // holds mode buttons; hidden when show submenu active
+  lv_obj_t* tailModePanel_     = nullptr;
   lv_obj_t* tailStockBtn_      = nullptr;
   lv_obj_t* tailSeqBtn_        = nullptr;
   lv_obj_t* tailShowMenuBtn_   = nullptr;
   lv_obj_t* tailDemoBtn_       = nullptr;
-  lv_obj_t* tailShowPanel_     = nullptr;  // show submenu; hidden by default
+  lv_obj_t* tailShowPanel_     = nullptr;
   lv_obj_t* tailShowPageLabel_ = nullptr;
   lv_obj_t* tailShowPrevBtn_   = nullptr;
   lv_obj_t* tailShowNextBtn_   = nullptr;
@@ -114,27 +154,19 @@ class ScreenDashboard {
   lv_obj_t* tailShowOptBtns_[6] = {};
   uint8_t   tailShowPage_      = 0;
 
-  // RACE tab
-  lv_obj_t* raceLiveLabel_     = nullptr;
-  lv_obj_t* raceStatsLabel_    = nullptr;
-  lv_obj_t* raceAccelBtn_      = nullptr;
-  lv_obj_t* raceLapBtn_        = nullptr;
-  lv_obj_t* raceStopBtn_       = nullptr;
-  lv_obj_t* raceResetBtn_      = nullptr;
+  // -- LEDS page --
+  lv_obj_t* ledStatusLabel_  = nullptr;
+  lv_obj_t* ledModeBtns_[5]  = {};  // OFF, STATIC, BREATHE, RAINBOW, RPM
 
-  // DIAG tab
+  // -- GPS page --
+  lv_obj_t* gpsSpdLabel_  = nullptr;
+  lv_obj_t* gpsInfoLabel_ = nullptr;
+
+  // -- TEMPS page --
+  lv_obj_t* tempsLabel_ = nullptr;
+
+  // -- DIAG page --
   lv_obj_t* diagLabel_ = nullptr;
-
-  // ---- Constants ------------------------------------------------------
-  static constexpr uint16_t kWidth  = 320;
-  static constexpr uint16_t kHeight = 480;
-  static constexpr uint16_t kTabBarH = 36;   // LVGL tabview tab bar height
-  static constexpr uint16_t kHdrH   = 38;    // custom header height
-  static constexpr uint32_t kActionFeedbackMs          = 1200;
-  static constexpr uint8_t  kTaillightShowOptionsPerPage = 6;
-  static constexpr uint8_t  kTaillightShowOptionCount    = 24;
-  static constexpr uint8_t  kTaillightShowPageCount      =
-      static_cast<uint8_t>((kTaillightShowOptionCount + kTaillightShowOptionsPerPage - 1U) / kTaillightShowOptionsPerPage);
 };
 
 }  // namespace ui

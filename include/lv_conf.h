@@ -1,6 +1,6 @@
 /**
  * @file lv_conf.h
- * LVGL 8.3 configuration for the CCM ST7796S 320×480 display.
+ * LVGL 8.3 configuration for the CCM ILI9488 320×480 display.
  * Place in include/ so the LV_CONF_INCLUDE_SIMPLE build flag can find it.
  */
 
@@ -15,7 +15,10 @@
    COLOR SETTINGS
  *====================*/
 #define LV_COLOR_DEPTH     16   /* RGB565 */
-#define LV_COLOR_16_SWAP   1    /* ST7796S SPI needs big-endian byte order */
+#define LV_COLOR_16_SWAP   0    /* ILI9488 uses 18-bit SPI (3 bytes/pixel);
+                                   Arduino_GFX does its own R/G/B extraction
+                                   from the 16-bit value, so byte-swapping
+                                   here would corrupt colours. */
 #define LV_COLOR_SCREEN_TRANSP 0
 
 /*====================
@@ -85,18 +88,18 @@
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
-#define LV_FONT_MONTSERRAT_18 0
+#define LV_FONT_MONTSERRAT_18 1
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_22 0
-#define LV_FONT_MONTSERRAT_24 0
+#define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_26 0
-#define LV_FONT_MONTSERRAT_28 0
+#define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_MONTSERRAT_30 0
-#define LV_FONT_MONTSERRAT_32 0
+#define LV_FONT_MONTSERRAT_32 1
 #define LV_FONT_MONTSERRAT_34 0
 #define LV_FONT_MONTSERRAT_36 0
 #define LV_FONT_MONTSERRAT_38 0
-#define LV_FONT_MONTSERRAT_40 0
+#define LV_FONT_MONTSERRAT_40 1
 #define LV_FONT_MONTSERRAT_42 0
 #define LV_FONT_MONTSERRAT_44 0
 #define LV_FONT_MONTSERRAT_46 0
@@ -106,19 +109,19 @@
 #define LV_FONT_UNSCII_16   0
 
 #define LV_FONT_CUSTOM_DECLARE
-#define LV_FONT_DEFAULT &lv_font_montserrat_14
+#define LV_FONT_DEFAULT &lv_font_montserrat_16
 
 #define LV_FONT_FMT_TXT_LARGE 0
-#define LV_USE_FONT_SUBPX     0
+#define LV_USE_FONT_SUBPX     1
 #define LV_FONT_SUBPX_BGR     0
 
 /*====================
    WIDGETS
  *====================*/
-#define LV_USE_ARC           0
-#define LV_USE_BAR           0
+#define LV_USE_ARC           1   /* RPM gauge */
+#define LV_USE_BAR           1   /* boost bar, temp bars */
 #define LV_USE_BTN           1
-#define LV_USE_BTNMATRIX     1   /* required by LV_USE_TABVIEW */
+#define LV_USE_BTNMATRIX     0
 #define LV_USE_CANVAS        0
 #define LV_USE_CHECKBOX      0
 #define LV_USE_DROPDOWN      0
@@ -138,8 +141,7 @@
 /*====================
    EXTRA COMPONENTS
  *====================*/
-#define LV_USE_TABVIEW    1
-#  define LV_TABVIEW_DEF_ANIM_TIME 100
+#define LV_USE_TABVIEW    0   /* replaced by custom bottom nav */
 
 #define LV_USE_WIN        0
 #define LV_USE_SPAN       0

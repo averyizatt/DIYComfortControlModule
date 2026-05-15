@@ -7,8 +7,48 @@ namespace pins {
 // ESP32-S3 default pin map for the Cabin Master node.
 // Every pin can be overridden at build time with:
 //   -D CCM_PIN_<NAME>=<gpio_number>
-// Example:
-//   -D CCM_PIN_LED_DATA1=17
+//
+// ── Display / SPI bus (ILI9488 320×480 – mislabeled ST7796S on the module) ──
+//  LCD CS        10  (ADC1_CH9)
+//  LCD RST        9  (ADC1_CH8)
+//  LCD RS/DC     46  ⚠ STRAPPING PIN – ROM log verbosity. MCU pull-up keeps it
+//                      HIGH during reset so boot is unaffected. Output-capable.
+//  SCK            8  (ADC1_CH7)
+//  SDI/MOSI       3  ⚠ STRAPPING PIN – JTAG source. HIGH/float = USB JTAG (ok).
+//                      Display won't pull it LOW during boot, so safe in practice.
+//  SDO/MISO      17  (ADC2_CH6)
+//  CD/SD-CS       5  (ADC1_CH4)
+//  LED           5V  hardwired – backlight pin disabled (255)
+// ── Touch controller (CTP / FT6x36 I2C) ─────────────────────────────────────
+//  CTP INT        6  (ADC1_CH5)
+//  CTP SDA        7  (ADC1_CH6)
+//  CTP RST       15  (ADC2_CH4)
+//  CTP SCL       16  (ADC2_CH5)
+// ── Other peripherals ────────────────────────────────────────────────────────
+//  CAN TX        47  (GP)   was 5→38; 38 is LED_DATA1
+//  CAN RX         4  (ADC1_CH3)
+//  CAN SPI CS    11  (ADC2_CH0)  was 17; 17 is SPI_MISO
+//  CAN SPI INT   18  (ADC2_CH7)
+//  CAN SPI RST   21  (GP)
+//  Tach OUT      13  (ADC2_CH2)  was 6→39; 39 is LED_DATA2  [LEDC output]
+//  Tach IN        2  (ADC1_CH1)
+//  Gyro INT      14  (ADC2_CH3)  was 3→40; 40 is LED_DATA3
+//  Battery ADC    1  (ADC1_CH0)  was 46; 46 is LCD_DC
+//  GPS RX        41  (GP)
+//  GPS TX        42  (GP)
+//  LED strip 1   38  (GP)
+//  LED strip 2   39  (GP)
+//  LED strip 3   40  (GP)
+//  AUX OUT1      33  ⚠ PSRAM on N8R8/N16R8 boards – unusable on those variants
+//  AUX OUT2      34  ⚠ PSRAM on N8R8/N16R8 boards
+//  Button UP     35  ⚠ PSRAM on N8R8/N16R8 boards
+//  Button DOWN   36  ⚠ PSRAM on N8R8/N16R8 boards
+//  Button SEL    37  ⚠ PSRAM on N8R8/N16R8 boards
+// ── Reserved / do-not-use ────────────────────────────────────────────────────
+//  GPIO 19, 20   USB-OTG D-/D+  (CDC serial / programming)
+//  GPIO 26-32    Internal SPI flash
+//  GPIO 33-37    PSRAM on N8R8/N16R8 variants (see above)
+// ─────────────────────────────────────────────────────────────────────────────
 
 #ifndef CCM_PIN_LCD_CS
 #define CCM_PIN_LCD_CS 10
@@ -17,46 +57,46 @@ namespace pins {
 #define CCM_PIN_LCD_RST 9
 #endif
 #ifndef CCM_PIN_LCD_DC
-#define CCM_PIN_LCD_DC 8
+#define CCM_PIN_LCD_DC 46
 #endif
 #ifndef CCM_PIN_LCD_BACKLIGHT
-#define CCM_PIN_LCD_BACKLIGHT 7
+#define CCM_PIN_LCD_BACKLIGHT 255  // LED tied to 5V – no GPIO control
 #endif
 
 #ifndef CCM_PIN_SPI_MOSI
-#define CCM_PIN_SPI_MOSI 11
+#define CCM_PIN_SPI_MOSI 3
 #endif
 #ifndef CCM_PIN_SPI_MISO
-#define CCM_PIN_SPI_MISO 13
+#define CCM_PIN_SPI_MISO 17
 #endif
 #ifndef CCM_PIN_SPI_SCK
-#define CCM_PIN_SPI_SCK 12
+#define CCM_PIN_SPI_SCK 8
 #endif
 #ifndef CCM_PIN_SD_CS
-#define CCM_PIN_SD_CS 16
+#define CCM_PIN_SD_CS 5
 #endif
 
 #ifndef CCM_PIN_TOUCH_SCL
-#define CCM_PIN_TOUCH_SCL 47
+#define CCM_PIN_TOUCH_SCL 16
 #endif
 #ifndef CCM_PIN_TOUCH_SDA
-#define CCM_PIN_TOUCH_SDA 48
+#define CCM_PIN_TOUCH_SDA 7
 #endif
 #ifndef CCM_PIN_TOUCH_RST
-#define CCM_PIN_TOUCH_RST 14
+#define CCM_PIN_TOUCH_RST 15
 #endif
 #ifndef CCM_PIN_TOUCH_INT
-#define CCM_PIN_TOUCH_INT 15
+#define CCM_PIN_TOUCH_INT 6
 #endif
 
 #ifndef CCM_PIN_CAN_TX
-#define CCM_PIN_CAN_TX 5
+#define CCM_PIN_CAN_TX 47   // ← was 5→38; GPIO 38 is LED_DATA1
 #endif
 #ifndef CCM_PIN_CAN_RX
 #define CCM_PIN_CAN_RX 4
 #endif
 #ifndef CCM_PIN_CAN_SPI_CS
-#define CCM_PIN_CAN_SPI_CS 17
+#define CCM_PIN_CAN_SPI_CS 11  // ← was 17; moved – GPIO 17 now used for SPI_MISO
 #endif
 #ifndef CCM_PIN_CAN_SPI_INT
 #define CCM_PIN_CAN_SPI_INT 18
@@ -79,7 +119,7 @@ namespace pins {
 #endif
 
 #ifndef CCM_PIN_TACH_OUT
-#define CCM_PIN_TACH_OUT 6
+#define CCM_PIN_TACH_OUT 13  // ← was 6→39; GPIO 39 is LED_DATA2
 #endif
 #ifndef CCM_PIN_TACH_IN
 #define CCM_PIN_TACH_IN 2
@@ -108,7 +148,7 @@ namespace pins {
 #define CCM_PIN_GYRO_SDA CCM_PIN_TOUCH_SDA
 #endif
 #ifndef CCM_PIN_GYRO_INT
-#define CCM_PIN_GYRO_INT 3
+#define CCM_PIN_GYRO_INT 14  // ← was 3→40; GPIO 40 is LED_DATA3
 #endif
 #ifndef CCM_PIN_GYRO_ADDR_SEL
 #define CCM_PIN_GYRO_ADDR_SEL 255
@@ -122,7 +162,7 @@ namespace pins {
 #endif
 
 #ifndef CCM_PIN_BATTERY_SENSE
-#define CCM_PIN_BATTERY_SENSE 46
+#define CCM_PIN_BATTERY_SENSE 1   // ← was 46; moved – GPIO 46 now used for LCD_DC
 #endif
 
 #ifndef CCM_GYRO_I2C_ADDR_PRIMARY

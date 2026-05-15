@@ -4,21 +4,21 @@
 
 namespace storage {
 
-bool SdManager::begin(uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin, uint8_t lcdCsPin, uint8_t sdCsPin) {
+bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   lcdCsPin_ = lcdCsPin;
   sdCsPin_ = sdCsPin;
 
+  // SPI bus is already initialised by the caller (SPI.begin in main.cpp).
+  // Just ensure all CS pins are deasserted before the SD init transaction.
   pinMode(lcdCsPin_, OUTPUT);
   pinMode(sdCsPin_, OUTPUT);
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, HIGH);
 
-  spi_.begin(sckPin, misoPin, mosiPin);
-
-  digitalWrite(lcdCsPin_, HIGH);
-  digitalWrite(sdCsPin_, LOW);
-  mounted_ = SD.begin(sdCsPin_, spi_, 20000000U);
-  digitalWrite(sdCsPin_, HIGH);
+  // SD.begin() manages CS internally; it needs CS HIGH at call time so the
+  // card can complete the 74-clock power-up sequence before selection.
+  mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
+  Serial0.printf("[SD] mount %s\n", mounted_ ? "OK" : "FAILED (no card?)");
 
   if (!mounted_) {
     setStatus("mount_failed", true);

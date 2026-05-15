@@ -3,7 +3,7 @@
 namespace ccm::core {
 
 Application::Application()
-    : gpsHal_(Serial1),
+    : gpsHal_(Serial2),
       gps_(gpsHal_),
       env_(sensorsHal_),
       tach_(tachHal_),

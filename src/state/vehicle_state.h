@@ -26,6 +26,7 @@ enum class LedMode : uint8_t {
   METH_ACTIVE = 6,
   CAN_FAULT = 7,
   STARTUP_SWEEP = 8,
+  RPM_GAUGE = 9,    // progressive bar: N LEDs, green→yellow→red, 0–7 k RPM
 };
 
 enum class RaceMode : uint8_t {
@@ -120,7 +121,7 @@ struct VehicleState {
   uint32_t led_channel_3_color = 0xFF8000;
   LedMode led_channel_1_mode = LedMode::STATIC_COLOR;
   LedMode led_channel_2_mode = LedMode::STATIC_COLOR;
-  LedMode led_channel_3_mode = LedMode::STATIC_COLOR;
+  LedMode led_channel_3_mode = LedMode::RPM_GAUGE;  // GPIO40 strip: 7-LED RPM bar
   uint8_t led_channel_1_brightness = 180;
   uint8_t led_channel_2_brightness = 180;
   uint8_t led_channel_3_brightness = 180;

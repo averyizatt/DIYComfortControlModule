@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <SPI.h>
 #include <WiFi.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
@@ -6,6 +7,8 @@
 #include <cstring>
 
 #include "can/can_manager.h"
+#include "hal/HardwareAdapters.hpp"
+#include "gps/GpsService.hpp"
 #include "led/led_manager.h"
 #include "pin_map.h"
 #include "race/race_manager.h"
@@ -21,6 +24,11 @@
 namespace {
 canbus::CanManager g_can;
 settings::SettingsManager g_settings;
+
+// GPS: UartGpsAdapter owns Serial2 (GPIO41=RX, GPIO42=TX @ 9600 baud)
+static ccm::hal::UartGpsAdapter g_gpsHal(Serial2);
+static ccm::gps::GpsService     g_gps(g_gpsHal);
+
 led::LedManager g_led;
 web::WebServerManager g_web;
 storage::SdManager g_sd;
@@ -234,6 +242,47 @@ void storageTask(void*) {
   }
 }
 
+void gpsTask(void*) {
+  registerTaskWatchdog();
+
+  Serial0.println("[GPS] task started — waiting for fix");
+
+  bool lastFix = false;
+  uint32_t lastSearchMs = 0;
+
+  while (true) {
+    g_gps.poll();
+    const ccm::core::GpsData d = g_gps.data();
+    const uint32_t nowMs = millis();
+
+    if (d.validFix != lastFix) {
+      lastFix = d.validFix;
+      if (d.validFix) {
+        Serial0.printf("[GPS] fix acquired — sats=%lu lat=%.6f lon=%.6f\n",
+          static_cast<unsigned long>(d.satellites), d.latitude, d.longitude);
+      } else {
+        Serial0.println("[GPS] fix lost — searching...");
+      }
+    } else if (!d.validFix && (nowMs - lastSearchMs) >= 10000U) {
+      lastSearchMs = nowMs;
+      Serial0.println("[GPS] searching...");
+    }
+
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.gps_fix        = d.validFix;
+      s.speed          = d.speedKph;
+      s.gps_satellites = static_cast<uint8_t>(d.satellites > 255U ? 255U : d.satellites);
+      s.gps_latitude   = d.latitude;
+      s.gps_longitude  = d.longitude;
+      s.gps_altitude_m = static_cast<int16_t>(d.altitudeM);
+      s.gps_stale      = !d.validFix || ((nowMs - d.lastFixMs) > 5000U);
+      if (d.validFix) s.last_gps_ms = nowMs;
+    });
+    feedTaskWatchdog();
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
+
 void heartbeatTask(void*) {
   registerTaskWatchdog();
   while (true) {
@@ -253,46 +302,66 @@ void heartbeatTask(void*) {
 
 void setup() {
   Serial.begin(115200);
-  delay(50);
+  Serial0.begin(115200);  // UART0 -> COM8 (CH343 bridge) for hardware diagnostics
+  delay(200);  // give COM8 monitor time to connect before first prints
 
   pinMode(pins::kLcdRst, OUTPUT);
   pinMode(pins::kLcdDc, OUTPUT);
-  pinMode(pins::kLcdBacklight, OUTPUT);
   digitalWrite(pins::kLcdRst, HIGH);
   digitalWrite(pins::kLcdDc, HIGH);
+  if (pins::kLcdBacklight != 255) {
+    pinMode(pins::kLcdBacklight, OUTPUT);
+  }
 
   state::g_vehicle_state.begin();
   initTaskWatchdog();
   registerTaskWatchdog();
   g_settings.begin();
   applySettingsToState();
-  analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
+  if (pins::kLcdBacklight != 255) {
+    analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
+  }
   setupWifiFromSettings();
 
   g_can.begin(true);
+  g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO41 RX / GPIO42 TX @ 9600 baud (no-op: already begun above)
 
+  // The display uses HSPI (SPI3) via Arduino_ESP32SPI – no SPI.begin() needed
   g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
-  g_sd.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kLcdCs, pins::kSdCs);
+  // SD uses FSPI (SPI2). Must explicitly init with our custom pins before
+  // SD.begin() — otherwise the library falls back to ESP32-S3 defaults (11/12/13).
+  SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kSdCs);
+  g_sd.begin(pins::kLcdCs, pins::kSdCs);
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
   g_logs.setSessionPrefix(String("boot_") + String(millis()));
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
   g_screen.attach(&g_can, &g_race, &g_settings);
-  g_screen.begin(pins::kLcdCs, pins::kLcdRst, pins::kLcdDc, pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
+  Serial0.printf("[SETUP] heap free before screen init: %lu bytes\n",
+    static_cast<unsigned long>(ESP.getFreeHeap()));
+  Serial0.printf("[SCREEN] pins  CS=%d RST=%d DC=%d SCK=%d MOSI=%d MISO=%d\n",
+    pins::kLcdCs, pins::kLcdRst, pins::kLcdDc,
+    pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
+  const bool screenOk = g_screen.begin(
+    pins::kLcdCs, pins::kLcdRst, pins::kLcdDc,
+    pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
+  Serial0.printf("[SCREEN] begin() -> %s\n", screenOk ? "OK" : "FAILED");
 
-  g_led.begin(pins::kLedData1, pins::kLedData2, pins::kLedData3, 18);
+  g_led.begin(pins::kLedData1, pins::kLedData2, pins::kLedData3, 18, 7);
   g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
 
-  xTaskCreatePinnedToCore(canTask, "can_task", 6144, nullptr, 3, nullptr, 0);
+  xTaskCreatePinnedToCore(canTask,     "can_task",     6144, nullptr, 3, nullptr, 0);
+  xTaskCreatePinnedToCore(gpsTask,     "gps_task",     6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(ledTask, "led_task", 4096, nullptr, 2, nullptr, 1);
   xTaskCreatePinnedToCore(webTask, "web_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(screenTask, "screen_task", 6144, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(screenTask, "screen_task", 8192, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(heartbeatTask, "hb_task", 3072, nullptr, 1, nullptr, 1);
 }
 
 void loop() {
+  feedTaskWatchdog();
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
