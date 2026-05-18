@@ -90,6 +90,12 @@ struct VehicleState {
   bool knock_demo_mode_enabled = false;
   uint8_t knock_response_mode = 1;  // 0 LOG_ONLY, 1 WARN_ONLY, 2 FORCE_METH_ENABLE_IF_ARMED, 3 SAFETY_SHUTDOWN
 
+  int8_t knock_last_event_iat_c = 0;
+  uint32_t knock_last_event_time_ms = 0;
+  bool knock_logging_active = false;
+  bool knock_online = true;
+  uint32_t last_knock_ms = 0;
+
   bool knock_reset_baseline_request = false;
   bool knock_clear_event_count_request = false;
   bool knock_simulate_event_request = false;

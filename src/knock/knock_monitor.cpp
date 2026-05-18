@@ -301,6 +301,8 @@ void KnockMonitor::registerEvent(const state::VehicleState& snapshot, uint32_t n
   lastEventRpm_ = snapshot.rpm;
   const float boost = snapshot.boost_kpa;
   lastEventBoostKpa_ = clampU8FromFloat(boost);
+  lastEventIatC_ = static_cast<int8_t>(snapshot.intake_temp);
+  lastEventTimeMs_ = nowMs;
 
   const bool warning = eventWindowCount_ >= cfg_.warning_threshold_count;
   const bool critical = eventWindowCount_ >= cfg_.critical_threshold_count;
@@ -368,7 +370,7 @@ void KnockMonitor::queueFault(uint8_t faultCode, uint8_t severity, uint8_t data0
   });
 }
 
-void KnockMonitor::updateSharedState(uint32_t /*nowMs*/) {
+void KnockMonitor::updateSharedState(uint32_t nowMs) {
   stateStore_->mutate([&](state::VehicleState& s) {
     s.knock_energy = knockEnergy_;
     s.knock_baseline = baseline_;
@@ -376,12 +378,17 @@ void KnockMonitor::updateSharedState(uint32_t /*nowMs*/) {
     s.knock_event_count = eventCountRolling_;
     s.knock_last_event_rpm = lastEventRpm_;
     s.knock_last_event_boost_kpa = lastEventBoostKpa_;
+    s.knock_last_event_iat_c = lastEventIatC_;
+    s.knock_last_event_time_ms = lastEventTimeMs_;
     s.knock_baseline_learned = baselineLearned_;
     s.knock_signal_valid = signalValid_;
     s.knock_sensor_fault = sensorFault_;
     s.knock_clipping_detected = clippingDetected_;
     s.knock_signal_clip_high_count = clipHighTotal_;
     s.knock_signal_clip_low_count = clipLowTotal_;
+    s.knock_logging_active = (logMgr_ != nullptr) && (sdMgr_ != nullptr) && sdMgr_->mounted();
+    s.last_knock_ms = nowMs;
+    s.knock_online = true;
   });
 }
 
