@@ -1,5 +1,6 @@
-﻿#include "ui/screen_dashboard.h"
+#include "ui/screen_dashboard.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -482,8 +483,9 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   dashEnvLabel_ = makeLabel(parent, cx, 50, cw, "BAT 0.0V  0 sats", &lv_font_montserrat_14);
   lv_label_set_long_mode(dashEnvLabel_, LV_LABEL_LONG_CLIP);
 
-  dashStatusLabel_ = makeLabel(parent, cx, 72, cw, "CAN:--  METH:--", &lv_font_montserrat_12);
+  dashStatusLabel_ = makeLabel(parent, cx, 72, cw, "TAIL / METH", &lv_font_montserrat_12);
   lv_label_set_long_mode(dashStatusLabel_, LV_LABEL_LONG_CLIP);
+  lv_label_set_recolor(dashStatusLabel_, true);
 
   dashRaceLabel_ = makeLabel(parent, cx, 90, cw, "0-60:--  1/4:--", &lv_font_montserrat_12);
   lv_label_set_long_mode(dashRaceLabel_, LV_LABEL_LONG_CLIP);
@@ -717,10 +719,9 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.gps_satellites));
   lv_label_set_text(dashEnvLabel_, buf);
 
-  snprintf(buf, sizeof(buf), "CAN:%s METH:%s TAIL:%s",
-           s.can_online       ? "OK" : "--",
-           s.meth_online      ? "OK" : "--",
-           s.taillight_online ? "OK" : "--");
+  const char* tailColor = s.taillight_online ? "#00C853" : "#FF3B30";
+  const char* methColor = s.meth_online ? "#00C853" : "#FF3B30";
+  snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#", tailColor, methColor);
   lv_label_set_text(dashStatusLabel_, buf);
 
   snprintf(buf, sizeof(buf), "0-60:%.2fs  1/4:%.2fs",
@@ -818,9 +819,27 @@ void ScreenDashboard::updateLedsPage(const state::VehicleState& s) {
 void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
   char spd[24];
   if (s.gps_fix) {
-    snprintf(spd, sizeof(spd), "%.1f mph",
-             static_cast<double>(s.speed) * 0.621371);
+    const float rawMph = (s.speed > 0.0f) ? (s.speed * 0.621371f) : 0.0f;
+    if (!gpsSpeedFilterInitialized_) {
+      gpsSpeedFilteredMph_ = rawMph;
+      gpsSpeedFilterInitialized_ = true;
+    } else {
+      const float alpha = (rawMph < 12.0f) ? 0.18f : 0.35f;
+      gpsSpeedFilteredMph_ += (rawMph - gpsSpeedFilteredMph_) * alpha;
+    }
+
+    float displayMph = gpsSpeedFilteredMph_;
+    if (displayMph < 1.0f) {
+      displayMph = 0.0f;
+      gpsSpeedFilteredMph_ = 0.0f;
+    } else if (displayMph < 12.0f) {
+      displayMph = static_cast<float>(std::round(static_cast<double>(displayMph)));
+    }
+
+    snprintf(spd, sizeof(spd), "%.0f mph", static_cast<double>(displayMph));
   } else {
+    gpsSpeedFilterInitialized_ = false;
+    gpsSpeedFilteredMph_ = 0.0f;
     snprintf(spd, sizeof(spd), "-- mph");
   }
   lv_label_set_text(gpsSpdLabel_, spd);

@@ -161,6 +161,8 @@ class ScreenDashboard {
   // -- GPS page --
   lv_obj_t* gpsSpdLabel_  = nullptr;
   lv_obj_t* gpsInfoLabel_ = nullptr;
+  float     gpsSpeedFilteredMph_      = 0.0f;
+  bool      gpsSpeedFilterInitialized_ = false;
 
   // -- TEMPS page --
   lv_obj_t* tempsLabel_ = nullptr;
