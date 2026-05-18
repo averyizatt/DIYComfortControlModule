@@ -37,6 +37,13 @@ struct LedModeCtx { ScreenDashboard* self; state::LedMode mode; };
 static NavCtx     s_navCtxs[7];
 static LedModeCtx s_ledModeCtxs[5];
 
+constexpr const char* kStatusColorOn  = "#00C853";
+constexpr const char* kStatusColorOff = "#FF3B30";
+constexpr float kGpsLowSpeedThresholdMph = 12.0f;
+constexpr float kGpsLowSpeedFilterAlpha  = 0.18f;
+constexpr float kGpsHighSpeedFilterAlpha = 0.35f;
+constexpr float kGpsZeroClampMph         = 1.0f;
+
 // ---------------------------------------------------------------------------
 // LVGL driver callbacks (static)
 // ---------------------------------------------------------------------------
@@ -719,9 +726,9 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.gps_satellites));
   lv_label_set_text(dashEnvLabel_, buf);
 
-  const char* tailStatus = s.taillight_online ? "#00C853 TAIL#" : "#FF3B30 TAIL#";
-  const char* methStatus = s.meth_online ? "#00C853 METH#" : "#FF3B30 METH#";
-  snprintf(buf, sizeof(buf), "%s  %s", tailStatus, methStatus);
+  snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#",
+           s.taillight_online ? kStatusColorOn : kStatusColorOff,
+           s.meth_online ? kStatusColorOn : kStatusColorOff);
   lv_label_set_text(dashStatusLabel_, buf);
 
   snprintf(buf, sizeof(buf), "0-60:%.2fs  1/4:%.2fs",
@@ -824,19 +831,21 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
       gpsSpeedFilteredMph_ = rawMph;
       gpsSpeedFilterInitialized_ = true;
     } else {
-      const float alpha = (rawMph < 12.0f) ? 0.18f : 0.35f;
+      const float alpha = (rawMph < kGpsLowSpeedThresholdMph)
+                              ? kGpsLowSpeedFilterAlpha
+                              : kGpsHighSpeedFilterAlpha;
       gpsSpeedFilteredMph_ += (rawMph - gpsSpeedFilteredMph_) * alpha;
     }
 
     float displayMph = gpsSpeedFilteredMph_;
-    if (displayMph < 1.0f) {
+    if (displayMph < kGpsZeroClampMph) {
       displayMph = 0.0f;
       gpsSpeedFilteredMph_ = 0.0f;
-    } else if (displayMph < 12.0f) {
+    } else if (displayMph < kGpsLowSpeedThresholdMph) {
       displayMph = std::roundf(displayMph);
     }
 
-    snprintf(spd, sizeof(spd), "%.0f mph", static_cast<double>(displayMph));
+    snprintf(spd, sizeof(spd), "%.0f mph", displayMph);
   } else {
     gpsSpeedFilterInitialized_ = false;
     gpsSpeedFilteredMph_ = 0.0f;
