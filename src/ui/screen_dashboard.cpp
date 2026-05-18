@@ -719,9 +719,9 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.gps_satellites));
   lv_label_set_text(dashEnvLabel_, buf);
 
-  const char* tailColor = s.taillight_online ? "#00C853" : "#FF3B30";
-  const char* methColor = s.meth_online ? "#00C853" : "#FF3B30";
-  snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#", tailColor, methColor);
+  const char* tailStatus = s.taillight_online ? "#00C853 TAIL#" : "#FF3B30 TAIL#";
+  const char* methStatus = s.meth_online ? "#00C853 METH#" : "#FF3B30 METH#";
+  snprintf(buf, sizeof(buf), "%s  %s", tailStatus, methStatus);
   lv_label_set_text(dashStatusLabel_, buf);
 
   snprintf(buf, sizeof(buf), "0-60:%.2fs  1/4:%.2fs",
@@ -833,7 +833,7 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
       displayMph = 0.0f;
       gpsSpeedFilteredMph_ = 0.0f;
     } else if (displayMph < 12.0f) {
-      displayMph = static_cast<float>(std::round(static_cast<double>(displayMph)));
+      displayMph = std::roundf(displayMph);
     }
 
     snprintf(spd, sizeof(spd), "%.0f mph", static_cast<double>(displayMph));
