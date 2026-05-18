@@ -157,9 +157,9 @@ float KnockMonitor::sampleEnergy(const state::VehicleState& s, uint32_t nowMs) {
   if (isDemoBuildEnabled() || cfg_.demo_mode_enabled) {
     const float t = nowMs * 0.001f;
     float demo = 8.0f + 4.0f * (0.5f + 0.5f * sinf(t * 1.8f));
-    const bool canSpikeByBoost = s.boost_kpa >= cfg_.boost_enable_kpa;
+    const bool boostAboveThreshold = s.boost_kpa >= cfg_.boost_enable_kpa;
     const bool jitterElapsed = (nowMs - lastDemoSpikeMs_) >= nextDemoSpikeGapMs_;
-    if (forceDemoSpike_ || (canSpikeByBoost && jitterElapsed)) {
+    if (forceDemoSpike_ || (boostAboveThreshold && jitterElapsed)) {
       demo += 80.0f;
       lastDemoSpikeMs_ = nowMs;
       nextDemoSpikeGapMs_ = kDemoSpikeMinGapMs + (nowMs % kDemoSpikeJitterMs);
@@ -211,6 +211,8 @@ void KnockMonitor::updateSignalHealth(uint16_t sampleRaw, float absCentered, uin
     }
   } else {
     lowActivitySinceMs_ = 0;
+    // Keep both flags explicit: signalValid_ informs CAN status bit packing,
+    // sensorFault_ represents a latched diagnostic/fault condition.
     signalValid_ = true;
     sensorFault_ = false;
   }
@@ -338,11 +340,15 @@ void KnockMonitor::applyResponseMode(const state::VehicleState& snapshot, bool w
     case ResponseMode::WARN_ONLY:
       return;
     case ResponseMode::FORCE_METH_ENABLE_IF_ARMED:
+      // Optional aggressive response: force meth enable as supplemental
+      // octane/cooling support during sustained critical knock events.
       if (critical && canMgr_ && snapshot.meth_online && !snapshot.meth_desired_armed) {
         canMgr_->sendMethArm(true);
       }
       return;
     case ResponseMode::SAFETY_SHUTDOWN:
+      // Conservative fallback mode for suspect sensor/system behavior where
+      // continued meth operation should be stopped pending operator review.
       if (critical && canMgr_ && snapshot.meth_desired_armed) {
         canMgr_->sendMethArm(false);
       }

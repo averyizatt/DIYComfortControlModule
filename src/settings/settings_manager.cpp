@@ -61,7 +61,8 @@ void SettingsManager::load() {
   settings_.knock_baseline_learning_enabled = prefs_.getBool("knock_bl", settings_.knock_baseline_learning_enabled);
   settings_.knock_demo_mode_enabled = prefs_.getBool("knock_demo", settings_.knock_demo_mode_enabled);
   settings_.knock_response_mode = prefs_.getUChar("knock_resp", settings_.knock_response_mode);
-  // Keep thresholds ordered by enforcing warning >= 1 and critical >= warning.
+  // Keep escalation monotonic for safety handling: warning must trigger before
+  // critical by enforcing warning >= 1 and critical >= warning.
   if (settings_.knock_warning_threshold_count < 1) settings_.knock_warning_threshold_count = 1;
   if (settings_.knock_critical_threshold_count < settings_.knock_warning_threshold_count) {
     settings_.knock_critical_threshold_count = settings_.knock_warning_threshold_count;
