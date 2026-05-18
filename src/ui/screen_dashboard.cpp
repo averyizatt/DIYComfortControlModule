@@ -726,12 +726,13 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.gps_satellites));
   lv_label_set_text(dashEnvLabel_, buf);
 
+  const bool knockOk = !s.knock_warning_active && !s.knock_critical_active;
+  // Knock status intentionally inverts the normal color semantics:
+  // green = no knock warning/critical, red = warning/critical active.
   snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#  %s KNOCK#",
             s.taillight_online ? kStatusColorOn : kStatusColorOff,
             s.meth_online ? kStatusColorOn : kStatusColorOff,
-            (s.knock_warning_active || s.knock_critical_active)
-                ? kStatusColorOff
-                : kStatusColorOn);
+            knockOk ? kStatusColorOn : kStatusColorOff);
   lv_label_set_text(dashStatusLabel_, buf);
 
   snprintf(buf, sizeof(buf), "0-60:%.2fs  1/4:%.2fs",

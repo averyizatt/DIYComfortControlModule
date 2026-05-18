@@ -25,6 +25,7 @@ constexpr uint32_t kLowActivityFaultDelayMs = 2500;
 constexpr uint32_t kClipWindowMs = 1000;
 constexpr uint16_t kClipWindowThreshold = 20;
 constexpr uint32_t kBaselineLearnMs = 3000;
+constexpr uint32_t kKnockTaskIntervalMs = 5;
 constexpr uint32_t kDemoSpikeMinGapMs = 1200;
 constexpr uint32_t kDemoSpikeJitterMs = 2200;
 
@@ -44,6 +45,10 @@ uint8_t clampU8FromFloat(float v) {
   if (v <= 0.0f) return 0;
   if (v >= 255.0f) return 255;
   return static_cast<uint8_t>(v + 0.5f);
+}
+
+uint8_t encodeRpmDiv100(uint16_t rpm) {
+  return static_cast<uint8_t>((rpm / 100U) > 255U ? 255U : (rpm / 100U));
 }
 
 }  // namespace
@@ -148,16 +153,16 @@ void KnockMonitor::applyStateCommands(state::VehicleState& s) {
 
 float KnockMonitor::sampleEnergy(const state::VehicleState& s, uint32_t nowMs) {
   float accum = 0.0f;
-  static uint32_t lastDemoSpikeMs = 0;
 
   if (isDemoBuildEnabled() || cfg_.demo_mode_enabled) {
     const float t = nowMs * 0.001f;
     float demo = 8.0f + 4.0f * (0.5f + 0.5f * sinf(t * 1.8f));
     const bool canSpikeByBoost = s.boost_kpa >= cfg_.boost_enable_kpa;
-    const bool jitterElapsed = (nowMs - lastDemoSpikeMs) >= (kDemoSpikeMinGapMs + (nowMs % kDemoSpikeJitterMs));
+    const bool jitterElapsed = (nowMs - lastDemoSpikeMs_) >= nextDemoSpikeGapMs_;
     if (forceDemoSpike_ || (canSpikeByBoost && jitterElapsed)) {
       demo += 80.0f;
-      lastDemoSpikeMs = nowMs;
+      lastDemoSpikeMs_ = nowMs;
+      nextDemoSpikeGapMs_ = kDemoSpikeMinGapMs + (nowMs % kDemoSpikeJitterMs);
       forceDemoSpike_ = false;
     }
     activityEma_ += kActivityAlpha * (demo - activityEma_);
@@ -222,7 +227,7 @@ void KnockMonitor::maybeUpdateBaseline(bool detectActive) {
   if (baseline_ < kMinimumEnergyFloor) baseline_ = kMinimumEnergyFloor;
 
   ++baselineSampleCount_;
-  if (!baselineLearned_ && baselineSampleCount_ > (kBaselineLearnMs / 5U)) {
+  if (!baselineLearned_ && baselineSampleCount_ > (kBaselineLearnMs / kKnockTaskIntervalMs)) {
     baselineLearned_ = true;
   }
 }
@@ -293,20 +298,18 @@ void KnockMonitor::registerEvent(const state::VehicleState& snapshot, uint32_t n
 
   lastEventRpm_ = snapshot.rpm;
   const float boost = snapshot.boost_kpa;
-  if (boost <= 0.0f) lastEventBoostKpa_ = 0;
-  else if (boost >= 255.0f) lastEventBoostKpa_ = 255;
-  else lastEventBoostKpa_ = static_cast<uint8_t>(boost + 0.5f);
+  lastEventBoostKpa_ = clampU8FromFloat(boost);
 
   const bool warning = eventWindowCount_ >= cfg_.warning_threshold_count;
   const bool critical = eventWindowCount_ >= cfg_.critical_threshold_count;
 
   if (critical) {
     queueFault(can_protocol::knock_fault_code::KNOCK_CRITICAL, kKnockSeverityCritical,
-               static_cast<uint8_t>(lastEventRpm_ / 100U), lastEventBoostKpa_);
+               encodeRpmDiv100(lastEventRpm_), lastEventBoostKpa_);
     logKnockEvent(nowMs, snapshot, can_protocol::knock_fault_code::KNOCK_CRITICAL, true);
   } else if (warning) {
     queueFault(can_protocol::knock_fault_code::KNOCK_WARNING, kKnockSeverityWarn,
-               static_cast<uint8_t>(lastEventRpm_ / 100U), lastEventBoostKpa_);
+               encodeRpmDiv100(lastEventRpm_), lastEventBoostKpa_);
     logKnockEvent(nowMs, snapshot, can_protocol::knock_fault_code::KNOCK_WARNING, true);
   } else {
     logKnockEvent(nowMs, snapshot, 0, true);

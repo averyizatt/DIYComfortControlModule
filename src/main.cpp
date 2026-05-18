@@ -218,7 +218,7 @@ void storageTask(void*) {
       g_logs.enqueue("race", raceLine);
 
       char knockLine[220];
-      const bool knockEvent = s.knock_event_count != lastKnockEventCount;
+      const bool knockEventCountChanged = s.knock_event_count != lastKnockEventCount;
       lastKnockEventCount = s.knock_event_count;
       snprintf(knockLine, sizeof(knockLine),
                "%lu,%u,%.0f,%.1f,%.1f,%u,%u,%u,%.2f,%.2f,%.2f,%u,%u",
@@ -227,7 +227,7 @@ void storageTask(void*) {
                static_cast<double>(s.engine_bay_temp), static_cast<unsigned>(s.meth_state),
                static_cast<unsigned>(s.meth_pump_duty), static_cast<unsigned>(s.meth_tank_level),
                static_cast<double>(s.knock_energy), static_cast<double>(s.knock_baseline),
-               static_cast<double>(s.knock_threshold), knockEvent ? 1U : 0U,
+               static_cast<double>(s.knock_threshold), knockEventCountChanged ? 1U : 0U,
                static_cast<unsigned>(s.knock_fault_code_pending));
       g_logs.enqueue("knock", knockLine);
 

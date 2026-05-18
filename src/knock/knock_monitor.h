@@ -84,6 +84,8 @@ class KnockMonitor {
   uint32_t clipWindowStartMs_ = 0;
   uint32_t lastFaultLogMs_ = 0;
   uint8_t lastFaultCode_ = 0;
+  uint32_t lastDemoSpikeMs_ = 0;
+  uint32_t nextDemoSpikeGapMs_ = 1200;
   uint16_t clipHighWindowCount_ = 0;
   uint16_t clipLowWindowCount_ = 0;
   uint16_t clipHighTotal_ = 0;
