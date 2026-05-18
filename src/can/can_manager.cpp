@@ -73,6 +73,26 @@ void packGpsState(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out.data[7] = 0;
 }
 
+void packKnockState(const state::VehicleState& s, can_protocol::CanFrame& out) {
+  can_protocol::EngineKnockState ks{};
+  ks.status_flags |= s.knock_enabled ? (1U << 0) : 0U;
+  ks.status_flags |= s.knock_signal_valid ? (1U << 1) : 0U;
+  ks.status_flags |= s.knock_warning_active ? (1U << 2) : 0U;
+  ks.status_flags |= s.knock_critical_active ? (1U << 3) : 0U;
+  ks.status_flags |= s.knock_baseline_learned ? (1U << 4) : 0U;
+  ks.status_flags |= s.knock_sensor_fault ? (1U << 5) : 0U;
+  ks.status_flags |= s.knock_clipping_detected ? (1U << 6) : 0U;
+
+  ks.energy = can_protocol::clampU8(static_cast<int>(s.knock_energy));
+  ks.baseline = can_protocol::clampU8(static_cast<int>(s.knock_baseline));
+  ks.threshold = can_protocol::clampU8(static_cast<int>(s.knock_threshold));
+  ks.event_count = s.knock_event_count;
+  ks.last_event_rpm_div100 = can_protocol::clampU8(static_cast<int>(s.knock_last_event_rpm / 100U));
+  ks.last_event_boost_kpa = s.knock_last_event_boost_kpa;
+  ks.reserved = 0;
+  out = can_protocol::packEngineKnockState(ks);
+}
+
 can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) {
   const meth::DesiredConfig desired = meth::fromVehicleState(s);
   return meth::toCanBroadcast(desired);
@@ -126,6 +146,21 @@ void CanManager::tick() {
 #endif
 
   sendScheduledFrames(nowMs);
+
+  bool knockFaultPending = false;
+  can_protocol::CanFrame knockFault{};
+  state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+    if (!s.knock_fault_pending) return;
+    knockFault = can_protocol::packEngineKnockFault(
+        s.knock_fault_code_pending, s.knock_fault_severity_pending,
+        s.knock_fault_data0_pending, s.knock_fault_data1_pending);
+    s.knock_fault_pending = false;
+    knockFaultPending = true;
+  });
+  if (knockFaultPending) {
+    sendFrame(knockFault);
+  }
+
   updateTimeouts(nowMs);
 
   // Safety: stop manual pump test on timeout or Back input.
@@ -478,6 +513,13 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
   if ((nowMs - lastMethConfigTxMs_) >= kMethConfigBroadcastIntervalMs) {
     sendMethConfigBroadcast();
     lastMethConfigTxMs_ = nowMs;
+  }
+
+  if ((nowMs - lastKnockTxMs_) >= 50) {
+    can_protocol::CanFrame knock{};
+    packKnockState(snapshot, knock);
+    sendFrame(knock);
+    lastKnockTxMs_ = nowMs;
   }
 }
 

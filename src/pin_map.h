@@ -34,6 +34,7 @@ namespace pins {
 //  Tach IN        2  (ADC1_CH1)
 //  Gyro INT      14  (ADC2_CH3)  was 3→40; 40 is LED_DATA3
 //  Battery ADC    1  (ADC1_CH0)  was 46; 46 is LCD_DC
+//  Knock ADC     48  (ADC1_CH7)
 //  GPS RX        41  (GP)
 //  GPS TX        42  (GP)
 //  LED strip 1   38  (GP)
@@ -165,6 +166,10 @@ namespace pins {
 #define CCM_PIN_BATTERY_SENSE 1   // ← was 46; moved – GPIO 46 now used for LCD_DC
 #endif
 
+#ifndef CCM_PIN_KNOCK_ADC
+#define CCM_PIN_KNOCK_ADC 48
+#endif
+
 #ifndef CCM_GYRO_I2C_ADDR_PRIMARY
 #define CCM_GYRO_I2C_ADDR_PRIMARY 0x68
 #endif
@@ -232,6 +237,7 @@ static constexpr uint8_t kGyroAddrSel = CCM_PIN_GYRO_ADDR_SEL;
 static constexpr uint8_t kAuxOut1 = CCM_PIN_AUX_OUT1;
 static constexpr uint8_t kAuxOut2 = CCM_PIN_AUX_OUT2;
 static constexpr uint8_t kBatterySense = CCM_PIN_BATTERY_SENSE;
+static constexpr uint8_t kKnockAdc = CCM_PIN_KNOCK_ADC;
 
 static constexpr uint8_t kGyroI2cAddrPrimary = CCM_GYRO_I2C_ADDR_PRIMARY;
 static constexpr uint8_t kGyroI2cAddrSecondary = CCM_GYRO_I2C_ADDR_SECONDARY;
