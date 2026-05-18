@@ -1146,7 +1146,7 @@ void ScreenDashboard::updateKnockPage(const state::VehicleState& s, uint32_t now
   lv_label_set_text(knockStateLabel_, buf);
 
   // Sensor status row
-  snprintf(buf, sizeof(buf), "En: %s  Sensor: %s  Learned: %s  Clip Hi:%u Lo:%u",
+  snprintf(buf, sizeof(buf), "En: %s  Sensor: %s  Learned: %s  Clip Hi: %u Lo: %u",
            s.knock_enabled ? "YES" : "NO",
            sensorStr,
            s.knock_baseline_learned ? "YES" : "NO",

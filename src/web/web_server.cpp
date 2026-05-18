@@ -275,7 +275,7 @@ async function tick(){
     const badge=document.getElementById('hdrBadge');
     if(d.knock_critical_active){badge.className='badge badge-crit';badge.textContent='CRITICAL';}
     else if(d.knock_warning_active){badge.className='badge badge-warn';badge.textContent='WARNING';}
-    else if(d.enabled){badge.className='badge badge-ok';badge.textContent='ONLINE';}
+    else if(d.knock_enabled||d.enabled){badge.className='badge badge-ok';badge.textContent='ONLINE';}
     else{badge.className='badge badge-off';badge.textContent='DISABLED';}
     chartData.energy.push(d.knock_energy||0);
     chartData.baseline.push(d.knock_baseline||0);
@@ -386,14 +386,13 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     if (!checkAuth(req)) return;
     const state::VehicleState s = stateStore_->read();
     JsonDocument doc;
-    doc["enabled"] = s.knock_enabled;
     doc["knock_enabled"] = s.knock_enabled;
     doc["knock_signal_valid"] = s.knock_signal_valid;
     doc["knock_energy"] = s.knock_energy;
     doc["knock_baseline"] = s.knock_baseline;
     doc["knock_threshold"] = s.knock_threshold;
-    doc["knock_warning"] = s.knock_warning_active;
-    doc["knock_critical"] = s.knock_critical_active;
+    doc["knock_warning_active"] = s.knock_warning_active;
+    doc["knock_critical_active"] = s.knock_critical_active;
     doc["knock_event_count"] = s.knock_event_count;
     doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
     doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
@@ -407,6 +406,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     doc["knock_signal_clip_high_count"] = s.knock_signal_clip_high_count;
     doc["knock_signal_clip_low_count"] = s.knock_signal_clip_low_count;
     // Legacy / shorter aliases kept for backward compatibility
+    doc["enabled"] = s.knock_enabled;
     doc["energy"] = s.knock_energy;
     doc["baseline"] = s.knock_baseline;
     doc["threshold"] = s.knock_threshold;
@@ -878,8 +878,8 @@ String WebServerManager::canStatusJson() const {
   doc["knock_energy"] = s.knock_energy;
   doc["knock_baseline"] = s.knock_baseline;
   doc["knock_threshold"] = s.knock_threshold;
-  doc["knock_warning"] = s.knock_warning_active;
-  doc["knock_critical"] = s.knock_critical_active;
+  doc["knock_warning_active"] = s.knock_warning_active;
+  doc["knock_critical_active"] = s.knock_critical_active;
   doc["knock_event_count"] = s.knock_event_count;
   doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
   doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;

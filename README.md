@@ -174,24 +174,6 @@ Simulate is only effective in `DEMO_MODE` builds or when `knock_demo_mode_enable
 - ADC resolution (12-bit, 3.3 V rail) is the practical limit of sensitivity. Proper analog front-end design (bandpass amplifier, gain stage, bias) is essential for meaningful signal quality.
 - Treat this system as a **supplemental data source** for margin assessment, not as a safety guarantee.
 
-
-
-- Bosch-style piezo knock sensor on block/intake location
-- AC coupling into a 1.65 V biased analog node
-- Op-amp gain stage (~10x to 11x) with rough knock-band filtering
-- ADC protection resistor and optional clamp diodes
-- Shielded sensor wiring to the CCM knock ADC input
-
-Firmware behavior:
-
-- Samples knock ADC at high cadence with midpoint removal and energy smoothing
-- Learns adaptive background baseline (noise rises with RPM/load)
-- Uses dynamic thresholding (`baseline * multiplier + offset`)
-- Gates event detection by RPM + boost enable thresholds
-- Publishes knock state/faults on CAN (`0x307`, `0x308`)
-- Logs knock telemetry/events under `/logs/knock/`
-- Supports warning-only/default safety response modes and demo simulation
-
 ## Build Variants
 
 The active PlatformIO environments are defined in [`platformio.ini`](platformio.ini):
