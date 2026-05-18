@@ -10,6 +10,7 @@
 #include "hal/HardwareAdapters.hpp"
 #include "gps/GpsService.hpp"
 #include "led/led_manager.h"
+#include "knock/knock_monitor.h"
 #include "pin_map.h"
 #include "race/race_manager.h"
 #include "settings/settings_manager.h"
@@ -34,6 +35,7 @@ web::WebServerManager g_web;
 storage::SdManager g_sd;
 storage::LogManager g_logs;
 race::RacePerformanceManager g_race;
+knock::KnockMonitor g_knock;
 touch::TouchManager g_touch;
 ui::AssetManager g_assets;
 ui::ScreenDashboard g_screen;
@@ -191,6 +193,7 @@ void storageTask(void*) {
   registerTaskWatchdog();
   uint32_t lastLogMs = 0;
   uint32_t lastStorageStatusMs = 0;
+  uint8_t lastKnockEventCount = 0;
 
   while (true) {
     const uint32_t nowMs = millis();
@@ -213,6 +216,21 @@ void storageTask(void*) {
       g_logs.enqueue("gps", gpsLine);
       g_logs.enqueue("meth", methLine);
       g_logs.enqueue("race", raceLine);
+
+      char knockLine[220];
+      const bool knockEvent = s.knock_event_count != lastKnockEventCount;
+      lastKnockEventCount = s.knock_event_count;
+      snprintf(knockLine, sizeof(knockLine),
+               "%lu,%u,%.0f,%.1f,%.1f,%u,%u,%u,%.2f,%.2f,%.2f,%u,%u",
+               static_cast<unsigned long>(nowMs), static_cast<unsigned>(s.rpm),
+               static_cast<double>(s.boost_kpa), static_cast<double>(s.intake_temp),
+               static_cast<double>(s.engine_bay_temp), static_cast<unsigned>(s.meth_state),
+               static_cast<unsigned>(s.meth_pump_duty), static_cast<unsigned>(s.meth_tank_level),
+               static_cast<double>(s.knock_energy), static_cast<double>(s.knock_baseline),
+               static_cast<double>(s.knock_threshold), knockEvent ? 1U : 0U,
+               static_cast<unsigned>(s.knock_fault_code_pending));
+      g_logs.enqueue("knock", knockLine);
+
       if (s.fault_flags != 0) {
         char faultLine[48];
         snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", s.fault_flags);
@@ -239,6 +257,15 @@ void storageTask(void*) {
 
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void knockTask(void*) {
+  registerTaskWatchdog();
+  while (true) {
+    g_knock.tick(millis());
+    feedTaskWatchdog();
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
@@ -335,6 +362,10 @@ void setup() {
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
   g_logs.setSessionPrefix(String("boot_") + String(millis()));
+  state::g_vehicle_state.mutate([](state::VehicleState& s) {
+    if (s.knock_adc_pin == 0) s.knock_adc_pin = pins::kKnockAdc;
+  });
+  g_knock.begin(&state::g_vehicle_state, &g_settings, &g_logs, &g_sd, &g_can);
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
   g_screen.attach(&g_can, &g_race, &g_settings);
   Serial0.printf("[SETUP] heap free before screen init: %lu bytes\n",
@@ -355,6 +386,7 @@ void setup() {
   xTaskCreatePinnedToCore(ledTask, "led_task", 4096, nullptr, 2, nullptr, 1);
   xTaskCreatePinnedToCore(webTask, "web_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(knockTask, "knock_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(screenTask, "screen_task", 8192, nullptr, 1, nullptr, 1);

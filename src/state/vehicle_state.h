@@ -61,6 +61,44 @@ struct VehicleState {
   uint8_t meth_config_version = 0;
   bool meth_desired_armed = false;            // CCM enable/disable
 
+  // Knock monitoring
+  bool knock_enabled = true;
+  uint8_t knock_adc_pin = 48;
+  float knock_energy = 0.0f;
+  float knock_baseline = 0.0f;
+  float knock_threshold = 0.0f;
+  uint8_t knock_event_count = 0;
+  uint16_t knock_last_event_rpm = 0;
+  uint8_t knock_last_event_boost_kpa = 0;
+  bool knock_signal_valid = true;
+  bool knock_warning_active = false;
+  bool knock_critical_active = false;
+  bool knock_baseline_learned = false;
+  bool knock_sensor_fault = false;
+  bool knock_clipping_detected = false;
+  uint16_t knock_signal_clip_high_count = 0;
+  uint16_t knock_signal_clip_low_count = 0;
+
+  float knock_boost_enable_kpa = 120.0f;
+  uint16_t knock_rpm_enable_min = 2500;
+  float knock_threshold_multiplier = 2.5f;
+  float knock_threshold_offset = 8.0f;
+  uint16_t knock_event_cooldown_ms = 250;
+  uint8_t knock_warning_threshold_count = 2;
+  uint8_t knock_critical_threshold_count = 4;
+  bool knock_baseline_learning_enabled = true;
+  bool knock_demo_mode_enabled = false;
+  uint8_t knock_response_mode = 1;  // 0 LOG_ONLY, 1 WARN_ONLY, 2 FORCE_METH_ENABLE_IF_ARMED, 3 SAFETY_SHUTDOWN
+
+  bool knock_reset_baseline_request = false;
+  bool knock_clear_event_count_request = false;
+  bool knock_simulate_event_request = false;
+  bool knock_fault_pending = false;
+  uint8_t knock_fault_code_pending = 0;
+  uint8_t knock_fault_severity_pending = 0;
+  uint8_t knock_fault_data0_pending = 0;
+  uint8_t knock_fault_data1_pending = 0;
+
   // GPS / CAN health
   bool gps_fix = false;
   uint8_t gps_satellites = 0;

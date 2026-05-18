@@ -726,9 +726,12 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.gps_satellites));
   lv_label_set_text(dashEnvLabel_, buf);
 
-  snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#",
-           s.taillight_online ? kStatusColorOn : kStatusColorOff,
-           s.meth_online ? kStatusColorOn : kStatusColorOff);
+  snprintf(buf, sizeof(buf), "%s TAIL#  %s METH#  %s KNOCK#",
+            s.taillight_online ? kStatusColorOn : kStatusColorOff,
+            s.meth_online ? kStatusColorOn : kStatusColorOff,
+            (s.knock_warning_active || s.knock_critical_active)
+                ? kStatusColorOff
+                : kStatusColorOn);
   lv_label_set_text(dashStatusLabel_, buf);
 
   snprintf(buf, sizeof(buf), "0-60:%.2fs  1/4:%.2fs",
@@ -924,6 +927,11 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     "Flow: %u  Ratio: %u%%  Armed: %s\n"
     "TestRun: %s  Reject: %u  Cooldown: %u ms\n"
     "\n"
+    "-- KNOCK --\n"
+    "En:%s Valid:%s Warn:%s Crit:%s Learned:%s\n"
+    "E:%.1f B:%.1f T:%.1f Cnt:%u Last:%u rpm %.0f kPa\n"
+    "Fault:%s Clip:%s Hi:%u Lo:%u Resp:%u\n"
+    "\n"
     "-- TACH --\n"
     "In: %.1f Hz   Out: %.1f Hz   Src: %u\n"
     "\n"
@@ -967,6 +975,23 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     s.manual_test_running ? "YES" : "NO",
     static_cast<unsigned>(s.meth_manual_test_reject_reason),
     static_cast<unsigned>(s.meth_manual_test_cooldown_ms_remaining),
+    // KNOCK
+    s.knock_enabled ? "YES" : "NO",
+    s.knock_signal_valid ? "YES" : "NO",
+    s.knock_warning_active ? "YES" : "NO",
+    s.knock_critical_active ? "YES" : "NO",
+    s.knock_baseline_learned ? "YES" : "NO",
+    static_cast<double>(s.knock_energy),
+    static_cast<double>(s.knock_baseline),
+    static_cast<double>(s.knock_threshold),
+    static_cast<unsigned>(s.knock_event_count),
+    static_cast<unsigned>(s.knock_last_event_rpm),
+    static_cast<double>(s.knock_last_event_boost_kpa),
+    s.knock_sensor_fault ? "YES" : "NO",
+    s.knock_clipping_detected ? "YES" : "NO",
+    static_cast<unsigned>(s.knock_signal_clip_high_count),
+    static_cast<unsigned>(s.knock_signal_clip_low_count),
+    static_cast<unsigned>(s.knock_response_mode),
     // TACH
     static_cast<double>(s.tach_input_frequency_hz),
     static_cast<double>(s.tach_generated_frequency_hz),

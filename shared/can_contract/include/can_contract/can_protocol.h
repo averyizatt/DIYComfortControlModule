@@ -42,6 +42,8 @@ constexpr uint16_t ID_ENGINE_SENSOR_EXT = 0x303;    // TX every 250ms, DLC 8
 constexpr uint16_t ID_METH_CONFIG_BROADCAST = 0x304; // TX every 500ms, DLC 8
 constexpr uint16_t ID_METH_CONFIG_REQUEST = 0x305;   // RX/TX as needed, DLC 1
 constexpr uint16_t ID_METH_CONFIG_ACK = 0x306;       // RX/TX as needed, DLC 4
+constexpr uint16_t ID_ENGINE_KNOCK_STATE = 0x307;    // TX every 50ms, DLC 8
+constexpr uint16_t ID_ENGINE_KNOCK_FAULT = 0x308;    // TX on event/fault, DLC 4
 
 enum class MasterState : uint8_t { BOOT = 0, RUN = 1, WARN = 2, FAULT = 3, CONFIG = 4 };
 enum class UiPage : uint8_t { DASH = 0, ENVIRONMENT = 1, METH = 2, LIGHTING = 3, DIAGNOSTICS = 4, SETTINGS = 5, RACE = 6 };
@@ -99,6 +101,15 @@ constexpr uint8_t CAN_TIMEOUT = 0x07;
 constexpr uint8_t CONFIG_INVALID = 0x08;
 constexpr uint8_t SAFETY_SHUTDOWN = 0x09;
 }  // namespace meth_fault_code
+
+namespace knock_fault_code {
+constexpr uint8_t KNOCK_WARNING = 0x01;
+constexpr uint8_t KNOCK_CRITICAL = 0x02;
+constexpr uint8_t SENSOR_DISCONNECTED = 0x03;
+constexpr uint8_t SIGNAL_CLIPPING = 0x04;
+constexpr uint8_t BASELINE_NOT_LEARNED = 0x05;
+constexpr uint8_t ADC_FAULT = 0x06;
+}  // namespace knock_fault_code
 
 struct CanFrame {
   uint16_t id = 0;
@@ -216,6 +227,72 @@ inline bool unpackEngineMethFault(const CanFrame& frame, EngineMethFault& out) {
   out.data0 = frame.data[2];
   out.data1 = frame.data[3];
   return true;
+}
+
+struct EngineKnockState {
+  uint8_t status_flags = 0;
+  uint8_t energy = 0;
+  uint8_t baseline = 0;
+  uint8_t threshold = 0;
+  uint8_t event_count = 0;
+  uint8_t last_event_rpm_div100 = 0;
+  uint8_t last_event_boost_kpa = 0;
+  uint8_t reserved = 0;
+};
+
+inline bool unpackEngineKnockState(const CanFrame& frame, EngineKnockState& out) {
+  if (frame.id != ID_ENGINE_KNOCK_STATE || frame.dlc < 8) return false;
+  out.status_flags = frame.data[0];
+  out.energy = frame.data[1];
+  out.baseline = frame.data[2];
+  out.threshold = frame.data[3];
+  out.event_count = frame.data[4];
+  out.last_event_rpm_div100 = frame.data[5];
+  out.last_event_boost_kpa = frame.data[6];
+  out.reserved = frame.data[7];
+  return true;
+}
+
+struct EngineKnockFault {
+  uint8_t code = 0;
+  uint8_t severity = 0;
+  uint8_t data0 = 0;
+  uint8_t data1 = 0;
+};
+
+inline bool unpackEngineKnockFault(const CanFrame& frame, EngineKnockFault& out) {
+  if (frame.id != ID_ENGINE_KNOCK_FAULT || frame.dlc < 4) return false;
+  out.code = frame.data[0];
+  out.severity = frame.data[1];
+  out.data0 = frame.data[2];
+  out.data1 = frame.data[3];
+  return true;
+}
+
+inline CanFrame packEngineKnockState(const EngineKnockState& state) {
+  CanFrame frame{};
+  frame.id = ID_ENGINE_KNOCK_STATE;
+  frame.dlc = 8;
+  frame.data[0] = state.status_flags;
+  frame.data[1] = state.energy;
+  frame.data[2] = state.baseline;
+  frame.data[3] = state.threshold;
+  frame.data[4] = state.event_count;
+  frame.data[5] = state.last_event_rpm_div100;
+  frame.data[6] = state.last_event_boost_kpa;
+  frame.data[7] = state.reserved;
+  return frame;
+}
+
+inline CanFrame packEngineKnockFault(uint8_t code, uint8_t severity, uint8_t data0, uint8_t data1) {
+  CanFrame frame{};
+  frame.id = ID_ENGINE_KNOCK_FAULT;
+  frame.dlc = 4;
+  frame.data[0] = code;
+  frame.data[1] = severity;
+  frame.data[2] = data0;
+  frame.data[3] = data1;
+  return frame;
 }
 
 inline CanFrame packTaillightBrightness(uint8_t brightness) {

@@ -21,6 +21,18 @@ struct AppSettings {
   uint8_t led_theme = 0;
 
   uint8_t meth_selected_ratio_percent = 50;  // % methanol in tank
+  bool knock_enabled = true;
+  uint8_t knock_adc_pin = 48;
+  float knock_boost_enable_kpa = 120.0f;
+  uint16_t knock_rpm_enable_min = 2500;
+  float knock_threshold_multiplier = 2.5f;
+  float knock_threshold_offset = 8.0f;
+  uint16_t knock_event_cooldown_ms = 250;
+  uint8_t knock_warning_threshold_count = 2;
+  uint8_t knock_critical_threshold_count = 4;
+  bool knock_baseline_learning_enabled = true;
+  bool knock_demo_mode_enabled = false;
+  uint8_t knock_response_mode = 1;
 
   bool race_use_metric_targets = false;
   bool race_auto_start = true;

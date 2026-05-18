@@ -49,6 +49,25 @@ void SettingsManager::load() {
 
   settings_.meth_selected_ratio_percent = prefs_.getUChar("meth_ratio", settings_.meth_selected_ratio_percent);
   if (settings_.meth_selected_ratio_percent > 100) settings_.meth_selected_ratio_percent = 100;
+  settings_.knock_enabled = prefs_.getBool("knock_en", settings_.knock_enabled);
+  settings_.knock_adc_pin = prefs_.getUChar("knock_pin", settings_.knock_adc_pin);
+  settings_.knock_boost_enable_kpa = prefs_.getFloat("knock_boost", settings_.knock_boost_enable_kpa);
+  settings_.knock_rpm_enable_min = prefs_.getUShort("knock_rpm", settings_.knock_rpm_enable_min);
+  settings_.knock_threshold_multiplier = prefs_.getFloat("knock_mult", settings_.knock_threshold_multiplier);
+  settings_.knock_threshold_offset = prefs_.getFloat("knock_offs", settings_.knock_threshold_offset);
+  settings_.knock_event_cooldown_ms = prefs_.getUShort("knock_cd", settings_.knock_event_cooldown_ms);
+  settings_.knock_warning_threshold_count = prefs_.getUChar("knock_warn", settings_.knock_warning_threshold_count);
+  settings_.knock_critical_threshold_count = prefs_.getUChar("knock_crit", settings_.knock_critical_threshold_count);
+  settings_.knock_baseline_learning_enabled = prefs_.getBool("knock_bl", settings_.knock_baseline_learning_enabled);
+  settings_.knock_demo_mode_enabled = prefs_.getBool("knock_demo", settings_.knock_demo_mode_enabled);
+  settings_.knock_response_mode = prefs_.getUChar("knock_resp", settings_.knock_response_mode);
+  if (settings_.knock_warning_threshold_count < 1) settings_.knock_warning_threshold_count = 1;
+  if (settings_.knock_critical_threshold_count < settings_.knock_warning_threshold_count) {
+    settings_.knock_critical_threshold_count = settings_.knock_warning_threshold_count;
+  }
+  if (settings_.knock_threshold_multiplier < 1.0f) settings_.knock_threshold_multiplier = 1.0f;
+  if (settings_.knock_event_cooldown_ms < 50) settings_.knock_event_cooldown_ms = 50;
+  if (settings_.knock_response_mode > 3) settings_.knock_response_mode = 1;
 
   settings_.race_use_metric_targets = prefs_.getBool("race_metric", settings_.race_use_metric_targets);
   settings_.race_auto_start = prefs_.getBool("race_auto", settings_.race_auto_start);
@@ -99,6 +118,18 @@ void SettingsManager::loadIntoState(state::VehicleState& s) const {
   s.led_theme = settings_.led_theme;
 
   s.meth_selected_ratio_percent = settings_.meth_selected_ratio_percent;
+  s.knock_enabled = settings_.knock_enabled;
+  s.knock_adc_pin = settings_.knock_adc_pin;
+  s.knock_boost_enable_kpa = settings_.knock_boost_enable_kpa;
+  s.knock_rpm_enable_min = settings_.knock_rpm_enable_min;
+  s.knock_threshold_multiplier = settings_.knock_threshold_multiplier;
+  s.knock_threshold_offset = settings_.knock_threshold_offset;
+  s.knock_event_cooldown_ms = settings_.knock_event_cooldown_ms;
+  s.knock_warning_threshold_count = settings_.knock_warning_threshold_count;
+  s.knock_critical_threshold_count = settings_.knock_critical_threshold_count;
+  s.knock_baseline_learning_enabled = settings_.knock_baseline_learning_enabled;
+  s.knock_demo_mode_enabled = settings_.knock_demo_mode_enabled;
+  s.knock_response_mode = settings_.knock_response_mode;
   s.race_use_metric_targets = settings_.race_use_metric_targets;
   s.race_auto_start = settings_.race_auto_start;
   s.race_min_satellites = settings_.race_min_satellites;
@@ -133,6 +164,18 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.led_theme = s.led_theme;
 
   settings_.meth_selected_ratio_percent = s.meth_selected_ratio_percent;
+  settings_.knock_enabled = s.knock_enabled;
+  settings_.knock_adc_pin = s.knock_adc_pin;
+  settings_.knock_boost_enable_kpa = s.knock_boost_enable_kpa;
+  settings_.knock_rpm_enable_min = s.knock_rpm_enable_min;
+  settings_.knock_threshold_multiplier = s.knock_threshold_multiplier;
+  settings_.knock_threshold_offset = s.knock_threshold_offset;
+  settings_.knock_event_cooldown_ms = s.knock_event_cooldown_ms;
+  settings_.knock_warning_threshold_count = s.knock_warning_threshold_count;
+  settings_.knock_critical_threshold_count = s.knock_critical_threshold_count;
+  settings_.knock_baseline_learning_enabled = s.knock_baseline_learning_enabled;
+  settings_.knock_demo_mode_enabled = s.knock_demo_mode_enabled;
+  settings_.knock_response_mode = s.knock_response_mode;
   settings_.race_use_metric_targets = s.race_use_metric_targets;
   settings_.race_auto_start = s.race_auto_start;
   settings_.race_min_satellites = s.race_min_satellites;
@@ -167,6 +210,18 @@ bool SettingsManager::save() {
   }
 
   prefs_.putUChar("meth_ratio", settings_.meth_selected_ratio_percent);
+  prefs_.putBool("knock_en", settings_.knock_enabled);
+  prefs_.putUChar("knock_pin", settings_.knock_adc_pin);
+  prefs_.putFloat("knock_boost", settings_.knock_boost_enable_kpa);
+  prefs_.putUShort("knock_rpm", settings_.knock_rpm_enable_min);
+  prefs_.putFloat("knock_mult", settings_.knock_threshold_multiplier);
+  prefs_.putFloat("knock_offs", settings_.knock_threshold_offset);
+  prefs_.putUShort("knock_cd", settings_.knock_event_cooldown_ms);
+  prefs_.putUChar("knock_warn", settings_.knock_warning_threshold_count);
+  prefs_.putUChar("knock_crit", settings_.knock_critical_threshold_count);
+  prefs_.putBool("knock_bl", settings_.knock_baseline_learning_enabled);
+  prefs_.putBool("knock_demo", settings_.knock_demo_mode_enabled);
+  prefs_.putUChar("knock_resp", settings_.knock_response_mode);
   prefs_.putBool("race_metric", settings_.race_use_metric_targets);
   prefs_.putBool("race_auto", settings_.race_auto_start);
   prefs_.putUChar("race_sat", settings_.race_min_satellites);

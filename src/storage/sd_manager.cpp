@@ -29,6 +29,7 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   ensureFolder("/logs/can");
   ensureFolder("/logs/gps");
   ensureFolder("/logs/meth");
+  ensureFolder("/logs/knock");
   ensureFolder("/logs/faults");
   ensureFolder("/logs/tach");
   ensureFolder("/logs/race");

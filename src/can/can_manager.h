@@ -45,6 +45,7 @@ class CanManager {
   uint32_t manualTestStartMs_ = 0;
   uint32_t lastManualTestStopMs_ = 0;
   uint32_t lastMethConfigTxMs_ = 0;
+  uint32_t lastKnockTxMs_ = 0;
 };
 
 }  // namespace canbus

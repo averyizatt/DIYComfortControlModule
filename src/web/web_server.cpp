@@ -38,6 +38,7 @@ a.link{color:#8ec8ff;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
 <div class='card'><h2>Live Vehicle</h2><pre id='live'>Connecting...</pre></div>
 <div class='card'><h2>CAN Status</h2><pre id='canStatus'>Loading CAN status...</pre></div>
 <div class='card'><h2>Water Meth</h2><p class='warn' id='ratioWarn'></p><pre id='methState'>Loading...</pre><div class='actions'><button onclick="methCmd('arm')">ARM</button><button onclick="methCmd('disarm')">DISARM</button><button onclick="setRatio()">Set Ratio</button><button onclick="methCmd('clear_faults')">Clear Faults</button></div></div>
+<div class='card'><h2>Knock Monitor</h2><pre id='knockState'>Loading...</pre><div class='actions'><button onclick="knockCmd('toggle')">Enable/Disable</button><button onclick="knockCmd('reset_baseline')">Reset Baseline</button><button onclick="knockCmd('simulate')">Sim Knock</button><button onclick="knockCmd('clear_events')">Clear Events</button></div></div>
 <div class='card'><h2>Race Performance</h2><div class='actions'><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></div><pre id='race'>Loading race data...</pre></div>
 <div class='card'><h2>Pages</h2><p><a class='link' href='/can'>Open dedicated CAN status page</a></p><p class='sub'>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics • CAN Status</p></div>
 </main>
@@ -47,11 +48,13 @@ function pretty(text){try{return JSON.stringify(JSON.parse(text),null,2);}catch(
 const ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{document.getElementById('live').textContent=pretty(e.data);};
 async function raceCmd(action){await fetch('/api/race/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});}
 async function methCmd(action){if(action==='arm'&&!confirm('ARM meth injection?'))return;const payload=action==='clear_faults'?{clear_faults:true}:{armed:action==='arm'};const r=await fetch('/api/meth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok){const e=await r.json();alert('Error: '+(e.error||r.status));}}
+async function knockCmd(action){const stateResp=await fetch('/api/knock/state');const st=await stateResp.json();let payload={};if(action==='toggle')payload={enabled:!st.enabled};else if(action==='reset_baseline')payload={reset_baseline:true};else if(action==='simulate')payload={simulate_event:true};else if(action==='clear_events')payload={clear_event_count:true};await fetch('/api/knock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
 async function setRatio(){const v=prompt('Methanol % in tank (0-100):');if(v===null)return;const n=parseInt(v,10);if(isNaN(n)||n<0||n>100){alert('Invalid value');return;}await fetch('/api/meth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ratio:n})});}
 async function updatePanels(){
   try{const race=await fetch('/api/race/state');document.getElementById('race').textContent=pretty(await race.text());}catch(_){}
   try{const can=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await can.text());}catch(_){}
   try{const meth=await fetch('/api/meth/state');document.getElementById('methState').textContent=pretty(await meth.text());}catch(_){}
+  try{const knock=await fetch('/api/knock/state');document.getElementById('knockState').textContent=pretty(await knock.text());}catch(_){}
 }
 setInterval(updatePanels,1000);updatePanels();
 </script></body></html>
@@ -169,6 +172,28 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     serializeJson(doc, body);
     req->send(200, "application/json", body);
   });
+  server_.on("/api/knock/state", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    const state::VehicleState s = stateStore_->read();
+    JsonDocument doc;
+    doc["enabled"] = s.knock_enabled;
+    doc["energy"] = s.knock_energy;
+    doc["baseline"] = s.knock_baseline;
+    doc["threshold"] = s.knock_threshold;
+    doc["event_count"] = s.knock_event_count;
+    doc["last_event_rpm"] = s.knock_last_event_rpm;
+    doc["last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
+    doc["signal_valid"] = s.knock_signal_valid;
+    doc["warning_active"] = s.knock_warning_active;
+    doc["critical_active"] = s.knock_critical_active;
+    doc["baseline_learned"] = s.knock_baseline_learned;
+    doc["sensor_fault"] = s.knock_sensor_fault;
+    doc["clipping_detected"] = s.knock_clipping_detected;
+    doc["response_mode"] = s.knock_response_mode;
+    String body;
+    serializeJson(doc, body);
+    req->send(200, "application/json", body);
+  });
   server_.on("/api/state", HTTP_GET, [this](AsyncWebServerRequest* req) { sendState(req); });
   server_.on("/api/settings", HTTP_GET, [this](AsyncWebServerRequest* req) { sendSettings(req); });
   server_.on("/api/diagnostics", HTTP_GET, [this](AsyncWebServerRequest* req) { sendDiagnostics(req); });
@@ -213,6 +238,18 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("led_global_brightness")) s.led_global_brightness = obj["led_global_brightness"].as<uint8_t>();
         if (obj.containsKey("led_theme")) s.led_theme = obj["led_theme"].as<uint8_t>();
         if (obj.containsKey("meth_ratio")) s.meth_selected_ratio_percent = sanitizeMethRatioValue(obj["meth_ratio"].as<uint8_t>());
+        if (obj.containsKey("knock_enabled")) s.knock_enabled = obj["knock_enabled"].as<bool>();
+        if (obj.containsKey("knock_adc_pin")) s.knock_adc_pin = obj["knock_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("knock_boost_enable_kpa")) s.knock_boost_enable_kpa = obj["knock_boost_enable_kpa"].as<float>();
+        if (obj.containsKey("knock_rpm_enable_min")) s.knock_rpm_enable_min = obj["knock_rpm_enable_min"].as<uint16_t>();
+        if (obj.containsKey("knock_threshold_multiplier")) s.knock_threshold_multiplier = obj["knock_threshold_multiplier"].as<float>();
+        if (obj.containsKey("knock_threshold_offset")) s.knock_threshold_offset = obj["knock_threshold_offset"].as<float>();
+        if (obj.containsKey("knock_event_cooldown_ms")) s.knock_event_cooldown_ms = obj["knock_event_cooldown_ms"].as<uint16_t>();
+        if (obj.containsKey("knock_warning_threshold_count")) s.knock_warning_threshold_count = obj["knock_warning_threshold_count"].as<uint8_t>();
+        if (obj.containsKey("knock_critical_threshold_count")) s.knock_critical_threshold_count = obj["knock_critical_threshold_count"].as<uint8_t>();
+        if (obj.containsKey("knock_baseline_learning_enabled")) s.knock_baseline_learning_enabled = obj["knock_baseline_learning_enabled"].as<bool>();
+        if (obj.containsKey("knock_demo_mode_enabled")) s.knock_demo_mode_enabled = obj["knock_demo_mode_enabled"].as<bool>();
+        if (obj.containsKey("knock_response_mode")) s.knock_response_mode = obj["knock_response_mode"].as<uint8_t>();
         if (obj.containsKey("race_use_metric_targets")) s.race_use_metric_targets = obj["race_use_metric_targets"].as<bool>();
         if (obj.containsKey("race_auto_start")) s.race_auto_start = obj["race_auto_start"].as<bool>();
         if (obj.containsKey("race_min_satellites")) s.race_min_satellites = obj["race_min_satellites"].as<uint8_t>();
@@ -222,6 +259,44 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       });
       state::VehicleState snapshot = stateStore_->read();
       settingsMgr_->updateFromState(snapshot);
+      settingsMgr_->save();
+      req->send(200, "application/json", "{\"ok\":true}");
+    },
+    nullptr,
+    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) { req->_tempObject = malloc(total + 1); }
+      if (req->_tempObject) {
+        memcpy((uint8_t*)req->_tempObject + index, data, len);
+        if (index + len == total) ((uint8_t*)req->_tempObject)[total] = '\0';
+      }
+    });
+
+  server_.on("/api/knock", HTTP_POST,
+    [this](AsyncWebServerRequest* req) {
+      if (!checkAuth(req)) return;
+      if (!req->_tempObject) { req->send(400); return; }
+      JsonDocument doc;
+      deserializeJson(doc, (char*)req->_tempObject);
+      free(req->_tempObject); req->_tempObject = nullptr;
+      JsonObject obj = doc.as<JsonObject>();
+      stateStore_->mutate([&](state::VehicleState& s) {
+        if (obj.containsKey("enabled")) s.knock_enabled = obj["enabled"].as<bool>();
+        if (obj.containsKey("adc_pin")) s.knock_adc_pin = obj["adc_pin"].as<uint8_t>();
+        if (obj.containsKey("boost_enable_kpa")) s.knock_boost_enable_kpa = obj["boost_enable_kpa"].as<float>();
+        if (obj.containsKey("rpm_enable_min")) s.knock_rpm_enable_min = obj["rpm_enable_min"].as<uint16_t>();
+        if (obj.containsKey("threshold_multiplier")) s.knock_threshold_multiplier = obj["threshold_multiplier"].as<float>();
+        if (obj.containsKey("threshold_offset")) s.knock_threshold_offset = obj["threshold_offset"].as<float>();
+        if (obj.containsKey("event_cooldown_ms")) s.knock_event_cooldown_ms = obj["event_cooldown_ms"].as<uint16_t>();
+        if (obj.containsKey("warning_threshold_count")) s.knock_warning_threshold_count = obj["warning_threshold_count"].as<uint8_t>();
+        if (obj.containsKey("critical_threshold_count")) s.knock_critical_threshold_count = obj["critical_threshold_count"].as<uint8_t>();
+        if (obj.containsKey("baseline_learning_enabled")) s.knock_baseline_learning_enabled = obj["baseline_learning_enabled"].as<bool>();
+        if (obj.containsKey("demo_mode_enabled")) s.knock_demo_mode_enabled = obj["demo_mode_enabled"].as<bool>();
+        if (obj.containsKey("response_mode")) s.knock_response_mode = obj["response_mode"].as<uint8_t>();
+        if ((obj["reset_baseline"] | false) == true) s.knock_reset_baseline_request = true;
+        if ((obj["clear_event_count"] | false) == true) s.knock_clear_event_count_request = true;
+        if ((obj["simulate_event"] | false) == true) s.knock_simulate_event_request = true;
+      });
+      settingsMgr_->updateFromState(stateStore_->read());
       settingsMgr_->save();
       req->send(200, "application/json", "{\"ok\":true}");
     },
@@ -453,6 +528,20 @@ String WebServerManager::stateJson() const {
   doc["selected_meth_ratio"] = s.meth_selected_ratio_percent;
   doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
+  doc["knock_enabled"] = s.knock_enabled;
+  doc["knock_energy"] = s.knock_energy;
+  doc["knock_baseline"] = s.knock_baseline;
+  doc["knock_threshold"] = s.knock_threshold;
+  doc["knock_event_count"] = s.knock_event_count;
+  doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
+  doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
+  doc["knock_signal_valid"] = s.knock_signal_valid;
+  doc["knock_warning_active"] = s.knock_warning_active;
+  doc["knock_critical_active"] = s.knock_critical_active;
+  doc["knock_baseline_learned"] = s.knock_baseline_learned;
+  doc["knock_sensor_fault"] = s.knock_sensor_fault;
+  doc["knock_clipping_detected"] = s.knock_clipping_detected;
+  doc["knock_response_mode"] = s.knock_response_mode;
   doc["can_node_online"] = s.can_online;
   doc["taillight_state_left"] = s.taillight_left_state;
   doc["taillight_state_right"] = s.taillight_right_state;
@@ -509,6 +598,10 @@ String WebServerManager::canStatusJson() const {
   doc["gps_stale"] = s.gps_stale;
   doc["fault_flags"] = s.fault_flags;
   doc["master_state"] = s.master_state;
+  doc["knock_warning_active"] = s.knock_warning_active;
+  doc["knock_critical_active"] = s.knock_critical_active;
+  doc["knock_sensor_fault"] = s.knock_sensor_fault;
+  doc["knock_clipping_detected"] = s.knock_clipping_detected;
   doc["uptime_ms"] = s.uptime_ms;
   doc["reset_reason"] = s.reset_reason;
   doc["brownout_reset_count"] = s.brownout_reset_count;
@@ -547,6 +640,18 @@ void WebServerManager::sendSettings(AsyncWebServerRequest* request) const {
   doc["race_start_longitude"] = st.race_start_longitude;
   doc["race_start_point_set"] = st.race_start_point_set;
   doc["wifi_ap_mode"] = st.wifi_ap_mode;
+  doc["knock_enabled"] = st.knock_enabled;
+  doc["knock_adc_pin"] = st.knock_adc_pin;
+  doc["knock_boost_enable_kpa"] = st.knock_boost_enable_kpa;
+  doc["knock_rpm_enable_min"] = st.knock_rpm_enable_min;
+  doc["knock_threshold_multiplier"] = st.knock_threshold_multiplier;
+  doc["knock_threshold_offset"] = st.knock_threshold_offset;
+  doc["knock_event_cooldown_ms"] = st.knock_event_cooldown_ms;
+  doc["knock_warning_threshold_count"] = st.knock_warning_threshold_count;
+  doc["knock_critical_threshold_count"] = st.knock_critical_threshold_count;
+  doc["knock_baseline_learning_enabled"] = st.knock_baseline_learning_enabled;
+  doc["knock_demo_mode_enabled"] = st.knock_demo_mode_enabled;
+  doc["knock_response_mode"] = st.knock_response_mode;
   doc["warning"] = kRatioWarning;
 
   String out;
@@ -587,6 +692,20 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["watchdog_reset_count"] = s.watchdog_reset_count;
   doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
+  doc["knock_energy"] = s.knock_energy;
+  doc["knock_baseline"] = s.knock_baseline;
+  doc["knock_threshold"] = s.knock_threshold;
+  doc["knock_event_count"] = s.knock_event_count;
+  doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
+  doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
+  doc["knock_signal_valid"] = s.knock_signal_valid;
+  doc["knock_warning_active"] = s.knock_warning_active;
+  doc["knock_critical_active"] = s.knock_critical_active;
+  doc["knock_baseline_learned"] = s.knock_baseline_learned;
+  doc["knock_sensor_fault"] = s.knock_sensor_fault;
+  doc["knock_clipping_detected"] = s.knock_clipping_detected;
+  doc["knock_signal_clip_high_count"] = s.knock_signal_clip_high_count;
+  doc["knock_signal_clip_low_count"] = s.knock_signal_clip_low_count;
 
   String out;
   serializeJson(doc, out);
