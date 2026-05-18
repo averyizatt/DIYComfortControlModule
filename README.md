@@ -115,7 +115,7 @@ Bosch piezo knock sensor (block or intake manifold mount)
 | 0 | LOG_ONLY | Log to SD; no output or alert |
 | 1 | WARN_ONLY | Default — sets warning/critical state flags only |
 | 2 | FORCE_METH_ENABLE | If critical and meth module is armed, keeps meth enabled |
-| 3 | SAFETY_SHUTDOWN | If critical, disarms meth module |
+| 3 | SAFETY_SHUTDOWN | If critical, disarms meth module each event; does not prevent re-arming |
 
 > **Warning:** Modes 2 and 3 interact with the active water-meth system. Changing these modes should be done intentionally and is confirmed by the web UI.
 

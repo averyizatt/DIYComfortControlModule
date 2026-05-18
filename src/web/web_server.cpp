@@ -192,13 +192,24 @@ async function knockAction(action){
   if(!r.ok){const e=await r.json();alert('Error: '+(e.error||r.status));}
 }
 async function saveSettings(){
+  const multEl=document.getElementById('sMult');
+  const boostEl=document.getElementById('sBoost');
+  const rpmEl=document.getElementById('sRpm');
+  const respEl=document.getElementById('sResp');
+  const mult=parseFloat(multEl.value);
+  const boost=parseFloat(boostEl.value);
+  const rpm=parseInt(rpmEl.value);
+  const resp=parseInt(respEl.value);
+  if(isNaN(mult)||mult<1){alert('Threshold multiplier must be a number >= 1');return;}
+  if(isNaN(boost)||boost<0){alert('Boost enable kPa must be a valid number');return;}
+  if(isNaN(rpm)||rpm<0){alert('RPM enable must be a valid number');return;}
+  if(isNaN(resp)){alert('Response mode is required');return;}
   const payload={
-    knock_threshold_multiplier:parseFloat(document.getElementById('sMult').value)||2.5,
-    knock_boost_enable_kpa:parseFloat(document.getElementById('sBoost').value)||120,
-    knock_rpm_enable_min:parseInt(document.getElementById('sRpm').value)||2500,
-    knock_response_mode:parseInt(document.getElementById('sResp').value)||1
+    knock_threshold_multiplier:mult,
+    knock_boost_enable_kpa:boost,
+    knock_rpm_enable_min:rpm,
+    knock_response_mode:resp
   };
-  const resp=parseInt(document.getElementById('sResp').value)||1;
   if(resp>=2&&!confirm('Response mode '+kRespNames[resp]+' will affect active systems. Continue?'))return;
   const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!r.ok)alert('Settings save failed');
@@ -505,6 +516,21 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       deserializeJson(doc, (char*)req->_tempObject);
       free(req->_tempObject); req->_tempObject = nullptr;
       JsonObject obj = doc.as<JsonObject>();
+
+      // Validate the named action before entering the state mutation.
+      static const char* const kValidActions[] = {
+        "enable", "disable", "reset_baseline", "clear_events", "simulate_event"
+      };
+      if (obj.containsKey("action")) {
+        const String action = obj["action"].as<String>();
+        bool found = false;
+        for (const char* v : kValidActions) { if (action == v) { found = true; break; } }
+        if (!found) {
+          req->send(400, "application/json", "{\"error\":\"unrecognized action\"}");
+          return;
+        }
+      }
+
       stateStore_->mutate([&](state::VehicleState& s) {
         // Named action field (new canonical API)
         if (obj.containsKey("action")) {
@@ -534,6 +560,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("baseline_learning_enabled")) s.knock_baseline_learning_enabled = obj["baseline_learning_enabled"].as<bool>();
         if (obj.containsKey("demo_mode_enabled")) s.knock_demo_mode_enabled = obj["demo_mode_enabled"].as<bool>();
         if (obj.containsKey("response_mode")) s.knock_response_mode = obj["response_mode"].as<uint8_t>();
+        // Legacy boolean command keys for backward compatibility
         if ((obj["reset_baseline"] | false) == true) s.knock_reset_baseline_request = true;
         if ((obj["clear_event_count"] | false) == true) s.knock_clear_event_count_request = true;
         if ((obj["simulate_event"] | false) == true) {
@@ -863,8 +890,6 @@ String WebServerManager::canStatusJson() const {
   doc["knock_response_mode"] = s.knock_response_mode;
   doc["knock_logging_active"] = s.knock_logging_active;
   doc["knock_online"] = s.knock_online;
-  doc["knock_warning_active"] = s.knock_warning_active;
-  doc["knock_critical_active"] = s.knock_critical_active;
   doc["uptime_ms"] = s.uptime_ms;
   doc["reset_reason"] = s.reset_reason;
   doc["brownout_reset_count"] = s.brownout_reset_count;
