@@ -40,7 +40,7 @@ a.link{color:#8ec8ff;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
 <div class='card'><h2>Water Meth</h2><p class='warn' id='ratioWarn'></p><pre id='methState'>Loading...</pre><div class='actions'><button onclick="methCmd('arm')">ARM</button><button onclick="methCmd('disarm')">DISARM</button><button onclick="setRatio()">Set Ratio</button><button onclick="methCmd('clear_faults')">Clear Faults</button></div></div>
 <div class='card'><h2>Knock Monitor</h2><pre id='knockState'>Loading...</pre><div class='actions'><button onclick="knockCmd('toggle')">Enable/Disable</button><button onclick="knockCmd('reset_baseline')">Reset Baseline</button><button onclick="knockCmd('simulate')">Simulate Knock Event</button><button onclick="knockCmd('clear_events')">Clear Events</button></div></div>
 <div class='card'><h2>Race Performance</h2><div class='actions'><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></div><pre id='race'>Loading race data...</pre></div>
-<div class='card'><h2>Pages</h2><p><a class='link' href='/can'>Open dedicated CAN status page</a></p><p class='sub'>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics • CAN Status</p></div>
+<div class='card'><h2>Pages</h2><p><a class='link' href='/can'>Open dedicated CAN status page</a></p><p><a class='link' href='/knock'>Open Knock Sense page</a></p><p class='sub'>Dashboard • Race • Settings • LED • Water Meth • Taillights • Diagnostics • CAN Status • Knock Sense</p></div>
 </main>
 <script>
 document.getElementById('ratioWarn').textContent='{{RATIO_WARNING}}';
@@ -75,6 +75,216 @@ a{display:inline-block;margin-bottom:10px;color:#8ec8ff;font-size:clamp(16px,2.2
 function pretty(text){try{return JSON.stringify(JSON.parse(text),null,2);}catch(_){return text;}}
 async function tick(){try{const r=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await r.text());}catch(_){}}
 setInterval(tick,600);tick();
+</script></body></html>
+)HTML";
+
+const char kKnockHtml[] PROGMEM = R"HTML(
+<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Knock Sense</title><style>
+*{box-sizing:border-box}
+body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0;line-height:1.35}
+header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55;display:flex;align-items:center;gap:16px}
+h1{margin:0;font-size:clamp(24px,4vw,40px);letter-spacing:.5px}
+.badge{padding:4px 14px;border-radius:20px;font-size:clamp(13px,1.8vw,17px);font-weight:700}
+.badge-ok{background:#1a3a1a;color:#00e676;border:1px solid #00e676}
+.badge-warn{background:#3a2800;color:#ffb300;border:1px solid #ffb300}
+.badge-crit{background:#3a0000;color:#ff5252;border:1px solid #ff5252}
+.badge-off{background:#1a1a2a;color:#667788;border:1px solid #445566}
+main{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px;max-width:1400px;margin:0 auto}
+.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27;min-width:0}
+.card h2{margin:0 0 10px;font-size:clamp(18px,2.5vw,26px)}
+.metric-row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.metric-name{min-width:110px;color:#8fa8c0;font-size:clamp(13px,1.8vw,17px)}
+.metric-val{font-size:clamp(15px,2.2vw,21px);font-weight:700}
+.bar-wrap{flex:1;background:#0f141c;border-radius:4px;height:16px;overflow:hidden;border:1px solid #2a3a50}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s,background .3s}
+.note{font-size:clamp(12px,1.6vw,15px);color:#7a8a9a;margin-top:6px}
+.actions{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px;margin-top:10px}
+button{font:inherit;font-size:clamp(14px,2vw,19px);font-weight:700;padding:10px;border-radius:9px;border:2px solid #4c6488;background:#243246;color:#f0f4ff;cursor:pointer}
+button:active{transform:scale(.98)}
+button.danger{border-color:#882222;background:#3a1010}
+button.sim{border-color:#7a5a00;background:#2a1e00;color:#ffd060}
+a.back{color:#8ec8ff;font-size:clamp(14px,2vw,18px);text-decoration:none}
+canvas{display:block;width:100%;height:140px;background:#0a0e14;border-radius:8px;border:1px solid #2a3a50}
+.setting-row{display:flex;align-items:center;gap:8px;margin:5px 0}
+.setting-row label{min-width:170px;font-size:clamp(12px,1.7vw,16px);color:#8fa8c0}
+.setting-row input,.setting-row select{background:#141c28;border:1px solid #33445f;color:#f3f6fa;border-radius:6px;padding:5px 8px;font-size:clamp(13px,1.8vw,17px);width:100px}
+</style></head>
+<body>
+<header>
+  <h1>&#9201; Knock Sense</h1>
+  <span id='hdrBadge' class='badge badge-off'>OFFLINE</span>
+  <span style='flex:1'></span>
+  <a class='back' href='/'>&#8592; Dashboard</a>
+</header>
+<main>
+<div class='card'><h2>Live Levels</h2>
+  <div class='metric-row'><span class='metric-name'>Knock Energy</span><span class='metric-val' id='mEnergy'>--</span><div class='bar-wrap'><div class='bar-fill' id='bEnergy' style='width:0%;background:#2255aa'></div></div></div>
+  <div class='metric-row'><span class='metric-name'>Baseline</span><span class='metric-val' id='mBaseline'>--</span><div class='bar-wrap'><div class='bar-fill' id='bBaseline' style='width:0%;background:#22aa55'></div></div></div>
+  <div class='metric-row'><span class='metric-name'>Threshold</span><span class='metric-val' id='mThreshold'>--</span><div class='bar-wrap'><div class='bar-fill' id='bThreshold' style='width:100%;background:#aa7722'></div></div></div>
+  <p class='note'>Bars show % of current threshold level.</p>
+</div>
+<div class='card'><h2>Sensor Health</h2>
+  <div class='metric-row'><span class='metric-name'>Status</span><span class='metric-val' id='mSensor'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Enabled</span><span class='metric-val' id='mEnabled'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Signal Valid</span><span class='metric-val' id='mValid'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Baseline Learned</span><span class='metric-val' id='mLearned'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Sensor Fault</span><span class='metric-val' id='mFault'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>ADC Clipping</span><span class='metric-val' id='mClip'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Clip High</span><span class='metric-val' id='mClipHi'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Clip Low</span><span class='metric-val' id='mClipLo'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>SD Logging</span><span class='metric-val' id='mLog'>--</span></div>
+  <p class='note'>† Not ECU knock control — supplemental warning and logging only.</p>
+</div>
+<div class='card'><h2>Events</h2>
+  <div class='metric-row'><span class='metric-name'>Event Count</span><span class='metric-val' id='mCount'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Warning Active</span><span class='metric-val' id='mWarn'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Critical Active</span><span class='metric-val' id='mCrit'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Response Mode</span><span class='metric-val' id='mResp'>--</span></div>
+  <br><b style='font-size:clamp(14px,2vw,18px)'>Last Event</b>
+  <div class='metric-row'><span class='metric-name'>RPM</span><span class='metric-val' id='mLRpm'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>Boost kPa</span><span class='metric-val' id='mLBoost'>--</span></div>
+  <div class='metric-row'><span class='metric-name'>IAT °C</span><span class='metric-val' id='mLIat'>--</span></div>
+</div>
+<div class='card' style='grid-column:span 2'><h2>History Chart (last 30 s)</h2>
+  <canvas id='chart'></canvas>
+  <p class='note'>Blue = energy &nbsp; Green = baseline &nbsp; Orange = threshold</p>
+</div>
+<div class='card'><h2>Controls</h2>
+  <div class='actions'>
+    <button onclick="knockAction('toggle')">Enable / Disable</button>
+    <button onclick="knockAction('reset_baseline')">Reset Baseline</button>
+    <button onclick="knockAction('clear_events')">Clear Events</button>
+    <button class='sim' onclick="knockAction('simulate')">Simulate Event</button>
+  </div>
+  <p class='note'>Simulate only works in demo / dev builds.</p>
+</div>
+<div class='card'><h2>Settings</h2>
+  <div class='setting-row'><label>Threshold ×</label><input id='sMult' type='number' step='0.1' min='1' max='10'></div>
+  <div class='setting-row'><label>Boost Enable kPa</label><input id='sBoost' type='number' step='1'></div>
+  <div class='setting-row'><label>RPM Enable</label><input id='sRpm' type='number' step='100'></div>
+  <div class='setting-row'><label>Response Mode</label>
+    <select id='sResp'>
+      <option value='0'>Log Only</option>
+      <option value='1'>Warn Only (default)</option>
+      <option value='2'>Meth Enable</option>
+      <option value='3'>Safety Shutdown</option>
+    </select></div>
+  <div class='actions' style='margin-top:8px'>
+    <button onclick='saveSettings()'>Save Settings</button>
+  </div>
+  <p class='note' style='color:#ffb300'>&#9888; Meth Enable and Safety Shutdown modes alter active systems. Use with caution.</p>
+</div>
+</main>
+<script>
+const kRespNames=['Log Only','Warn Only','Meth Enable','Safety Shutdown'];
+let chartData={energy:[],baseline:[],threshold:[]};
+const MAX_CHART_POINTS=60;
+async function knockAction(action){
+  const stateResp=await fetch('/api/knock/state');
+  const st=await stateResp.json();
+  let payload={};
+  if(action==='toggle')payload={enabled:!st.enabled};
+  else if(action==='reset_baseline')payload={reset_baseline:true};
+  else if(action==='simulate')payload={simulate_event:true};
+  else if(action==='clear_events')payload={clear_event_count:true};
+  const r=await fetch('/api/knock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!r.ok){const e=await r.json();alert('Error: '+(e.error||r.status));}
+}
+async function saveSettings(){
+  const multEl=document.getElementById('sMult');
+  const boostEl=document.getElementById('sBoost');
+  const rpmEl=document.getElementById('sRpm');
+  const respEl=document.getElementById('sResp');
+  const mult=parseFloat(multEl.value);
+  const boost=parseFloat(boostEl.value);
+  const rpm=parseInt(rpmEl.value);
+  const resp=parseInt(respEl.value);
+  if(isNaN(mult)||mult<1){alert('Threshold multiplier must be a number >= 1');return;}
+  if(isNaN(boost)||boost<0){alert('Boost enable kPa must be a valid number');return;}
+  if(isNaN(rpm)||rpm<0){alert('RPM enable must be a valid number');return;}
+  if(isNaN(resp)){alert('Response mode is required');return;}
+  const payload={
+    knock_threshold_multiplier:mult,
+    knock_boost_enable_kpa:boost,
+    knock_rpm_enable_min:rpm,
+    knock_response_mode:resp
+  };
+  if(resp>=2&&!confirm('Response mode '+kRespNames[resp]+' will affect active systems. Continue?'))return;
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!r.ok)alert('Settings save failed');
+}
+function setV(id,v,unit){const el=document.getElementById(id);if(el)el.textContent=(v!==undefined?v:'--')+(unit||'');}
+function setBar(id,pct){const el=document.getElementById(id);if(!el)return;el.style.width=Math.min(100,Math.max(0,pct))+'%';if(pct>=90)el.style.background='#cc2222';else if(pct>=60)el.style.background='#cc7700';else el.style.background=(id==='bEnergy'?'#2255aa':id==='bBaseline'?'#22aa55':'#aa7722');}
+async function loadSettings(){
+  try{const r=await fetch('/api/settings');const d=await r.json();
+  document.getElementById('sMult').value=d.knock_threshold_multiplier||2.5;
+  document.getElementById('sBoost').value=d.knock_boost_enable_kpa||120;
+  document.getElementById('sRpm').value=d.knock_rpm_enable_min||2500;
+  document.getElementById('sResp').value=d.knock_response_mode||1;
+  }catch(_){}
+}
+function drawChart(){
+  const canvas=document.getElementById('chart');
+  if(!canvas)return;
+  const w=canvas.offsetWidth||600;canvas.width=w;canvas.height=140;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,w,140);
+  const n=chartData.energy.length;if(n<2)return;
+  const all=chartData.energy.concat(chartData.baseline,chartData.threshold);
+  const maxV=Math.max(...all,1)*1.2;
+  function drawLine(arr,color){
+    ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2;
+    arr.forEach((v,i)=>{
+      const x=(i/(n-1))*(w-4)+2;const y=130-(v/maxV)*120;
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });ctx.stroke();
+  }
+  ctx.strokeStyle='#1a2540';ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){const y=130-(g/4)*120;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  drawLine(chartData.baseline,'#22aa55');
+  drawLine(chartData.threshold,'#aa7722');
+  drawLine(chartData.energy,'#5588dd');
+}
+async function tick(){
+  try{
+    const r=await fetch('/api/knock/state');const d=await r.json();
+    const thresh=d.knock_threshold||1;
+    const ePct=(d.knock_energy/thresh*100).toFixed(0);
+    const bPct=(d.knock_baseline/thresh*100).toFixed(0);
+    setV('mEnergy',(d.knock_energy||0).toFixed(1),' raw ('+ePct+'%)');
+    setV('mBaseline',(d.knock_baseline||0).toFixed(1),' raw ('+bPct+'%)');
+    setV('mThreshold',(d.knock_threshold||0).toFixed(1),' raw');
+    setBar('bEnergy',parseFloat(ePct));setBar('bBaseline',parseFloat(bPct));
+    setV('mSensor',d.knock_sensor_fault?'FAULT':d.knock_clipping_detected?'CLIPPING':!d.knock_baseline_learned?'LEARNING':!d.knock_signal_valid?'NOISY':'OK');
+    setV('mEnabled',d.enabled?'YES':'NO');
+    setV('mValid',d.knock_signal_valid?'YES':'NO');
+    setV('mLearned',d.knock_baseline_learned?'YES':'NO');
+    setV('mFault',d.knock_sensor_fault?'YES':'NO');
+    setV('mClip',d.knock_clipping_detected?'YES':'NO');
+    setV('mClipHi',d.knock_signal_clip_high_count);
+    setV('mClipLo',d.knock_signal_clip_low_count);
+    setV('mLog',d.knock_logging_active?'ACTIVE':'--');
+    setV('mCount',d.knock_event_count);
+    setV('mWarn',d.knock_warning_active?'⚠ YES':'NO');
+    setV('mCrit',d.knock_critical_active?'🔴 YES':'NO');
+    setV('mResp',kRespNames[d.knock_response_mode]||d.knock_response_mode);
+    setV('mLRpm',d.knock_last_event_rpm,' RPM');
+    setV('mLBoost',d.knock_last_event_boost_kpa,' kPa');
+    setV('mLIat',d.knock_last_event_iat_c,' °C');
+    const badge=document.getElementById('hdrBadge');
+    if(d.knock_critical_active){badge.className='badge badge-crit';badge.textContent='CRITICAL';}
+    else if(d.knock_warning_active){badge.className='badge badge-warn';badge.textContent='WARNING';}
+    else if(d.knock_enabled||d.enabled){badge.className='badge badge-ok';badge.textContent='ONLINE';}
+    else{badge.className='badge badge-off';badge.textContent='DISABLED';}
+    chartData.energy.push(d.knock_energy||0);
+    chartData.baseline.push(d.knock_baseline||0);
+    chartData.threshold.push(d.knock_threshold||0);
+    if(chartData.energy.length>MAX_CHART_POINTS){chartData.energy.shift();chartData.baseline.shift();chartData.threshold.shift();}
+    drawChart();
+  }catch(_){}
+}
+loadSettings();setInterval(tick,500);tick();
 </script></body></html>
 )HTML";
 
@@ -176,6 +386,26 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     if (!checkAuth(req)) return;
     const state::VehicleState s = stateStore_->read();
     JsonDocument doc;
+    doc["knock_enabled"] = s.knock_enabled;
+    doc["knock_signal_valid"] = s.knock_signal_valid;
+    doc["knock_energy"] = s.knock_energy;
+    doc["knock_baseline"] = s.knock_baseline;
+    doc["knock_threshold"] = s.knock_threshold;
+    doc["knock_warning_active"] = s.knock_warning_active;
+    doc["knock_critical_active"] = s.knock_critical_active;
+    doc["knock_event_count"] = s.knock_event_count;
+    doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
+    doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
+    doc["knock_last_event_iat_c"] = s.knock_last_event_iat_c;
+    doc["knock_sensor_fault"] = s.knock_sensor_fault;
+    doc["knock_clipping_detected"] = s.knock_clipping_detected;
+    doc["knock_baseline_learned"] = s.knock_baseline_learned;
+    doc["knock_response_mode"] = s.knock_response_mode;
+    doc["knock_logging_active"] = s.knock_logging_active;
+    doc["knock_online"] = s.knock_online;
+    doc["knock_signal_clip_high_count"] = s.knock_signal_clip_high_count;
+    doc["knock_signal_clip_low_count"] = s.knock_signal_clip_low_count;
+    // Legacy / shorter aliases kept for backward compatibility
     doc["enabled"] = s.knock_enabled;
     doc["energy"] = s.knock_energy;
     doc["baseline"] = s.knock_baseline;
@@ -220,6 +450,13 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     String body;
     serializeJson(out, body);
     req->send(200, "application/json", body);
+  });
+
+  server_.on("/knock", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    if (!checkAuth(req)) return;
+    String html(kKnockHtml);
+    html.replace("{{UI_FONT_STACK}}", kUiFontStack);
+    req->send(200, "text/html", html);
   });
 
   server_.on("/api/settings", HTTP_POST,
@@ -279,7 +516,38 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       deserializeJson(doc, (char*)req->_tempObject);
       free(req->_tempObject); req->_tempObject = nullptr;
       JsonObject obj = doc.as<JsonObject>();
+
+      // Validate the named action before entering the state mutation.
+      static const char* const kValidActions[] = {
+        "enable", "disable", "reset_baseline", "clear_events", "simulate_event"
+      };
+      if (obj.containsKey("action")) {
+        const String action = obj["action"].as<String>();
+        bool found = false;
+        for (const char* v : kValidActions) { if (action == v) { found = true; break; } }
+        if (!found) {
+          req->send(400, "application/json", "{\"error\":\"unrecognized action\"}");
+          return;
+        }
+      }
+
       stateStore_->mutate([&](state::VehicleState& s) {
+        // Named action field (new canonical API)
+        if (obj.containsKey("action")) {
+          const String action = obj["action"].as<String>();
+          if (action == "enable")          { s.knock_enabled = true; }
+          else if (action == "disable")    { s.knock_enabled = false; }
+          else if (action == "reset_baseline") { s.knock_reset_baseline_request = true; }
+          else if (action == "clear_events")   { s.knock_clear_event_count_request = true; }
+          else if (action == "simulate_event") {
+#if defined(DEMO_MODE) && (DEMO_MODE == 1)
+            s.knock_simulate_event_request = true;
+#else
+            if (s.knock_demo_mode_enabled) s.knock_simulate_event_request = true;
+#endif
+          }
+        }
+        // Existing key-value fields (backward compatible)
         if (obj.containsKey("enabled")) s.knock_enabled = obj["enabled"].as<bool>();
         if (obj.containsKey("adc_pin")) s.knock_adc_pin = obj["adc_pin"].as<uint8_t>();
         if (obj.containsKey("boost_enable_kpa")) s.knock_boost_enable_kpa = obj["boost_enable_kpa"].as<float>();
@@ -292,9 +560,16 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("baseline_learning_enabled")) s.knock_baseline_learning_enabled = obj["baseline_learning_enabled"].as<bool>();
         if (obj.containsKey("demo_mode_enabled")) s.knock_demo_mode_enabled = obj["demo_mode_enabled"].as<bool>();
         if (obj.containsKey("response_mode")) s.knock_response_mode = obj["response_mode"].as<uint8_t>();
+        // Legacy boolean command keys for backward compatibility
         if ((obj["reset_baseline"] | false) == true) s.knock_reset_baseline_request = true;
         if ((obj["clear_event_count"] | false) == true) s.knock_clear_event_count_request = true;
-        if ((obj["simulate_event"] | false) == true) s.knock_simulate_event_request = true;
+        if ((obj["simulate_event"] | false) == true) {
+#if defined(DEMO_MODE) && (DEMO_MODE == 1)
+          s.knock_simulate_event_request = true;
+#else
+          if (s.knock_demo_mode_enabled) s.knock_simulate_event_request = true;
+#endif
+        }
       });
       settingsMgr_->updateFromState(stateStore_->read());
       settingsMgr_->save();
@@ -598,10 +873,23 @@ String WebServerManager::canStatusJson() const {
   doc["gps_stale"] = s.gps_stale;
   doc["fault_flags"] = s.fault_flags;
   doc["master_state"] = s.master_state;
+  doc["knock_enabled"] = s.knock_enabled;
+  doc["knock_signal_valid"] = s.knock_signal_valid;
+  doc["knock_energy"] = s.knock_energy;
+  doc["knock_baseline"] = s.knock_baseline;
+  doc["knock_threshold"] = s.knock_threshold;
   doc["knock_warning_active"] = s.knock_warning_active;
   doc["knock_critical_active"] = s.knock_critical_active;
+  doc["knock_event_count"] = s.knock_event_count;
+  doc["knock_last_event_rpm"] = s.knock_last_event_rpm;
+  doc["knock_last_event_boost_kpa"] = s.knock_last_event_boost_kpa;
+  doc["knock_last_event_iat_c"] = s.knock_last_event_iat_c;
   doc["knock_sensor_fault"] = s.knock_sensor_fault;
   doc["knock_clipping_detected"] = s.knock_clipping_detected;
+  doc["knock_baseline_learned"] = s.knock_baseline_learned;
+  doc["knock_response_mode"] = s.knock_response_mode;
+  doc["knock_logging_active"] = s.knock_logging_active;
+  doc["knock_online"] = s.knock_online;
   doc["uptime_ms"] = s.uptime_ms;
   doc["reset_reason"] = s.reset_reason;
   doc["brownout_reset_count"] = s.brownout_reset_count;

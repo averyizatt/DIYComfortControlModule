@@ -92,6 +92,9 @@ class KnockMonitor {
   uint16_t clipLowTotal_ = 0;
   uint32_t baselineSampleCount_ = 0;
 
+  int8_t lastEventIatC_ = 0;
+  uint32_t lastEventTimeMs_ = 0;
+
   bool baselineLearned_ = false;
   bool signalValid_ = true;
   bool sensorFault_ = false;

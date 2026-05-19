@@ -13,6 +13,7 @@ namespace canbus {
 namespace {
 constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
+constexpr uint32_t kKnockTimeoutMs = 500;
 constexpr uint32_t kGpsStaleTimeoutMs = 1000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
 // Cooldown to prevent rapid repeated manual pump tests from UI/API retries.
@@ -484,6 +485,32 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     });
     return;
   }
+
+  // 0x307: Knock state — update staleness tracker when received from the CAN bus
+  // (handles external knock modules; CCM's own knock monitor writes VehicleState directly).
+  if (frame.id == can_protocol::ID_ENGINE_KNOCK_STATE) {
+    state::g_vehicle_state.mutate([nowMs](state::VehicleState& s) {
+      s.last_knock_ms = nowMs;
+      s.knock_online = true;
+    });
+    return;
+  }
+
+  // 0x308: Knock fault from an external module — update critical/sensor fault flags.
+  if (frame.id == can_protocol::ID_ENGINE_KNOCK_FAULT) {
+    can_protocol::EngineKnockFault msg{};
+    if (!can_protocol::unpackEngineKnockFault(frame, msg)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      const bool isSensorFault = (msg.code == can_protocol::knock_fault_code::SENSOR_DISCONNECTED ||
+                                  msg.code == can_protocol::knock_fault_code::ADC_FAULT);
+      if (isSensorFault) s.knock_sensor_fault = true;
+      if (msg.severity >= static_cast<uint8_t>(can_protocol::FaultSeverity::CRITICAL)) {
+        s.knock_critical_active = true;
+        s.fault_flags |= 0x0400;
+      }
+    });
+    return;
+  }
 }
 
 void CanManager::sendScheduledFrames(uint32_t nowMs) {
@@ -533,6 +560,12 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     s.taillight_online = (nowMs - s.last_taillight_ms) <= kTaillightTimeoutMs;
     s.meth_online = (nowMs - s.last_meth_ms) <= kMethTimeoutMs;
     s.gps_stale = (nowMs - s.last_gps_ms) > kGpsStaleTimeoutMs;
+
+    // Knock online: set by knock_monitor directly via last_knock_ms; after startup grace
+    // it also tracks external 0x307 frames for future external module support.
+    if (!inStartupGrace) {
+      s.knock_online = (nowMs - s.last_knock_ms) <= kKnockTimeoutMs;
+    }
 
     if (!inStartupGrace && (!s.taillight_online || !s.meth_online)) {
       s.fault_flags |= 0x0080;

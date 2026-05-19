@@ -34,7 +34,7 @@ static lv_color_t s_buf2[480 * 20];
 struct NavCtx     { ScreenDashboard* self; uint8_t page; };
 struct LedModeCtx { ScreenDashboard* self; state::LedMode mode; };
 
-static NavCtx     s_navCtxs[7];
+static NavCtx     s_navCtxs[8];
 static LedModeCtx s_ledModeCtxs[5];
 
 constexpr const char* kStatusColorOn  = "#00C853";
@@ -156,6 +156,7 @@ void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
   updateGpsPage(s);
   updateTempsPage(s);
   updateDiagPage(s);
+  updateKnockPage(s, nowMs);
   lv_task_handler();
 }
 
@@ -300,6 +301,7 @@ void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
   buildGpsPage(pages_[4]);
   buildTempsPage(pages_[5]);
   buildDiagPage(pages_[6]);
+  buildKnockPage(pages_[7]);
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +309,7 @@ void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
-  static const char* const kSymbols[7] = {
+  static const char* const kSymbols[8] = {
     LV_SYMBOL_BARS,      // 0 DASH
     LV_SYMBOL_TINT,      // 1 METH
     LV_SYMBOL_LOOP,      // 2 TAIL
@@ -315,9 +317,10 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
     LV_SYMBOL_GPS,       // 4 GPS
     LV_SYMBOL_WARNING,   // 5 TEMPS
     LV_SYMBOL_LIST,      // 6 DIAG
+    LV_SYMBOL_AUDIO,     // 7 KNOCK
   };
-  static const char* const kNames[7] = {
-    "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG"
+  static const char* const kNames[8] = {
+    "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG", "KNOCK"
   };
 
   lv_obj_t* bar = lv_obj_create(scr);
@@ -378,8 +381,8 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
 
 void ScreenDashboard::showPage(uint8_t idx) {
   if (idx >= kPageCount) return;
-  static const char* const kNames[7] = {
-    "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG"
+  static const char* const kNames[8] = {
+    "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG", "KNOCK"
   };
   for (uint8_t i = 0; i < kPageCount; i++) {
     if (i == idx) {
@@ -654,6 +657,106 @@ void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
       "Diagnostics loading...", &lv_font_montserrat_12);
   lv_label_set_long_mode(diagLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(diagLabel_, kWidth - 8);
+}
+
+// ---------------------------------------------------------------------------
+// buildKnockPage – motorsport-style knock monitoring view
+// Layout (480×232 content, 4px page padding → 472×224 usable):
+//   y  0: state header label  (enabled / response mode)
+//   y 20: sensor status label (signal valid / fault / clipping / learned / online)
+//   y 40: energy label + value
+//   y 56: energy bar (full width)
+//   y 74: baseline label + value
+//   y 90: baseline bar
+//   y108: threshold label + value
+//   y124: threshold bar
+//   y142: event / warning / critical counts label
+//   y158: last event details label
+//   y178: 4 control buttons (en/dis, reset baseline, clear events, simulate)
+//   y220: logging / note label
+// ---------------------------------------------------------------------------
+
+void ScreenDashboard::buildKnockPage(lv_obj_t* parent) {
+  constexpr lv_coord_t barW = 460;
+  constexpr lv_coord_t barH = 12;
+  constexpr lv_coord_t barX = 4;
+
+  // ---- Row 0: state header ----
+  knockStateLabel_ = makeLabel(parent, 0, 0, kWidth - 8,
+      "KNOCK SENSE  |  Response: WARN_ONLY", &lv_font_montserrat_14);
+  lv_label_set_recolor(knockStateLabel_, true);
+
+  // ---- Row 1: sensor status ----
+  knockSensorLabel_ = makeLabel(parent, 0, 20, kWidth - 8,
+      "En: YES  Sensor: OK  Online: YES  Learned: NO  Fault: NO",
+      &lv_font_montserrat_12);
+  lv_label_set_long_mode(knockSensorLabel_, LV_LABEL_LONG_CLIP);
+
+  // ---- Row 2: energy label ----
+  knockEnergyLabel_ = makeLabel(parent, 0, 40, kWidth - 8,
+      "Knock Energy:  0.0 raw  (0%)", &lv_font_montserrat_12);
+
+  // ---- Row 3: energy bar ----
+  knockEnergyBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockEnergyBar_, barX, 56);
+  lv_obj_set_size(knockEnergyBar_, barW, barH);
+  lv_bar_set_range(knockEnergyBar_, 0, 100);
+  lv_bar_set_value(knockEnergyBar_, 0, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(knockEnergyBar_, lv_color_hex(0x1a2540), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(knockEnergyBar_, lv_palette_main(LV_PALETTE_BLUE), LV_PART_INDICATOR);
+
+  // ---- Row 4: baseline label ----
+  knockBaselineLabel_ = makeLabel(parent, 0, 74, kWidth - 8,
+      "Baseline:  0.0 raw  (0%)", &lv_font_montserrat_12);
+
+  // ---- Row 5: baseline bar ----
+  knockBaselineBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockBaselineBar_, barX, 90);
+  lv_obj_set_size(knockBaselineBar_, barW, barH);
+  lv_bar_set_range(knockBaselineBar_, 0, 100);
+  lv_bar_set_value(knockBaselineBar_, 0, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(knockBaselineBar_, lv_color_hex(0x1a2540), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(knockBaselineBar_, lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR);
+
+  // ---- Row 6: threshold label ----
+  knockThresholdLabel_ = makeLabel(parent, 0, 108, kWidth - 8,
+      "Threshold:  0.0 raw  (100%)", &lv_font_montserrat_12);
+
+  // ---- Row 7: threshold bar (always 100% — marks the maximum safe level) ----
+  knockThresholdBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockThresholdBar_, barX, 124);
+  lv_obj_set_size(knockThresholdBar_, barW, barH);
+  lv_bar_set_range(knockThresholdBar_, 0, 100);
+  lv_bar_set_value(knockThresholdBar_, 100, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(knockThresholdBar_, lv_color_hex(0x1a2540), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(knockThresholdBar_, lv_palette_main(LV_PALETTE_ORANGE), LV_PART_INDICATOR);
+
+  // ---- Row 8: events / warning / critical ----
+  knockEventLabel_ = makeLabel(parent, 0, 142, kWidth - 8,
+      "Events: 0  |  Warning: NO  Critical: NO", &lv_font_montserrat_12);
+  lv_label_set_recolor(knockEventLabel_, true);
+
+  // ---- Row 9: last event details ----
+  knockLastLabel_ = makeLabel(parent, 0, 158, kWidth - 8,
+      "Last event: --", &lv_font_montserrat_12);
+
+  // ---- Row 10: control buttons (y=178, h=36) ----
+  constexpr lv_coord_t btnW = 110, btnH = 36, btnGap = 4;
+  knockEnableBtn_      = makeBtn(parent, "EN/DIS",  0 * (btnW + btnGap), 178, btnW, btnH, onKnockEnableClicked,        this);
+  knockResetBlBtn_     = makeBtn(parent, "RESET BL", 1 * (btnW + btnGap), 178, btnW, btnH, onKnockResetBaselineClicked, this);
+  knockClearEvtBtn_    = makeBtn(parent, "CLR EVTS", 2 * (btnW + btnGap), 178, btnW, btnH, onKnockClearEventsClicked,   this);
+  knockSimulateBtn_    = makeBtn(parent, "SIMULATE", 3 * (btnW + btnGap), 178, btnW, btnH, onKnockSimulateClicked,      this);
+  knockEnableBtnLabel_ = btnLabel(knockEnableBtn_);
+
+  lv_obj_set_style_text_font(btnLabel(knockEnableBtn_),   &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(btnLabel(knockResetBlBtn_),  &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(btnLabel(knockClearEvtBtn_), &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(btnLabel(knockSimulateBtn_), &lv_font_montserrat_12, 0);
+
+  // ---- Row 11: logging status + disclaimer ----
+  knockLogLabel_ = makeLabel(parent, 0, 218, kWidth - 8,
+      "SD Log: --  |  \xe2\x80\xa0 Not ECU knock control", &lv_font_montserrat_12);
+  lv_label_set_long_mode(knockLogLabel_, LV_LABEL_LONG_CLIP);
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,9 +1108,131 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
   lv_label_set_text(diagLabel_, buf);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+void ScreenDashboard::updateKnockPage(const state::VehicleState& s, uint32_t nowMs) {
+  if (!knockStateLabel_) return;
+
+  // Determine sensor status string
+  const char* sensorStr;
+  if (!s.knock_enabled) {
+    sensorStr = "DISABLED";
+  } else if (s.knock_sensor_fault) {
+    sensorStr = "DISCONNECTED";
+  } else if (s.knock_clipping_detected) {
+    sensorStr = "CLIPPING";
+  } else if (!s.knock_baseline_learned) {
+    sensorStr = "LEARNING";
+  } else if (!s.knock_signal_valid) {
+    sensorStr = "NOISY";
+  } else {
+    sensorStr = "OK";
+  }
+
+  // Response mode strings
+  static const char* const kRespMode[] = { "LOG_ONLY", "WARN_ONLY", "METH_ENABLE", "SAFE_SHTDWN" };
+  const char* respStr = (s.knock_response_mode < 4) ? kRespMode[s.knock_response_mode] : "?";
+
+  // Header with warning/critical colour
+  char buf[128];
+  if (s.knock_critical_active) {
+    snprintf(buf, sizeof(buf), "#FF3B30 KNOCK SENSE#  |  %s  |  Response: %s",
+             s.knock_online ? "ONLINE" : "STALE", respStr);
+  } else if (s.knock_warning_active) {
+    snprintf(buf, sizeof(buf), "#FF9500 KNOCK SENSE#  |  %s  |  Response: %s",
+             s.knock_online ? "ONLINE" : "STALE", respStr);
+  } else {
+    snprintf(buf, sizeof(buf), "#00C853 KNOCK SENSE#  |  %s  |  Response: %s",
+             s.knock_online ? "ONLINE" : "STALE", respStr);
+  }
+  lv_label_set_text(knockStateLabel_, buf);
+
+  // Sensor status row
+  snprintf(buf, sizeof(buf), "En: %s  Sensor: %s  Learned: %s  Clip Hi: %u Lo: %u",
+           s.knock_enabled ? "YES" : "NO",
+           sensorStr,
+           s.knock_baseline_learned ? "YES" : "NO",
+           static_cast<unsigned>(s.knock_signal_clip_high_count & 0xFFU),
+           static_cast<unsigned>(s.knock_signal_clip_low_count  & 0xFFU));
+  lv_label_set_text(knockSensorLabel_, buf);
+
+  // Energy bar: 0..100 where 100 = threshold level
+  const float thresh = (s.knock_threshold > 0.1f) ? s.knock_threshold : 1.0f;
+  const int energyPct = static_cast<int>((s.knock_energy / thresh) * 100.0f);
+  const int clampedE  = (energyPct > 100) ? 100 : (energyPct < 0 ? 0 : energyPct);
+  snprintf(buf, sizeof(buf), "Knock Energy:  %.1f  (%d%% of threshold)",
+           static_cast<double>(s.knock_energy), clampedE);
+  lv_label_set_text(knockEnergyLabel_, buf);
+  lv_bar_set_value(knockEnergyBar_, clampedE, LV_ANIM_OFF);
+
+  // Energy bar colour: green → yellow → red based on level
+  lv_color_t eCo;
+  if (clampedE >= 90)       eCo = lv_palette_main(LV_PALETTE_RED);
+  else if (clampedE >= 60)  eCo = lv_palette_main(LV_PALETTE_ORANGE);
+  else                      eCo = lv_palette_main(LV_PALETTE_BLUE);
+  lv_obj_set_style_bg_color(knockEnergyBar_, eCo, LV_PART_INDICATOR);
+
+  // Baseline bar
+  const int baselinePct = static_cast<int>((s.knock_baseline / thresh) * 100.0f);
+  const int clampedB    = (baselinePct > 100) ? 100 : (baselinePct < 0 ? 0 : baselinePct);
+  snprintf(buf, sizeof(buf), "Baseline:  %.1f  (%d%% of threshold)",
+           static_cast<double>(s.knock_baseline), clampedB);
+  lv_label_set_text(knockBaselineLabel_, buf);
+  lv_bar_set_value(knockBaselineBar_, clampedB, LV_ANIM_OFF);
+
+  // Threshold label (threshold bar is always 100% — it marks the limit)
+  snprintf(buf, sizeof(buf), "Threshold:  %.1f  (×%.1f baseline + %.1f offset)",
+           static_cast<double>(s.knock_threshold),
+           static_cast<double>(s.knock_threshold_multiplier),
+           static_cast<double>(s.knock_threshold_offset));
+  lv_label_set_text(knockThresholdLabel_, buf);
+
+  // Events / warning / critical row
+  if (s.knock_critical_active) {
+    snprintf(buf, sizeof(buf), "#FF3B30 Events: %u#  |  #FF3B30 WARNING: YES#  |  #FF3B30 CRITICAL: YES#",
+             static_cast<unsigned>(s.knock_event_count));
+  } else if (s.knock_warning_active) {
+    snprintf(buf, sizeof(buf), "#FF9500 Events: %u#  |  #FF9500 WARNING: YES#  |  Critical: NO",
+             static_cast<unsigned>(s.knock_event_count));
+  } else {
+    snprintf(buf, sizeof(buf), "Events: %u  |  Warning: NO  |  Critical: NO",
+             static_cast<unsigned>(s.knock_event_count));
+  }
+  lv_label_set_text(knockEventLabel_, buf);
+
+  // Last event row
+  if (s.knock_last_event_rpm == 0 && s.knock_last_event_boost_kpa == 0) {
+    lv_label_set_text(knockLastLabel_, "Last event: none");
+  } else {
+    uint32_t agoS = 0;
+    if (s.knock_last_event_time_ms > 0 && nowMs >= s.knock_last_event_time_ms) {
+      agoS = (nowMs - s.knock_last_event_time_ms) / 1000UL;
+    }
+    snprintf(buf, sizeof(buf), "Last: %u RPM  %.0f kPa  %d\xb0""C  (%lus ago)",
+             static_cast<unsigned>(s.knock_last_event_rpm),
+             static_cast<double>(s.knock_last_event_boost_kpa),
+             static_cast<int>(s.knock_last_event_iat_c),
+             static_cast<unsigned long>(agoS));
+    lv_label_set_text(knockLastLabel_, buf);
+  }
+
+  // Enable button label
+  lv_label_set_text(knockEnableBtnLabel_, s.knock_enabled ? "DISABLE" : "ENABLE");
+  // Dim simulate button if not in demo/dev mode
+  const bool demoActive = s.knock_demo_mode_enabled;
+#if defined(DEMO_MODE) && (DEMO_MODE == 1)
+  (void)demoActive;
+  lv_obj_set_style_bg_color(knockSimulateBtn_, lv_palette_main(LV_PALETTE_ORANGE), LV_PART_MAIN);
+#else
+  lv_obj_set_style_bg_color(knockSimulateBtn_,
+      demoActive ? lv_palette_main(LV_PALETTE_ORANGE) : lv_color_hex(0x303030),
+      LV_PART_MAIN);
+#endif
+
+  // Logging / note row
+  snprintf(buf, sizeof(buf), "SD Log: %s  Logging: %s  |  \xe2\x80\xa0 Not ECU knock control",
+           s.sd_mounted ? "YES" : "NO",
+           s.knock_logging_active ? "YES" : "NO");
+  lv_label_set_text(knockLogLabel_, buf);
+}
 
 void ScreenDashboard::setActionFeedback(const char* text, uint32_t nowMs) {
   if (!text) return;
@@ -1200,6 +1425,52 @@ void ScreenDashboard::onLedModeClicked(lv_event_t* e) {
     ctx->self->settingsMgr_->save();
   }
   ctx->self->setActionFeedback("LED MODE SET", millis());
+}
+
+void ScreenDashboard::onKnockEnableClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  const bool en = !state::g_vehicle_state.read().knock_enabled;
+  state::g_vehicle_state.mutate([en](state::VehicleState& vs) { vs.knock_enabled = en; });
+  if (self->settingsMgr_) {
+    self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    self->settingsMgr_->save();
+  }
+  self->setActionFeedback(en ? "KNOCK ENABLED" : "KNOCK DISABLED", millis());
+}
+
+void ScreenDashboard::onKnockResetBaselineClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+    vs.knock_reset_baseline_request = true;
+  });
+  self->setActionFeedback("KNOCK BL RESET", millis());
+}
+
+void ScreenDashboard::onKnockClearEventsClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+    vs.knock_clear_event_count_request = true;
+  });
+  self->setActionFeedback("KNOCK EVT CLEARED", millis());
+}
+
+void ScreenDashboard::onKnockSimulateClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+#if defined(DEMO_MODE) && (DEMO_MODE == 1)
+  state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+    vs.knock_simulate_event_request = true;
+  });
+  self->setActionFeedback("KNOCK SIM TRIGGERED", millis());
+#else
+  if (state::g_vehicle_state.read().knock_demo_mode_enabled) {
+    state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+      vs.knock_simulate_event_request = true;
+    });
+    self->setActionFeedback("KNOCK SIM TRIGGERED", millis());
+  } else {
+    self->setActionFeedback("DEMO MODE ONLY", millis());
+  }
+#endif
 }
 
 }  // namespace ui

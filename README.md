@@ -8,6 +8,7 @@ Central comfort and control firmware for a Foxbody Mustang electronics retrofit 
 - [Project Status](#project-status)
 - [What the CCM Does](#what-the-ccm-does)
 - [Hardware Platform](#hardware-platform)
+- [Knock Sense](#knock-sense)
 - [Build Variants](#build-variants)
 - [Getting Started](#getting-started)
 - [Validation](#validation)
@@ -73,27 +74,105 @@ Some subsystems are still in-progress or stubbed for bench bring-up, so the READ
 
 For connector-level notes and reserved expansion points, see [`docs/CONNECTOR_PINOUT_AND_EXTENSION_POINTS.md`](docs/CONNECTOR_PINOUT_AND_EXTENSION_POINTS.md).
 
-### Knock monitoring subsystem (ESP32 + piezo front-end)
+## Knock Sense
 
-The CCM includes a supplemental knock monitoring path intended for **warning/logging and water-meth safety coordination only**. It is **not** an ignition timing controller and must not be treated as guaranteed knock protection.
+The CCM includes a supplemental engine knock monitoring subsystem that is **not** an ECU knock control system and must not be relied upon as the sole means of knock protection. It is designed for warning, logging, and water-meth safety coordination only.
 
-Recommended signal chain:
+### Purpose
 
-- Bosch-style piezo knock sensor on block/intake location
-- AC coupling into a 1.65 V biased analog node
-- Op-amp gain stage (~10x to 11x) with rough knock-band filtering
-- ADC protection resistor and optional clamp diodes
-- Shielded sensor wiring to the CCM knock ADC input
+Provide real-time knock-energy monitoring via a piezo sensor front-end to:
 
-Firmware behavior:
+- Detect abnormal combustion vibration signatures
+- Trigger operator warnings and log events for post-session review
+- Optionally coordinate with the water-meth injection module for supplemental octane/cooling response
 
-- Samples knock ADC at high cadence with midpoint removal and energy smoothing
-- Learns adaptive background baseline (noise rises with RPM/load)
-- Uses dynamic thresholding (`baseline * multiplier + offset`)
-- Gates event detection by RPM + boost enable thresholds
-- Publishes knock state/faults on CAN (`0x307`, `0x308`)
-- Logs knock telemetry/events under `/logs/knock/`
-- Supports warning-only/default safety response modes and demo simulation
+### Circuit summary
+
+```
+Bosch piezo knock sensor (block or intake manifold mount)
+  → shielded cable
+  → AC coupling capacitor
+  → 1.65 V bias node (voltage divider from 3.3 V)
+  → op-amp gain stage (~10–11×, optional bandpass ~5–15 kHz)
+  → ADC protection resistor + optional clamp diodes to 3.3 V / GND
+  → CCM knock ADC input (GPIO 48 default, see src/pin_map.h)
+```
+
+### How the firmware processes knock data
+
+1. **Sampling**: 10 ADC samples per tick, midpoint-referenced (2048 = quiescent), absolute-valued and averaged into an energy envelope using exponential smoothing.
+2. **Adaptive baseline**: A slow exponential moving average tracks background noise during idle/non-event windows. Learning is gated by boost and RPM thresholds so highway noise does not corrupt the baseline.
+3. **Dynamic threshold**: `threshold = baseline × multiplier + offset`. The multiplier and offset are user-configurable. Default: 2.5× + 8 units.
+4. **Event detection**: When energy exceeds threshold during the enable window (boost ≥ enable kPa and RPM ≥ enable min), a knock event is registered after a cooldown gate.
+5. **Warning/critical escalation**: A sliding event counter triggers warning then critical states. Both are cleared by the user or by the clear-events command.
+6. **CAN publishing**: Knock state is broadcast on `0x307` at 50 ms intervals. Fault frames are sent on `0x308` when events or sensor faults occur.
+7. **SD logging**: Events and fault frames are logged to `/logs/knock/` on the SD card when mounted.
+
+### Response modes
+
+| Value | Name | Behavior |
+|---|---|---|
+| 0 | LOG_ONLY | Log to SD; no output or alert |
+| 1 | WARN_ONLY | Default — sets warning/critical state flags only |
+| 2 | FORCE_METH_ENABLE | If critical and meth module is armed, keeps meth enabled |
+| 3 | SAFETY_SHUTDOWN | If critical, disarms meth module each event; does not prevent re-arming |
+
+> **Warning:** Modes 2 and 3 interact with the active water-meth system. Changing these modes should be done intentionally and is confirmed by the web UI.
+
+### Touchscreen Knock Sense page
+
+The dedicated **KNOCK** tab (accessible from the 8-tab bottom navigation) shows:
+
+- Sensor health (OK, disconnected, clipping, noisy, baseline learning)
+- Live knock energy bar (color: blue → orange → red as energy approaches threshold)
+- Baseline bar (green)
+- Threshold bar (orange reference line at 100%)
+- Event counter with warning/critical state indicators
+- Last knock event: RPM, boost kPa, IAT °C, elapsed time
+- Current response mode
+- SD logging status
+- Controls: Enable/Disable, Reset Baseline, Clear Events, Simulate (demo mode only)
+
+### Web dashboard Knock Sense page
+
+The dedicated `/knock` web page provides:
+
+- Live metric cards with progress bars for energy/baseline/threshold
+- 30-second rolling history chart (energy, baseline, threshold)
+- Controls: Enable/Disable, Reset Baseline, Clear Events, Simulate
+- Settings panel: threshold multiplier, boost enable kPa, RPM enable, response mode
+- Safety confirmation prompt for response modes that affect active systems
+
+### API reference
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `GET /api/knock/state` | GET | Full knock state with all runtime fields |
+| `POST /api/knock` | POST | Send commands or update settings |
+| `GET /api/state` | GET | Includes knock summary fields |
+| `GET /api/settings` | GET | Includes all knock settings |
+| `POST /api/settings` | POST | Update knock settings |
+
+`POST /api/knock` accepts an `action` key:
+
+```json
+{ "action": "enable" }
+{ "action": "disable" }
+{ "action": "reset_baseline" }
+{ "action": "clear_events" }
+{ "action": "simulate_event" }
+```
+
+Simulate is only effective in `DEMO_MODE` builds or when `knock_demo_mode_enabled` is set.
+
+### Limitations and false positive/negative notes
+
+- **Not ECU knock control.** The CCM has no authority over ignition timing. Knock events from this system must not be interpreted as a substitute for ECU-level protection.
+- **False positives** can occur from: mechanical noise (valve clatter, injector tick, road vibration), gain too high, threshold multiplier too low, sensor mounting resonance, or a clipped/noisy ADC signal.
+- **False negatives** can occur from: gain too low, threshold too high, boost/RPM gates set too high, sensor disconnected, or baseline contaminated by actual knock during learning.
+- The adaptive baseline **learns knock as noise** if knock events are sustained during the baseline learning window. Reset the baseline after corrective action.
+- ADC resolution (12-bit, 3.3 V rail) is the practical limit of sensitivity. Proper analog front-end design (bandpass amplifier, gain stage, bias) is essential for meaningful signal quality.
+- Treat this system as a **supplemental data source** for margin assessment, not as a safety guarantee.
 
 ## Build Variants
 

@@ -29,7 +29,7 @@ class ScreenDashboard {
   static constexpr uint16_t kNavH     = 52;
   static constexpr uint16_t kContentH = kHeight - kHdrH - kNavH;  // 232
   static constexpr uint16_t kArcSize  = 180;
-  static constexpr uint8_t  kPageCount = 7;
+  static constexpr uint8_t  kPageCount = 8;
   static constexpr uint32_t kActionFeedbackMs             = 1200;
   static constexpr uint8_t  kTaillightShowOptionsPerPage  = 6;
   static constexpr uint8_t  kTaillightShowOptionCount     = 24;
@@ -49,6 +49,7 @@ class ScreenDashboard {
   void buildGpsPage(lv_obj_t* parent);
   void buildTempsPage(lv_obj_t* parent);
   void buildDiagPage(lv_obj_t* parent);
+  void buildKnockPage(lv_obj_t* parent);
   void showPage(uint8_t idx);
 
   // ---- Per-tick updates -----------------------------------------------
@@ -60,6 +61,7 @@ class ScreenDashboard {
   void updateGpsPage(const state::VehicleState& s);
   void updateTempsPage(const state::VehicleState& s);
   void updateDiagPage(const state::VehicleState& s);
+  void updateKnockPage(const state::VehicleState& s, uint32_t nowMs);
 
   // ---- Helpers --------------------------------------------------------
   void    setActionFeedback(const char* text, uint32_t nowMs);
@@ -87,6 +89,10 @@ class ScreenDashboard {
   static void onRaceLapClicked(lv_event_t* e);
   static void onRaceStopClicked(lv_event_t* e);
   static void onRaceResetClicked(lv_event_t* e);
+  static void onKnockEnableClicked(lv_event_t* e);
+  static void onKnockResetBaselineClicked(lv_event_t* e);
+  static void onKnockClearEventsClicked(lv_event_t* e);
+  static void onKnockSimulateClicked(lv_event_t* e);
 
   // ---- Dependencies ---------------------------------------------------
   canbus::CanManager*           canMgr_      = nullptr;
@@ -108,12 +114,12 @@ class ScreenDashboard {
   lv_obj_t* hdrFaultDot_      = nullptr;  // right:  status indicator
   lv_obj_t* hdrFeedbackLabel_ = nullptr;  // far-right: action feedback
 
-  // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG)
-  lv_obj_t* navBtns_[7]     = {};
-  lv_obj_t* navBtnIcons_[7] = {};
+  // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG 7=KNOCK)
+  lv_obj_t* navBtns_[8]     = {};
+  lv_obj_t* navBtnIcons_[8] = {};
 
   // Page content panels (one visible at a time)
-  lv_obj_t* pages_[7] = {};
+  lv_obj_t* pages_[8] = {};
 
   // -- DASH page --
   lv_obj_t* rpmArc_          = nullptr;
@@ -169,6 +175,24 @@ class ScreenDashboard {
 
   // -- DIAG page --
   lv_obj_t* diagLabel_ = nullptr;
+
+  // -- KNOCK page --
+  lv_obj_t* knockStateLabel_       = nullptr;
+  lv_obj_t* knockSensorLabel_      = nullptr;
+  lv_obj_t* knockEnergyLabel_      = nullptr;
+  lv_obj_t* knockEnergyBar_        = nullptr;
+  lv_obj_t* knockBaselineLabel_    = nullptr;
+  lv_obj_t* knockBaselineBar_      = nullptr;
+  lv_obj_t* knockThresholdLabel_   = nullptr;
+  lv_obj_t* knockThresholdBar_     = nullptr;
+  lv_obj_t* knockEventLabel_       = nullptr;
+  lv_obj_t* knockLastLabel_        = nullptr;
+  lv_obj_t* knockEnableBtn_        = nullptr;
+  lv_obj_t* knockEnableBtnLabel_   = nullptr;
+  lv_obj_t* knockResetBlBtn_       = nullptr;
+  lv_obj_t* knockClearEvtBtn_      = nullptr;
+  lv_obj_t* knockSimulateBtn_      = nullptr;
+  lv_obj_t* knockLogLabel_         = nullptr;
 };
 
 }  // namespace ui
