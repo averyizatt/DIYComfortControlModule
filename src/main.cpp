@@ -442,7 +442,7 @@ void storageTask(void*) {
                static_cast<unsigned>(s.knock_fault_code_pending));
       g_logs.enqueue("knock", knockLine);
 
-      char analogLine[256];
+      char analogLine[512];
       snprintf(analogLine, sizeof(analogLine),
                "intake_air_temp_c=%.2f,engine_bay_temp_c=%.2f,cabin_temp_c=%.2f,ambient_temp_c=%.2f,oil_pressure_psi=%.2f,fuel_pressure_psi=%.2f,meth_pressure_psi=%.2f,boost_ref_pressure_psi=%.2f,spare_pressure_1_psi=%.2f,spare_pressure_2_psi=%.2f,sensor_fault_flags=0x%04X",
                static_cast<double>(s.intake_temp), static_cast<double>(s.engine_bay_temp),

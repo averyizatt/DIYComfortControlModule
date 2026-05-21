@@ -129,7 +129,9 @@ void SettingsManager::load() {
   if (settings_.thermistor_pullup_ohms < 1000.0f) settings_.thermistor_pullup_ohms = 1000.0f;
   if (settings_.thermistor_pullup_ohms > 100000.0f) settings_.thermistor_pullup_ohms = 100000.0f;
   if (settings_.pressure_sensor_min_v < 0.1f) settings_.pressure_sensor_min_v = 0.1f;
-  if (settings_.pressure_sensor_max_v <= settings_.pressure_sensor_min_v + 0.1f) settings_.pressure_sensor_max_v = settings_.pressure_sensor_min_v + 0.1f;
+  if (settings_.pressure_sensor_max_v <= settings_.pressure_sensor_min_v + 0.1f) {
+    settings_.pressure_sensor_max_v = settings_.pressure_sensor_min_v + 0.1f;
+  }
   if (settings_.pressure_sensor_max_v > 5.0f) settings_.pressure_sensor_max_v = 5.0f;
   if (settings_.pressure_sensor_max_psi < 5.0f) settings_.pressure_sensor_max_psi = 5.0f;
 }
