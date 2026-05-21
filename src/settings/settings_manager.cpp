@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "settings/SettingsValidation.hpp"
+
 namespace settings {
 
 namespace {
@@ -48,7 +50,6 @@ void SettingsManager::load() {
   }
 
   settings_.meth_selected_ratio_percent = prefs_.getUChar("meth_ratio", settings_.meth_selected_ratio_percent);
-  if (settings_.meth_selected_ratio_percent > 100) settings_.meth_selected_ratio_percent = 100;
   settings_.knock_enabled = prefs_.getBool("knock_en", settings_.knock_enabled);
   settings_.knock_adc_pin = prefs_.getUChar("knock_pin", settings_.knock_adc_pin);
   settings_.knock_boost_enable_kpa = prefs_.getFloat("knock_boost", settings_.knock_boost_enable_kpa);
@@ -61,33 +62,15 @@ void SettingsManager::load() {
   settings_.knock_baseline_learning_enabled = prefs_.getBool("knock_bl", settings_.knock_baseline_learning_enabled);
   settings_.knock_demo_mode_enabled = prefs_.getBool("knock_demo", settings_.knock_demo_mode_enabled);
   settings_.knock_response_mode = prefs_.getUChar("knock_resp", settings_.knock_response_mode);
-  // Keep escalation monotonic for safety handling: warning must trigger before
-  // critical by enforcing warning >= 1 and critical >= warning.
-  if (settings_.knock_warning_threshold_count < 1) settings_.knock_warning_threshold_count = 1;
-  if (settings_.knock_critical_threshold_count < settings_.knock_warning_threshold_count) {
-    settings_.knock_critical_threshold_count = settings_.knock_warning_threshold_count;
-  }
-  if (settings_.knock_threshold_multiplier < 1.0f) settings_.knock_threshold_multiplier = 1.0f;
-  if (settings_.knock_event_cooldown_ms < 50) settings_.knock_event_cooldown_ms = 50;
-  if (settings_.knock_response_mode > 3) settings_.knock_response_mode = 1;
-
   settings_.race_use_metric_targets = prefs_.getBool("race_metric", settings_.race_use_metric_targets);
   settings_.race_auto_start = prefs_.getBool("race_auto", settings_.race_auto_start);
   settings_.race_min_satellites = prefs_.getUChar("race_sat", settings_.race_min_satellites);
-  if (settings_.race_min_satellites < 1) settings_.race_min_satellites = 1;
-  if (settings_.race_min_satellites > 20) settings_.race_min_satellites = 20;
   settings_.race_sample_min_ms = prefs_.getUShort("race_smin", settings_.race_sample_min_ms);
-  if (settings_.race_sample_min_ms < 10) settings_.race_sample_min_ms = 10;
   settings_.race_sample_max_ms = prefs_.getUShort("race_smax", settings_.race_sample_max_ms);
-  if (settings_.race_sample_max_ms <= settings_.race_sample_min_ms)
-    settings_.race_sample_max_ms = settings_.race_sample_min_ms + 50;
   settings_.race_start_finish_radius_m = prefs_.getFloat("race_rad", settings_.race_start_finish_radius_m);
-  if (settings_.race_start_finish_radius_m < 5.0f) settings_.race_start_finish_radius_m = 5.0f;
   settings_.race_start_latitude = prefs_.getFloat("race_lat", settings_.race_start_latitude);
   settings_.race_start_longitude = prefs_.getFloat("race_lon", settings_.race_start_longitude);
   settings_.race_start_point_set = prefs_.getBool("race_sf_set", settings_.race_start_point_set);
-
-  if (settings_.display_brightness < 10) settings_.display_brightness = 10;
 
   settings_.wifi_ap_mode = prefs_.getBool("wifi_ap", settings_.wifi_ap_mode);
   const String ssid = prefs_.getString("wifi_ssid", "");
@@ -123,17 +106,7 @@ void SettingsManager::load() {
   settings_.pressure_sensor_min_v = prefs_.getFloat("an_pminv", settings_.pressure_sensor_min_v);
   settings_.pressure_sensor_max_v = prefs_.getFloat("an_pmaxv", settings_.pressure_sensor_max_v);
   settings_.pressure_sensor_max_psi = prefs_.getFloat("an_pmaxp", settings_.pressure_sensor_max_psi);
-
-  if (settings_.analog_sensor_sample_ms < 10) settings_.analog_sensor_sample_ms = 10;
-  if (settings_.analog_sensor_sample_ms > 1000) settings_.analog_sensor_sample_ms = 1000;
-  if (settings_.thermistor_pullup_ohms < 1000.0f) settings_.thermistor_pullup_ohms = 1000.0f;
-  if (settings_.thermistor_pullup_ohms > 100000.0f) settings_.thermistor_pullup_ohms = 100000.0f;
-  if (settings_.pressure_sensor_min_v < 0.1f) settings_.pressure_sensor_min_v = 0.1f;
-  if (settings_.pressure_sensor_max_v <= settings_.pressure_sensor_min_v + 0.1f) {
-    settings_.pressure_sensor_max_v = settings_.pressure_sensor_min_v + 0.1f;
-  }
-  if (settings_.pressure_sensor_max_v > 5.0f) settings_.pressure_sensor_max_v = 5.0f;
-  if (settings_.pressure_sensor_max_psi < 5.0f) settings_.pressure_sensor_max_psi = 5.0f;
+  settings_ = normalizeSettings(settings_);
 }
 
 void SettingsManager::loadIntoState(state::VehicleState& s) const {
@@ -278,6 +251,7 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.pressure_sensor_min_v = s.pressure_sensor_min_v;
   settings_.pressure_sensor_max_v = s.pressure_sensor_max_v;
   settings_.pressure_sensor_max_psi = s.pressure_sensor_max_psi;
+  settings_ = normalizeSettings(settings_);
 }
 
 bool SettingsManager::save() {

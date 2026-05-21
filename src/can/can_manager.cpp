@@ -1,6 +1,10 @@
 #include "can/can_manager.h"
 #include "pin_map.h"
 
+#include "can/CanFrameBuilders.hpp"
+#include "meth/MethSafetyLogic.hpp"
+#include "state/StateHelpers.hpp"
+
 #if __has_include(<driver/twai.h>)
 #include <driver/twai.h>
 #define CCM_HAS_TWAI 1
@@ -38,78 +42,6 @@ constexpr uint8_t DUTY_ZERO = 4;
 constexpr uint8_t DUTY_OVER_MAX = 5;
 }  // namespace meth_manual_test_reject_reason
 
-void packMasterHeartbeat(const state::VehicleState& s, can_protocol::CanFrame& out) {
-  out.id = can_protocol::ID_MASTER_HEARTBEAT;
-  out.dlc = 8;
-  out.data[0] = s.master_state;                              // state
-  out.data[1] = s.ui_page;                                   // UI page
-  out.data[2] = s.input_flags;                               // input flags
-  out.data[3] = can_protocol::tempToOffset40(static_cast<int>(s.cabin_temp));
-  out.data[4] = can_protocol::tempToOffset40(static_cast<int>(s.outside_temp));
-  out.data[5] = can_protocol::voltsTo10(s.battery_voltage);  // volts*10
-  out.data[6] = static_cast<uint8_t>(s.fault_flags & 0xFF);
-  out.data[7] = static_cast<uint8_t>((s.uptime_ms / 1000UL) & 0xFF);
-}
-
-void packTachState(const state::VehicleState& s, can_protocol::CanFrame& out) {
-  out.id = can_protocol::ID_TACH_RPM_STATE;
-  out.dlc = 8;
-  can_protocol::encodeU16BE(s.rpm, out.data[0], out.data[1]);
-  can_protocol::encodeU16BE(s.generated_tach_hz10, out.data[2], out.data[3]);
-  out.data[4] = s.tach_source;
-  out.data[5] = s.tach_status_flags;
-  out.data[6] = s.pulses_per_rev10;
-  out.data[7] = 0;
-}
-
-void packGpsState(const state::VehicleState& s, can_protocol::CanFrame& out) {
-  out.id = can_protocol::ID_GPS_STATE;
-  out.dlc = 8;
-  can_protocol::encodeU16BE(static_cast<uint16_t>(s.speed * 10.0f), out.data[0], out.data[1]);
-  const uint16_t altitudeRaw = static_cast<uint16_t>(s.gps_altitude_m);
-  can_protocol::encodeU16BE(altitudeRaw, out.data[2], out.data[3]);
-  out.data[4] = s.gps_satellites;
-  out.data[5] = s.gps_fix_type;
-  out.data[6] = s.gps_status_flags;
-  out.data[7] = 0;
-}
-
-void packKnockState(const state::VehicleState& s, can_protocol::CanFrame& out) {
-  can_protocol::EngineKnockState ks{};
-  ks.status_flags |= s.knock_enabled ? (1U << 0) : 0U;
-  ks.status_flags |= s.knock_signal_valid ? (1U << 1) : 0U;
-  ks.status_flags |= s.knock_warning_active ? (1U << 2) : 0U;
-  ks.status_flags |= s.knock_critical_active ? (1U << 3) : 0U;
-  ks.status_flags |= s.knock_baseline_learned ? (1U << 4) : 0U;
-  ks.status_flags |= s.knock_sensor_fault ? (1U << 5) : 0U;
-  ks.status_flags |= s.knock_clipping_detected ? (1U << 6) : 0U;
-
-  ks.energy = can_protocol::clampU8(static_cast<int>(s.knock_energy));
-  ks.baseline = can_protocol::clampU8(static_cast<int>(s.knock_baseline));
-  ks.threshold = can_protocol::clampU8(static_cast<int>(s.knock_threshold));
-  ks.event_count = s.knock_event_count;
-  ks.last_event_rpm_div100 = can_protocol::clampU8(static_cast<int>(s.knock_last_event_rpm / 100U));
-  ks.last_event_boost_kpa = s.knock_last_event_boost_kpa;
-  ks.reserved = 0;
-  out = can_protocol::packEngineKnockState(ks);
-}
-
-void packEngineSensorExt(const state::VehicleState& s, can_protocol::CanFrame& out) {
-  can_protocol::EngineSensorExt ext{};
-  ext.oil_pressure_psi = can_protocol::clampU8(static_cast<int>(s.oil_pressure_psi));
-  ext.fuel_pressure_psi = can_protocol::clampU8(static_cast<int>(s.fuel_pressure_psi));
-  ext.meth_pressure_psi = can_protocol::clampU8(static_cast<int>(s.meth_pressure_psi));
-  ext.boost_ref_pressure_psi = can_protocol::clampU8(static_cast<int>(s.boost_ref_pressure_psi));
-  ext.ambient_temp_c = static_cast<int8_t>(s.outside_temp);
-  ext.cabin_temp_c = static_cast<int8_t>(s.cabin_temp);
-  ext.analog_fault_flags = s.analog_sensor_fault_flags;
-  out = can_protocol::packEngineSensorExt(ext);
-}
-
-can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) {
-  const meth::DesiredConfig desired = meth::fromVehicleState(s);
-  return meth::toCanBroadcast(desired);
-}
 }  // namespace
 
 bool CanManager::begin(bool tryHardwareCan) {
@@ -252,8 +184,7 @@ bool CanManager::sendTaillightShowOption(uint8_t option) {
 bool CanManager::sendMethArm(bool armed) {
   if (armed) {
     const state::VehicleState snapshot = state::g_vehicle_state.read();
-    if (!snapshot.meth_online) return false;
-    if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) return false;
+    if (!meth::canArm(snapshot)) return false;
   } else {
     state::g_vehicle_state.mutate([](state::VehicleState& s) {
       s.meth_desired_armed = false;
@@ -267,27 +198,13 @@ bool CanManager::sendMethArm(bool armed) {
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
   const state::VehicleState snapshot = state::g_vehicle_state.read();
-  if (!snapshot.meth_online) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::OFFLINE; });
-    return false;
-  }
-  if ((snapshot.fault_flags & 0x0010U) != 0U || snapshot.meth_state == state::MethState::FAULT) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::FAULT; });
-    return false;
-  }
-
   const uint32_t nowMs = millis();
-  if ((nowMs - lastManualTestStopMs_) < kManualTestCooldownMs) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::COOLDOWN; });
-    return false;
-  }
-
-  if (duty == 0) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_ZERO; });
-    return false;
-  }
-  if (duty > 100) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::DUTY_OVER_MAX; });
+  const meth::ManualTestDecision decision =
+      meth::evaluateManualTestRequest(snapshot, duty, true, nowMs, lastManualTestStopMs_, kManualTestCooldownMs);
+  if (!decision.allowed) {
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.meth_manual_test_reject_reason = static_cast<uint8_t>(decision.reason);
+    });
     return false;
   }
 
@@ -598,7 +515,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
 
   state::g_vehicle_state.mutate([&](state::VehicleState& s) {
     s.taillight_online = (nowMs - s.last_taillight_ms) <= kTaillightTimeoutMs;
-    s.meth_online = (nowMs - s.last_meth_ms) <= kMethTimeoutMs;
+    s.meth_online = !state::nodeTimedOut(nowMs, s.last_meth_ms, kMethTimeoutMs);
     s.gps_stale = (nowMs - s.last_gps_ms) > kGpsStaleTimeoutMs;
 
     // Knock online: set by knock_monitor directly via last_knock_ms; after startup grace
@@ -612,7 +529,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     }
 
     // Fail-safe local behavior: if meth module offline, force OFF and zero duty.
-    if (!s.meth_online) {
+    if (state::methCanLossDisarms(s, nowMs, kMethTimeoutMs)) {
       s.meth_state = state::MethState::OFF;
       s.meth_pump_duty = 0;
       s.meth_desired_armed = false;

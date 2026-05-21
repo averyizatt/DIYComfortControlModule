@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "tach/TachMath.hpp"
+
 namespace ccm::tach {
 
 void TachController::begin(uint8_t pin, uint8_t channel, uint8_t duty) {
@@ -10,7 +12,7 @@ void TachController::begin(uint8_t pin, uint8_t channel, uint8_t duty) {
 }
 
 void TachController::updateRpm(uint16_t rpm) {
-  filteredRpm_ = alpha_ * rpm + (1.0f - alpha_) * filteredRpm_;
+  filteredRpm_ = math::applySmoothing(filteredRpm_, rpm, alpha_);
   const auto hz = rpmToFrequency(static_cast<uint16_t>(filteredRpm_));
   hal_.setFrequencyHz(hz, duty_);
 }
@@ -28,9 +30,7 @@ void TachController::startupSweep(uint16_t maxRpm, uint16_t step, uint32_t delay
 }
 
 uint32_t TachController::rpmToFrequency(uint16_t rpm) const {
-  const uint16_t divisor = (scaleMode_ == core::TachScaleMode::RpmDiv15) ? 15 : 30;
-  const uint32_t hz = rpm / divisor;
-  return hz > 0 ? hz : 1;
+  return math::rpmToFrequencyHz(rpm, static_cast<uint8_t>(scaleMode_));
 }
 
 }  // namespace ccm::tach

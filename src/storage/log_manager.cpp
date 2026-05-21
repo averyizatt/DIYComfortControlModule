@@ -1,5 +1,7 @@
 #include "storage/log_manager.h"
 
+#include "storage/LogFormatting.hpp"
+
 namespace storage {
 
 namespace {
@@ -23,12 +25,7 @@ void LogManager::enqueue(const char* category, const String& payload) {
   if (line.length() > kMaxLogLineLength) line = line.substring(0, kMaxLogLineLength);
 
   String framed;
-  framed.reserve(line.length() + 48);
-  framed += String(millis());
-  framed += ",";
-  framed += cat;
-  framed += ",";
-  framed += line;
+  framed = logfmt::formatCsvLine(millis(), cat, line.c_str()).c_str();
 
   if (queue_.size() >= kMaxQueueSize) {
     queue_.pop_front();

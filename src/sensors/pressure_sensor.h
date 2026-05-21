@@ -13,6 +13,7 @@ enum class PressureFault : uint8_t {
   InvalidConfig = 5,
   StaleReading = 6,
   AdcError = 7,
+  ShortToVcc = 8,
 };
 
 struct PressureSensorConfig {
