@@ -40,6 +40,7 @@ String serialLine;
 constexpr char kPrefsNamespace[] = "wmix";
 constexpr char kPrefsKeyWater[] = "water_l";
 constexpr char kPrefsKeyMeth[] = "meth_l";
+constexpr uint8_t kFaultSeverityWarning = 1;
 
 constexpr uint16_t kFaultIat = 1U << 0;
 constexpr uint16_t kFaultEngineBay = 1U << 1;
@@ -377,7 +378,7 @@ void loop() {
         case FailsafeReason::InvalidBoostConfig: code = 0x08; break;
         default: code = 0x09; break;
       }
-      canBridge.sendFault(code, 1, 0, 0);
+      canBridge.sendFault(code, kFaultSeverityWarning, 0, 0);
     }
     lastReportedCanFault = result.failsafe;
   }
