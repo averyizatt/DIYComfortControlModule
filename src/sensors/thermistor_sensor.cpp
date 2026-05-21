@@ -8,6 +8,8 @@ namespace {
 constexpr float kKelvinOffset = 273.15f;
 constexpr float kMinResistanceOhms = 1.0f;
 constexpr float kAdcVrefTolerance = 0.01f;
+constexpr float kMinFilterAlpha = 0.01f;
+constexpr float kMaxFilterAlpha = 1.0f;
 }  // namespace
 
 void ThermistorSensor::configure(const ThermistorConfig& config) {
@@ -156,7 +158,7 @@ void ThermistorSensor::update(uint32_t now_ms) {
   if (!isfinite(filtered_temp_c_)) {
     filtered_temp_c_ = temp_c;
   } else {
-    const float alpha = constrain(config_.filter_alpha, 0.01f, 1.0f);
+    const float alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
     filtered_temp_c_ += (temp_c - filtered_temp_c_) * alpha;
   }
 

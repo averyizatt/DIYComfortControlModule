@@ -6,6 +6,8 @@ namespace sensors {
 
 namespace {
 constexpr float kAdcVrefTolerance = 0.01f;
+constexpr float kMinFilterAlpha = 0.01f;
+constexpr float kMaxFilterAlpha = 1.0f;
 }  // namespace
 
 void PressureSensor::configure(const PressureSensorConfig& config) {
@@ -122,7 +124,7 @@ void PressureSensor::update(uint32_t now_ms) {
   if (!isfinite(filtered_psi_)) {
     filtered_psi_ = psi;
   } else {
-    const float alpha = constrain(config_.filter_alpha, 0.01f, 1.0f);
+    const float alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
     filtered_psi_ += (psi - filtered_psi_) * alpha;
   }
 

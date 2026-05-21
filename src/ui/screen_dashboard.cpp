@@ -977,7 +977,7 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
 }
 
 void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
-  // 12 lines @ ~32 chars/line plus labels, spacing, and numeric precision margin.
+  // 12 lines * ~32 chars ~= 384 + ~64 bytes for labels/precision headroom.
   constexpr size_t kTempsBufSize = 448;
   char buf[kTempsBufSize];
   snprintf(buf, sizeof(buf),
@@ -1035,7 +1035,7 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     default: resetStr = "UNK";  break;
   }
 
-  // Multi-section diagnostics text block with analog sensor section and long numeric fields.
+  // Multi-section diagnostics block: ~1000 chars worst-case + safety margin.
   constexpr size_t kDiagBufSize = 1152;
   char buf[kDiagBufSize];
   snprintf(buf, sizeof(buf),
