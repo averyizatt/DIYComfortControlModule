@@ -31,6 +31,7 @@ void test_command_validation_enforces_safety() {
   TEST_ASSERT_FALSE(web::ledChannelInRange(4));
   TEST_ASSERT_TRUE(web::knockSimulationAllowed(false, true));
   TEST_ASSERT_FALSE(web::knockSimulationAllowed(false, false));
+  TEST_ASSERT_EQUAL_STRING("confirmation_required", web::manualTestRejectReasonText(6));
 }
 
 void test_malformed_json_is_rejected_safely() {

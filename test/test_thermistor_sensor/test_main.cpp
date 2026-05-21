@@ -25,7 +25,7 @@ void test_faults_and_smoothing_work() {
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(sensors::thermistor_math::Fault::OpenCircuit), static_cast<uint8_t>(open.fault));
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(sensors::thermistor_math::Fault::ShortToGround), static_cast<uint8_t>(shorted.fault));
   TEST_ASSERT_TRUE(smooth.valid);
-  TEST_ASSERT_TRUE(smooth.filtered_temp_c != 10.0f);
+  TEST_ASSERT_TRUE(fabsf(smooth.filtered_temp_c - 10.0f) > 0.1f);
 }
 
 void test_out_of_range_and_lut_interpolation() {

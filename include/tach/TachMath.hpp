@@ -34,11 +34,10 @@ inline float applySmoothing(float previous, uint16_t rpm, float alpha) {
 inline std::vector<uint16_t> generateSweep(uint16_t maxRpm, uint16_t step) {
   std::vector<uint16_t> result;
   if (step == 0U) return result;
-  for (uint16_t rpm = 0; rpm <= maxRpm; rpm = static_cast<uint16_t>(rpm + step)) {
+  for (uint32_t rpm = 0; rpm <= maxRpm; rpm += step) {
     result.push_back(rpm);
-    if (rpm + step < rpm) break;
   }
-  for (uint16_t rpm = maxRpm; rpm > 0U; rpm = rpm > step ? static_cast<uint16_t>(rpm - step) : 0U) {
+  for (uint32_t rpm = maxRpm; rpm > 0U; rpm = rpm > step ? rpm - step : 0U) {
     result.push_back(rpm);
     if (rpm <= step) {
       result.push_back(0U);

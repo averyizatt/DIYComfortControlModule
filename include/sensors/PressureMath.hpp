@@ -5,6 +5,8 @@
 
 namespace sensors::pressure_math {
 
+constexpr float kShortToVccMarginVolts = 0.15f;
+
 enum class Fault : uint8_t {
   None = 0,
   Disabled = 1,
@@ -81,7 +83,7 @@ inline Result evaluate(float adcNodeVoltage, const Config& config, float previou
     result.fault = Fault::AdcError;
     return result;
   }
-  if (result.sensor_voltage_v > config.open_circuit_threshold_v + 0.15f) {
+  if (result.sensor_voltage_v > config.open_circuit_threshold_v + kShortToVccMarginVolts) {
     result.fault = Fault::ShortToVcc;
     return result;
   }
