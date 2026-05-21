@@ -179,16 +179,65 @@ void updateAnalogReadings(SensorReadings &r, uint32_t nowMs) {
   r.sparePressure1Valid = sparePressure1.valid();
   r.sparePressure2Valid = sparePressure2.valid();
 
-  if (r.iatValid) r.iatC = iatSensor.valueC(); else if (iatSensor.config().enabled) r.analogFaultFlags |= kFaultIat;
-  if (r.engineBayValid) r.engineBayC = engineBaySensor.valueC(); else if (engineBaySensor.config().enabled) r.analogFaultFlags |= kFaultEngineBay;
-  if (r.cabinValid) r.cabinC = cabinSensor.valueC(); else if (cabinSensor.config().enabled) r.analogFaultFlags |= kFaultCabin;
-  if (r.ambientValid) r.ambientC = ambientSensor.valueC(); else if (ambientSensor.config().enabled) r.analogFaultFlags |= kFaultAmbient;
-  if (r.oilPressureValid) r.oilPressurePsi = oilPressure.valuePsi(); else if (oilPressure.config().enabled) r.analogFaultFlags |= kFaultOil;
-  if (r.fuelPressureValid) r.fuelPressurePsi = fuelPressure.valuePsi(); else if (fuelPressure.config().enabled) r.analogFaultFlags |= kFaultFuel;
-  if (r.methPressureValid) r.methPressurePsi = methPressure.valuePsi(); else if (methPressure.config().enabled) r.analogFaultFlags |= kFaultMeth;
-  if (r.boostRefPressureValid) r.boostRefPressurePsi = boostRefPressure.valuePsi(); else if (boostRefPressure.config().enabled) r.analogFaultFlags |= kFaultBoostRef;
-  if (r.sparePressure1Valid) r.sparePressure1Psi = sparePressure1.valuePsi(); else if (sparePressure1.config().enabled) r.analogFaultFlags |= kFaultSpare1;
-  if (r.sparePressure2Valid) r.sparePressure2Psi = sparePressure2.valuePsi(); else if (sparePressure2.config().enabled) r.analogFaultFlags |= kFaultSpare2;
+  if (r.iatValid) {
+    r.iatC = iatSensor.valueC();
+  } else if (iatSensor.config().enabled) {
+    r.analogFaultFlags |= kFaultIat;
+  }
+
+  if (r.engineBayValid) {
+    r.engineBayC = engineBaySensor.valueC();
+  } else if (engineBaySensor.config().enabled) {
+    r.analogFaultFlags |= kFaultEngineBay;
+  }
+
+  if (r.cabinValid) {
+    r.cabinC = cabinSensor.valueC();
+  } else if (cabinSensor.config().enabled) {
+    r.analogFaultFlags |= kFaultCabin;
+  }
+
+  if (r.ambientValid) {
+    r.ambientC = ambientSensor.valueC();
+  } else if (ambientSensor.config().enabled) {
+    r.analogFaultFlags |= kFaultAmbient;
+  }
+
+  if (r.oilPressureValid) {
+    r.oilPressurePsi = oilPressure.valuePsi();
+  } else if (oilPressure.config().enabled) {
+    r.analogFaultFlags |= kFaultOil;
+  }
+
+  if (r.fuelPressureValid) {
+    r.fuelPressurePsi = fuelPressure.valuePsi();
+  } else if (fuelPressure.config().enabled) {
+    r.analogFaultFlags |= kFaultFuel;
+  }
+
+  if (r.methPressureValid) {
+    r.methPressurePsi = methPressure.valuePsi();
+  } else if (methPressure.config().enabled) {
+    r.analogFaultFlags |= kFaultMeth;
+  }
+
+  if (r.boostRefPressureValid) {
+    r.boostRefPressurePsi = boostRefPressure.valuePsi();
+  } else if (boostRefPressure.config().enabled) {
+    r.analogFaultFlags |= kFaultBoostRef;
+  }
+
+  if (r.sparePressure1Valid) {
+    r.sparePressure1Psi = sparePressure1.valuePsi();
+  } else if (sparePressure1.config().enabled) {
+    r.analogFaultFlags |= kFaultSpare1;
+  }
+
+  if (r.sparePressure2Valid) {
+    r.sparePressure2Psi = sparePressure2.valuePsi();
+  } else if (sparePressure2.config().enabled) {
+    r.analogFaultFlags |= kFaultSpare2;
+  }
 }
 
 bool parsePositiveFloat(const String &token, float &valueOut) {
@@ -354,4 +403,3 @@ void loop() {
   Serial.print(" analogFault=0x"); Serial.print(readings.analogFaultFlags, HEX);
   Serial.println();
 }
-
