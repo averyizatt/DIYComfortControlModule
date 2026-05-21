@@ -4,6 +4,10 @@
 
 namespace sensors {
 
+namespace {
+constexpr float kAdcVrefTolerance = 0.01f;
+}  // namespace
+
 void PressureSensor::configure(const PressureSensorConfig& config) {
   config_ = config;
   initialized_ = false;
@@ -78,7 +82,7 @@ void PressureSensor::update(uint32_t now_ms) {
   }
 
   adc_node_voltage_v_ = computeAverageAdcNodeVoltage();
-  if (!isfinite(adc_node_voltage_v_) || adc_node_voltage_v_ < 0.0f || adc_node_voltage_v_ > config_.adc_vref + 0.01f) {
+  if (!isfinite(adc_node_voltage_v_) || adc_node_voltage_v_ < 0.0f || adc_node_voltage_v_ > config_.adc_vref + kAdcVrefTolerance) {
     valid_ = false;
     fault_ = PressureFault::AdcError;
     return;

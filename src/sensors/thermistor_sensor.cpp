@@ -7,6 +7,7 @@ namespace sensors {
 namespace {
 constexpr float kKelvinOffset = 273.15f;
 constexpr float kMinResistanceOhms = 1.0f;
+constexpr float kAdcVrefTolerance = 0.01f;
 }  // namespace
 
 void ThermistorSensor::configure(const ThermistorConfig& config) {
@@ -113,7 +114,7 @@ void ThermistorSensor::update(uint32_t now_ms) {
 
   raw_voltage_v_ = computeAverageVoltage();
 
-  if (!isfinite(raw_voltage_v_) || raw_voltage_v_ < 0.0f || raw_voltage_v_ > config_.adc_vref + 0.01f) {
+  if (!isfinite(raw_voltage_v_) || raw_voltage_v_ < 0.0f || raw_voltage_v_ > config_.adc_vref + kAdcVrefTolerance) {
     valid_ = false;
     fault_ = ThermistorFault::AdcError;
     return;

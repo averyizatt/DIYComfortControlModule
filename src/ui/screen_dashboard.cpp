@@ -977,7 +977,8 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
 }
 
 void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
-  constexpr size_t kTempsBufSize = 448;  // Extended to hold temp+pressure+validity lines.
+  // 12 lines @ ~32 chars/line plus labels, spacing, and numeric precision margin.
+  constexpr size_t kTempsBufSize = 448;
   char buf[kTempsBufSize];
   snprintf(buf, sizeof(buf),
            "Cabin:        %.1f C\n"
@@ -1034,7 +1035,8 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     default: resetStr = "UNK";  break;
   }
 
-  constexpr size_t kDiagBufSize = 1152;  // Extended diagnostics block includes analog sensor section.
+  // Multi-section diagnostics text block with analog sensor section and long numeric fields.
+  constexpr size_t kDiagBufSize = 1152;
   char buf[kDiagBufSize];
   snprintf(buf, sizeof(buf),
     "-- SYSTEM --\n"
