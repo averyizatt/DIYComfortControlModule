@@ -94,6 +94,18 @@ void packKnockState(const state::VehicleState& s, can_protocol::CanFrame& out) {
   out = can_protocol::packEngineKnockState(ks);
 }
 
+void packEngineSensorExt(const state::VehicleState& s, can_protocol::CanFrame& out) {
+  can_protocol::EngineSensorExt ext{};
+  ext.oil_pressure_psi = can_protocol::clampU8(static_cast<int>(s.oil_pressure_psi));
+  ext.fuel_pressure_psi = can_protocol::clampU8(static_cast<int>(s.fuel_pressure_psi));
+  ext.meth_pressure_psi = can_protocol::clampU8(static_cast<int>(s.meth_pressure_psi));
+  ext.boost_ref_pressure_psi = can_protocol::clampU8(static_cast<int>(s.boost_ref_pressure_psi));
+  ext.ambient_temp_c = static_cast<int8_t>(s.outside_temp);
+  ext.cabin_temp_c = static_cast<int8_t>(s.cabin_temp);
+  ext.analog_fault_flags = s.analog_sensor_fault_flags;
+  out = can_protocol::packEngineSensorExt(ext);
+}
+
 can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) {
   const meth::DesiredConfig desired = meth::fromVehicleState(s);
   return meth::toCanBroadcast(desired);
@@ -438,6 +450,27 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     return;
   }
 
+  if (frame.id == can_protocol::ID_ENGINE_SENSOR_EXT) {
+    can_protocol::EngineSensorExt msg{};
+    if (!can_protocol::unpackEngineSensorExt(frame, msg)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.oil_pressure_psi = msg.oil_pressure_psi;
+      s.fuel_pressure_psi = msg.fuel_pressure_psi;
+      s.meth_pressure_psi = msg.meth_pressure_psi;
+      s.boost_ref_pressure_psi = msg.boost_ref_pressure_psi;
+      s.outside_temp = msg.ambient_temp_c;
+      s.cabin_temp = msg.cabin_temp_c;
+      s.analog_sensor_fault_flags = msg.analog_fault_flags;
+      s.oil_pressure_valid = true;
+      s.fuel_pressure_valid = true;
+      s.meth_pressure_valid = true;
+      s.boost_ref_pressure_valid = true;
+      s.outside_temp_valid = true;
+      s.cabin_temp_valid = true;
+    });
+    return;
+  }
+
   if (frame.id == can_protocol::ID_MASTER_COMMAND && frame.dlc >= 1) {
     const uint8_t cmd = frame.data[0];
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
@@ -548,6 +581,13 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
     sendFrame(knock);
     lastKnockTxMs_ = nowMs;
   }
+
+  if ((nowMs - lastSensorExtTxMs_) >= 250) {
+    can_protocol::CanFrame sensorExt{};
+    packEngineSensorExt(snapshot, sensorExt);
+    sendFrame(sensorExt);
+    lastSensorExtTxMs_ = nowMs;
+  }
 }
 
 void CanManager::updateTimeouts(uint32_t nowMs) {
@@ -628,6 +668,23 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.outside_temp = 21.0f + 1.0f * sinf(t * 0.06f);
     s.coolant_temp = 84.0f + 3.0f * sinf(t * 0.2f);
     s.intercooler_temp = 32.0f + 2.0f * sinf(t * 0.2f);
+    s.oil_pressure_psi = 62.0f + 8.0f * sinf(t * 0.28f);
+    s.fuel_pressure_psi = 49.0f + 4.0f * sinf(t * 0.33f);
+    s.meth_pressure_psi = 115.0f + 9.0f * sinf(t * 0.44f);
+    s.boost_ref_pressure_psi = 6.0f + 3.0f * sinf(t * 0.52f);
+    s.spare_pressure_1_psi = 30.0f + 2.0f * sinf(t * 0.17f);
+    s.spare_pressure_2_psi = 35.0f + 2.0f * sinf(t * 0.19f);
+    s.intake_temp_valid = true;
+    s.engine_bay_temp_valid = true;
+    s.cabin_temp_valid = true;
+    s.outside_temp_valid = true;
+    s.oil_pressure_valid = true;
+    s.fuel_pressure_valid = true;
+    s.meth_pressure_valid = true;
+    s.boost_ref_pressure_valid = true;
+    s.spare_pressure_1_valid = true;
+    s.spare_pressure_2_valid = true;
+    s.analog_sensor_fault_flags = 0;
     s.battery_voltage = 12.8f;
     s.heap_free_bytes = ESP.getFreeHeap();
     s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());

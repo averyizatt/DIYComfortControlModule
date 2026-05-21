@@ -824,9 +824,13 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   snprintf(buf, sizeof(buf), "BOOST %.0f kPa", static_cast<double>(s.boost_kpa));
   lv_label_set_text(boostValLabel_, buf);
 
-  snprintf(buf, sizeof(buf), "BAT %.1fV  %u sats",
+  snprintf(buf, sizeof(buf), "BAT %.1fV  %u sats  IAT %.1fC  OIL/FUEL/METH %.0f/%.0f/%.0fpsi",
            static_cast<double>(s.battery_voltage),
-           static_cast<unsigned>(s.gps_satellites));
+           static_cast<unsigned>(s.gps_satellites),
+           static_cast<double>(s.intake_temp),
+           static_cast<double>(s.oil_pressure_psi),
+           static_cast<double>(s.fuel_pressure_psi),
+           static_cast<double>(s.meth_pressure_psi));
   lv_label_set_text(dashEnvLabel_, buf);
 
   const bool noKnockActive = !s.knock_warning_active && !s.knock_critical_active;
@@ -973,19 +977,57 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
 }
 
 void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
-  char buf[160];
+  // 12 lines * ~32 chars ~= 384 + ~64 bytes for labels/precision headroom.
+  constexpr size_t kTempsBufSize = 448;
+  char buf[kTempsBufSize];
+  char tempValid[24] = {};
+  char pressureValid[32] = {};
+  bool hasTempValid = false;
+  bool hasPressureValid = false;
+  auto appendValid = [](char* dst, size_t dstSize, const char* token, bool& hasAny) {
+    if (!dst || !token || dstSize == 0) return;
+    if (hasAny) strncat(dst, " ", dstSize - strlen(dst) - 1);
+    strncat(dst, token, dstSize - strlen(dst) - 1);
+    hasAny = true;
+  };
+  if (s.intake_temp_valid) appendValid(tempValid, sizeof(tempValid), "IAT", hasTempValid);
+  if (s.engine_bay_temp_valid) appendValid(tempValid, sizeof(tempValid), "BAY", hasTempValid);
+  if (s.cabin_temp_valid) appendValid(tempValid, sizeof(tempValid), "CAB", hasTempValid);
+  if (s.outside_temp_valid) appendValid(tempValid, sizeof(tempValid), "AMB", hasTempValid);
+  if (!hasTempValid) strncpy(tempValid, "NONE", sizeof(tempValid) - 1);
+
+  if (s.oil_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "OIL", hasPressureValid);
+  if (s.fuel_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "FUEL", hasPressureValid);
+  if (s.meth_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "METH", hasPressureValid);
+  if (s.boost_ref_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "BOOST", hasPressureValid);
+  if (!hasPressureValid) strncpy(pressureValid, "NONE", sizeof(pressureValid) - 1);
+
   snprintf(buf, sizeof(buf),
            "Cabin:        %.1f C\n"
            "Outside:      %.1f C\n"
            "Engine Bay:   %.1f C\n"
            "Intake Air:   %.1f C\n"
            "Intercooler:  %.1f C\n"
+           "Oil Press:    %.1f psi\n"
+           "Fuel Press:   %.1f psi\n"
+           "Meth Press:   %.1f psi\n"
+           "Boost Ref:    %.1f psi\n"
+           "Spare 1/2:    %.1f / %.1f psi\n"
+           "Validity T/P: %s / %s\n"
            "ESP die:      %d C",
            static_cast<double>(s.cabin_temp),
            static_cast<double>(s.outside_temp),
            static_cast<double>(s.engine_bay_temp),
            static_cast<double>(s.intake_temp),
            static_cast<double>(s.intercooler_temp),
+           static_cast<double>(s.oil_pressure_psi),
+           static_cast<double>(s.fuel_pressure_psi),
+           static_cast<double>(s.meth_pressure_psi),
+           static_cast<double>(s.boost_ref_pressure_psi),
+           static_cast<double>(s.spare_pressure_1_psi),
+           static_cast<double>(s.spare_pressure_2_psi),
+           tempValid,
+           pressureValid,
            static_cast<int>(s.esp_die_temp_c));
   lv_label_set_text(tempsLabel_, buf);
 }
@@ -1009,7 +1051,9 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     default: resetStr = "UNK";  break;
   }
 
-  char buf[768];
+  // Multi-section diagnostics block: ~1000 chars worst-case + safety margin.
+  constexpr size_t kDiagBufSize = 1152;
+  char buf[kDiagBufSize];
   snprintf(buf, sizeof(buf),
     "-- SYSTEM --\n"
     "Heap: %lu B free   Die: %d C\n"
@@ -1035,6 +1079,11 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     "En:%s Valid:%s Warn:%s Crit:%s Learned:%s\n"
     "E:%.1f B:%.1f T:%.1f Cnt:%u Last:%u rpm %.0f kPa\n"
     "Fault:%s Clip:%s Hi:%u Lo:%u Resp:%u\n"
+    "\n"
+    "-- ANALOG SENSORS --\n"
+    "IAT:%.1f(%s) Bay:%.1f(%s) Cabin:%.1f(%s) Amb:%.1f(%s)\n"
+    "Oil:%.1f(%s) Fuel:%.1f(%s) Meth:%.1f(%s) Boost:%.1f(%s)\n"
+    "Sp1:%.1f(%s) Sp2:%.1f(%s) FaultMask:0x%04X\n"
     "\n"
     "-- TACH --\n"
     "In: %.1f Hz   Out: %.1f Hz   Src: %u\n"
@@ -1096,6 +1145,18 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     static_cast<unsigned>(s.knock_signal_clip_high_count),
     static_cast<unsigned>(s.knock_signal_clip_low_count),
     static_cast<unsigned>(s.knock_response_mode),
+    // ANALOG
+    static_cast<double>(s.intake_temp), s.intake_temp_valid ? "OK" : "FAULT",
+    static_cast<double>(s.engine_bay_temp), s.engine_bay_temp_valid ? "OK" : "FAULT",
+    static_cast<double>(s.cabin_temp), s.cabin_temp_valid ? "OK" : "FAULT",
+    static_cast<double>(s.outside_temp), s.outside_temp_valid ? "OK" : "FAULT",
+    static_cast<double>(s.oil_pressure_psi), s.oil_pressure_valid ? "OK" : "FAULT",
+    static_cast<double>(s.fuel_pressure_psi), s.fuel_pressure_valid ? "OK" : "FAULT",
+    static_cast<double>(s.meth_pressure_psi), s.meth_pressure_valid ? "OK" : "FAULT",
+    static_cast<double>(s.boost_ref_pressure_psi), s.boost_ref_pressure_valid ? "OK" : "FAULT",
+    static_cast<double>(s.spare_pressure_1_psi), s.spare_pressure_1_valid ? "OK" : "FAULT",
+    static_cast<double>(s.spare_pressure_2_psi), s.spare_pressure_2_valid ? "OK" : "FAULT",
+    static_cast<unsigned>(s.analog_sensor_fault_flags),
     // TACH
     static_cast<double>(s.tach_input_frequency_hz),
     static_cast<double>(s.tach_generated_frequency_hz),
@@ -1228,9 +1289,13 @@ void ScreenDashboard::updateKnockPage(const state::VehicleState& s, uint32_t now
 #endif
 
   // Logging / note row
-  snprintf(buf, sizeof(buf), "SD Log: %s  Logging: %s  |  \xe2\x80\xa0 Not ECU knock control",
+  snprintf(buf, sizeof(buf), "IAT %.1fC  Meth %.1fpsi  Fuel %.1fpsi  Oil %.1fpsi  | SD:%s Log:%s  |  \xe2\x80\xa0 Not ECU knock control",
+           static_cast<double>(s.intake_temp),
+           static_cast<double>(s.meth_pressure_psi),
+           static_cast<double>(s.fuel_pressure_psi),
+           static_cast<double>(s.oil_pressure_psi),
            s.sd_mounted ? "YES" : "NO",
-           s.knock_logging_active ? "YES" : "NO");
+            s.knock_logging_active ? "YES" : "NO");
   lv_label_set_text(knockLogLabel_, buf);
 }
 

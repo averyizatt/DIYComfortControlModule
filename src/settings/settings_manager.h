@@ -48,6 +48,33 @@ struct AppSettings {
   char wifi_ssid[33]{};
   char wifi_password[65]{};
   char web_password[33]{};
+
+  bool analog_sensors_enabled = true;
+  uint16_t analog_sensor_sample_ms = 50;
+  float thermistor_pullup_ohms = 10000.0f;
+  uint8_t iat_adc_pin = 255;
+  uint8_t engine_bay_adc_pin = 255;
+  uint8_t cabin_temp_adc_pin = 255;
+  uint8_t ambient_temp_adc_pin = 255;
+  uint8_t oil_pressure_adc_pin = 255;
+  uint8_t fuel_pressure_adc_pin = 255;
+  uint8_t meth_pressure_adc_pin = 255;
+  uint8_t boost_ref_pressure_adc_pin = 255;
+  uint8_t spare_pressure_1_adc_pin = 255;
+  uint8_t spare_pressure_2_adc_pin = 255;
+  bool iat_sensor_enabled = false;
+  bool engine_bay_sensor_enabled = false;
+  bool cabin_temp_sensor_enabled = false;
+  bool ambient_temp_sensor_enabled = false;
+  bool oil_pressure_sensor_enabled = false;
+  bool fuel_pressure_sensor_enabled = false;
+  bool meth_pressure_sensor_enabled = false;
+  bool boost_ref_pressure_sensor_enabled = false;
+  bool spare_pressure_1_sensor_enabled = false;
+  bool spare_pressure_2_sensor_enabled = false;
+  float pressure_sensor_min_v = 0.5f;
+  float pressure_sensor_max_v = 4.5f;
+  float pressure_sensor_max_psi = 100.0f;
 };
 
 class SettingsManager {
