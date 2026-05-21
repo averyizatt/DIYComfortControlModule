@@ -186,6 +186,103 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 
 The default environment is `esp32s3_devkit_release`.
 
+## Automotive Analog Sensors (Thermistors + Pressure)
+
+The CCM now supports automotive passive NTC thermistors and 3-wire 0.5–4.5 V pressure transducers using the existing task/state/UI/web/CAN/logging architecture.
+
+### Thermistor wiring (IAT / temp channels)
+
+Supported channels include:
+
+- intake air temp
+- engine bay temp
+- cabin temp
+- ambient/outside temp
+
+Wiring:
+
+```text
+3.3V ── 10k pullup ── ADC node ── NTC thermistor ── GND
+```
+
+Runtime path:
+
+1. ADC sample + oversample averaging
+2. ADC voltage conversion
+3. Thermistor resistance calculation
+4. Temperature conversion (Steinhart-Hart with optional LUT mode)
+5. Exponential smoothing
+6. Fault/validity checks
+
+Thermistor fault checks:
+
+- open sensor detection
+- short-to-ground detection
+- out-of-range temperature detection
+- stale reading detection
+
+### Pressure transducer wiring (oil/fuel/meth/boost/spare)
+
+Supported channels include:
+
+- oil pressure
+- fuel pressure
+- meth pressure
+- boost reference pressure
+- spare pressure channels
+
+Sensor and input conditioning:
+
+```text
+Sensor +5V and GND powered conventionally
+Sensor OUT ── 220Ω protection ── 10k ── ADC node ── 20k ── GND
+                                   └─ optional filter capacitor to GND
+```
+
+Transfer/scaling:
+
+- ADC node is scaled back to sensor output using divider ratio
+- Pressure is computed with configurable transfer function:
+  - `psi = ((Vsensor - Vmin) / (Vmax - Vmin)) * (Pmax - Pmin) + Pmin`
+- Calibration is supported by scale/offset in the pressure sensor module
+- Averaging + smoothing are applied to improve display/log/CAN stability
+
+Pressure fault checks:
+
+- short/open voltage thresholds
+- PSI out-of-range detection
+- stale reading detection
+- invalid configuration detection
+
+### ADC scaling notes
+
+- ESP32-S3 ADC is used in non-blocking periodic sampling
+- Oversampling and low-pass filtering are applied for stable UI/CAN behavior
+- Sensor channels are individually enable/disable configurable
+- Sample/update rate and key analog scaling values are persisted in settings
+
+### UI, Web, Telemetry, and Logging additions
+
+- Existing pages were extended (not replaced)
+- TEMPS/INFO/DIAG now include pressure channels and sensor validity/fault visibility
+- KNOCK page now includes IAT + meth/fuel/oil pressure context for correlation
+- Web `/api/state`, `/api/can/status`, `/api/diagnostics`, websocket payload, and meth state include new sensor fields
+- SD runtime logs now include:
+  - `intake_air_temp_c`
+  - `engine_bay_temp_c`
+  - `cabin_temp_c`
+  - `ambient_temp_c`
+  - `oil_pressure_psi`
+  - `fuel_pressure_psi`
+  - `meth_pressure_psi`
+- CAN adds sensor extension telemetry on `0x303` while preserving existing frame IDs/flows
+
+### Screenshot placeholders
+
+- Touch UI analog sensor views: **TODO capture bench screenshots**
+- Web dashboard analog sensor card: **TODO capture screenshot**
+- Diagnostics with sensor validity/fault flags: **TODO capture screenshot**
+
 ## Getting Started
 
 ### Prerequisites

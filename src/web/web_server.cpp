@@ -37,6 +37,7 @@ a.link{color:#8ec8ff;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
 <main>
 <div class='card'><h2>Live Vehicle</h2><pre id='live'>Connecting...</pre></div>
 <div class='card'><h2>CAN Status</h2><pre id='canStatus'>Loading CAN status...</pre></div>
+<div class='card'><h2>Analog Sensors</h2><pre id='sensorHealth'>Loading sensor diagnostics...</pre></div>
 <div class='card'><h2>Water Meth</h2><p class='warn' id='ratioWarn'></p><pre id='methState'>Loading...</pre><div class='actions'><button onclick="methCmd('arm')">ARM</button><button onclick="methCmd('disarm')">DISARM</button><button onclick="setRatio()">Set Ratio</button><button onclick="methCmd('clear_faults')">Clear Faults</button></div></div>
 <div class='card'><h2>Knock Monitor</h2><pre id='knockState'>Loading...</pre><div class='actions'><button onclick="knockCmd('toggle')">Enable/Disable</button><button onclick="knockCmd('reset_baseline')">Reset Baseline</button><button onclick="knockCmd('simulate')">Simulate Knock Event</button><button onclick="knockCmd('clear_events')">Clear Events</button></div></div>
 <div class='card'><h2>Race Performance</h2><div class='actions'><button onclick="raceCmd('start_accel')">Start Accel</button><button onclick="raceCmd('start_lap')">Start Lap</button><button onclick="raceCmd('stop')">Stop</button><button onclick="raceCmd('reset')">Reset</button></div><pre id='race'>Loading race data...</pre></div>
@@ -55,6 +56,7 @@ async function updatePanels(){
   try{const can=await fetch('/api/can/status');document.getElementById('canStatus').textContent=pretty(await can.text());}catch(_){}
   try{const meth=await fetch('/api/meth/state');document.getElementById('methState').textContent=pretty(await meth.text());}catch(_){}
   try{const knock=await fetch('/api/knock/state');document.getElementById('knockState').textContent=pretty(await knock.text());}catch(_){}
+  try{const sensors=await fetch('/api/diagnostics');document.getElementById('sensorHealth').textContent=pretty(await sensors.text());}catch(_){}
 }
 setInterval(updatePanels,1000);updatePanels();
 </script></body></html>
@@ -378,6 +380,11 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     doc["boost_kpa"] = s.boost_kpa;
     doc["intake_temp_c"] = s.intake_temp;
     doc["engine_bay_temp_c"] = s.engine_bay_temp;
+    doc["meth_pressure_psi"] = s.meth_pressure_psi;
+    doc["fuel_pressure_psi"] = s.fuel_pressure_psi;
+    doc["oil_pressure_psi"] = s.oil_pressure_psi;
+    doc["iat_valid"] = s.intake_temp_valid;
+    doc["meth_pressure_valid"] = s.meth_pressure_valid;
     String body;
     serializeJson(doc, body);
     req->send(200, "application/json", body);
@@ -493,6 +500,32 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("race_sample_min_ms")) s.race_sample_min_ms = obj["race_sample_min_ms"].as<uint16_t>();
         if (obj.containsKey("race_sample_max_ms")) s.race_sample_max_ms = obj["race_sample_max_ms"].as<uint16_t>();
         if (obj.containsKey("race_start_finish_radius_m")) s.race_start_finish_radius_m = obj["race_start_finish_radius_m"].as<float>();
+        if (obj.containsKey("analog_sensors_enabled")) s.analog_sensors_enabled = obj["analog_sensors_enabled"].as<bool>();
+        if (obj.containsKey("analog_sensor_sample_ms")) s.analog_sensor_sample_ms = obj["analog_sensor_sample_ms"].as<uint16_t>();
+        if (obj.containsKey("thermistor_pullup_ohms")) s.thermistor_pullup_ohms = obj["thermistor_pullup_ohms"].as<float>();
+        if (obj.containsKey("iat_adc_pin")) s.iat_adc_pin = obj["iat_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("engine_bay_adc_pin")) s.engine_bay_adc_pin = obj["engine_bay_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("cabin_temp_adc_pin")) s.cabin_temp_adc_pin = obj["cabin_temp_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("ambient_temp_adc_pin")) s.ambient_temp_adc_pin = obj["ambient_temp_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("oil_pressure_adc_pin")) s.oil_pressure_adc_pin = obj["oil_pressure_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("fuel_pressure_adc_pin")) s.fuel_pressure_adc_pin = obj["fuel_pressure_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("meth_pressure_adc_pin")) s.meth_pressure_adc_pin = obj["meth_pressure_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("boost_ref_pressure_adc_pin")) s.boost_ref_pressure_adc_pin = obj["boost_ref_pressure_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("spare_pressure_1_adc_pin")) s.spare_pressure_1_adc_pin = obj["spare_pressure_1_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("spare_pressure_2_adc_pin")) s.spare_pressure_2_adc_pin = obj["spare_pressure_2_adc_pin"].as<uint8_t>();
+        if (obj.containsKey("iat_sensor_enabled")) s.iat_sensor_enabled = obj["iat_sensor_enabled"].as<bool>();
+        if (obj.containsKey("engine_bay_sensor_enabled")) s.engine_bay_sensor_enabled = obj["engine_bay_sensor_enabled"].as<bool>();
+        if (obj.containsKey("cabin_temp_sensor_enabled")) s.cabin_temp_sensor_enabled = obj["cabin_temp_sensor_enabled"].as<bool>();
+        if (obj.containsKey("ambient_temp_sensor_enabled")) s.ambient_temp_sensor_enabled = obj["ambient_temp_sensor_enabled"].as<bool>();
+        if (obj.containsKey("oil_pressure_sensor_enabled")) s.oil_pressure_sensor_enabled = obj["oil_pressure_sensor_enabled"].as<bool>();
+        if (obj.containsKey("fuel_pressure_sensor_enabled")) s.fuel_pressure_sensor_enabled = obj["fuel_pressure_sensor_enabled"].as<bool>();
+        if (obj.containsKey("meth_pressure_sensor_enabled")) s.meth_pressure_sensor_enabled = obj["meth_pressure_sensor_enabled"].as<bool>();
+        if (obj.containsKey("boost_ref_pressure_sensor_enabled")) s.boost_ref_pressure_sensor_enabled = obj["boost_ref_pressure_sensor_enabled"].as<bool>();
+        if (obj.containsKey("spare_pressure_1_sensor_enabled")) s.spare_pressure_1_sensor_enabled = obj["spare_pressure_1_sensor_enabled"].as<bool>();
+        if (obj.containsKey("spare_pressure_2_sensor_enabled")) s.spare_pressure_2_sensor_enabled = obj["spare_pressure_2_sensor_enabled"].as<bool>();
+        if (obj.containsKey("pressure_sensor_min_v")) s.pressure_sensor_min_v = obj["pressure_sensor_min_v"].as<float>();
+        if (obj.containsKey("pressure_sensor_max_v")) s.pressure_sensor_max_v = obj["pressure_sensor_max_v"].as<float>();
+        if (obj.containsKey("pressure_sensor_max_psi")) s.pressure_sensor_max_psi = obj["pressure_sensor_max_psi"].as<float>();
       });
       state::VehicleState snapshot = stateStore_->read();
       settingsMgr_->updateFromState(snapshot);
@@ -797,6 +830,25 @@ String WebServerManager::stateJson() const {
   doc["engine_bay_temp"] = s.engine_bay_temp;
   doc["iat"] = s.intake_temp;
   doc["intercooler_temp"] = s.intercooler_temp;
+  doc["oil_pressure_psi"] = s.oil_pressure_psi;
+  doc["fuel_pressure_psi"] = s.fuel_pressure_psi;
+  doc["meth_pressure_psi"] = s.meth_pressure_psi;
+  doc["boost_ref_pressure_psi"] = s.boost_ref_pressure_psi;
+  doc["spare_pressure_1_psi"] = s.spare_pressure_1_psi;
+  doc["spare_pressure_2_psi"] = s.spare_pressure_2_psi;
+  doc["intake_temp_valid"] = s.intake_temp_valid;
+  doc["engine_bay_temp_valid"] = s.engine_bay_temp_valid;
+  doc["cabin_temp_valid"] = s.cabin_temp_valid;
+  doc["outside_temp_valid"] = s.outside_temp_valid;
+  doc["oil_pressure_valid"] = s.oil_pressure_valid;
+  doc["fuel_pressure_valid"] = s.fuel_pressure_valid;
+  doc["meth_pressure_valid"] = s.meth_pressure_valid;
+  doc["boost_ref_pressure_valid"] = s.boost_ref_pressure_valid;
+  doc["spare_pressure_1_valid"] = s.spare_pressure_1_valid;
+  doc["spare_pressure_2_valid"] = s.spare_pressure_2_valid;
+  doc["analog_sensor_fault_flags"] = s.analog_sensor_fault_flags;
+  doc["analog_sensors_enabled"] = s.analog_sensors_enabled;
+  doc["last_analog_sensor_ms"] = s.last_analog_sensor_ms;
   doc["meth_state"] = static_cast<uint8_t>(s.meth_state);
   doc["pump_duty"] = s.meth_pump_duty;
   doc["tank_level"] = s.meth_tank_level;
@@ -890,6 +942,13 @@ String WebServerManager::canStatusJson() const {
   doc["knock_response_mode"] = s.knock_response_mode;
   doc["knock_logging_active"] = s.knock_logging_active;
   doc["knock_online"] = s.knock_online;
+  doc["oil_pressure_psi"] = s.oil_pressure_psi;
+  doc["fuel_pressure_psi"] = s.fuel_pressure_psi;
+  doc["meth_pressure_psi"] = s.meth_pressure_psi;
+  doc["boost_ref_pressure_psi"] = s.boost_ref_pressure_psi;
+  doc["analog_sensor_fault_flags"] = s.analog_sensor_fault_flags;
+  doc["analog_sensors_enabled"] = s.analog_sensors_enabled;
+  doc["last_analog_sensor_ms"] = s.last_analog_sensor_ms;
   doc["uptime_ms"] = s.uptime_ms;
   doc["reset_reason"] = s.reset_reason;
   doc["brownout_reset_count"] = s.brownout_reset_count;
@@ -940,6 +999,32 @@ void WebServerManager::sendSettings(AsyncWebServerRequest* request) const {
   doc["knock_baseline_learning_enabled"] = st.knock_baseline_learning_enabled;
   doc["knock_demo_mode_enabled"] = st.knock_demo_mode_enabled;
   doc["knock_response_mode"] = st.knock_response_mode;
+  doc["analog_sensors_enabled"] = st.analog_sensors_enabled;
+  doc["analog_sensor_sample_ms"] = st.analog_sensor_sample_ms;
+  doc["thermistor_pullup_ohms"] = st.thermistor_pullup_ohms;
+  doc["iat_adc_pin"] = st.iat_adc_pin;
+  doc["engine_bay_adc_pin"] = st.engine_bay_adc_pin;
+  doc["cabin_temp_adc_pin"] = st.cabin_temp_adc_pin;
+  doc["ambient_temp_adc_pin"] = st.ambient_temp_adc_pin;
+  doc["oil_pressure_adc_pin"] = st.oil_pressure_adc_pin;
+  doc["fuel_pressure_adc_pin"] = st.fuel_pressure_adc_pin;
+  doc["meth_pressure_adc_pin"] = st.meth_pressure_adc_pin;
+  doc["boost_ref_pressure_adc_pin"] = st.boost_ref_pressure_adc_pin;
+  doc["spare_pressure_1_adc_pin"] = st.spare_pressure_1_adc_pin;
+  doc["spare_pressure_2_adc_pin"] = st.spare_pressure_2_adc_pin;
+  doc["iat_sensor_enabled"] = st.iat_sensor_enabled;
+  doc["engine_bay_sensor_enabled"] = st.engine_bay_sensor_enabled;
+  doc["cabin_temp_sensor_enabled"] = st.cabin_temp_sensor_enabled;
+  doc["ambient_temp_sensor_enabled"] = st.ambient_temp_sensor_enabled;
+  doc["oil_pressure_sensor_enabled"] = st.oil_pressure_sensor_enabled;
+  doc["fuel_pressure_sensor_enabled"] = st.fuel_pressure_sensor_enabled;
+  doc["meth_pressure_sensor_enabled"] = st.meth_pressure_sensor_enabled;
+  doc["boost_ref_pressure_sensor_enabled"] = st.boost_ref_pressure_sensor_enabled;
+  doc["spare_pressure_1_sensor_enabled"] = st.spare_pressure_1_sensor_enabled;
+  doc["spare_pressure_2_sensor_enabled"] = st.spare_pressure_2_sensor_enabled;
+  doc["pressure_sensor_min_v"] = st.pressure_sensor_min_v;
+  doc["pressure_sensor_max_v"] = st.pressure_sensor_max_v;
+  doc["pressure_sensor_max_psi"] = st.pressure_sensor_max_psi;
   doc["warning"] = kRatioWarning;
 
   String out;
@@ -994,6 +1079,27 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["knock_clipping_detected"] = s.knock_clipping_detected;
   doc["knock_signal_clip_high_count"] = s.knock_signal_clip_high_count;
   doc["knock_signal_clip_low_count"] = s.knock_signal_clip_low_count;
+  doc["intake_temp_c"] = s.intake_temp;
+  doc["engine_bay_temp_c"] = s.engine_bay_temp;
+  doc["cabin_temp_c"] = s.cabin_temp;
+  doc["ambient_temp_c"] = s.outside_temp;
+  doc["oil_pressure_psi"] = s.oil_pressure_psi;
+  doc["fuel_pressure_psi"] = s.fuel_pressure_psi;
+  doc["meth_pressure_psi"] = s.meth_pressure_psi;
+  doc["boost_ref_pressure_psi"] = s.boost_ref_pressure_psi;
+  doc["spare_pressure_1_psi"] = s.spare_pressure_1_psi;
+  doc["spare_pressure_2_psi"] = s.spare_pressure_2_psi;
+  doc["intake_temp_valid"] = s.intake_temp_valid;
+  doc["engine_bay_temp_valid"] = s.engine_bay_temp_valid;
+  doc["cabin_temp_valid"] = s.cabin_temp_valid;
+  doc["outside_temp_valid"] = s.outside_temp_valid;
+  doc["oil_pressure_valid"] = s.oil_pressure_valid;
+  doc["fuel_pressure_valid"] = s.fuel_pressure_valid;
+  doc["meth_pressure_valid"] = s.meth_pressure_valid;
+  doc["boost_ref_pressure_valid"] = s.boost_ref_pressure_valid;
+  doc["spare_pressure_1_valid"] = s.spare_pressure_1_valid;
+  doc["spare_pressure_2_valid"] = s.spare_pressure_2_valid;
+  doc["analog_sensor_fault_flags"] = s.analog_sensor_fault_flags;
 
   String out;
   serializeJson(doc, out);

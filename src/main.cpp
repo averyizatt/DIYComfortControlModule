@@ -13,6 +13,8 @@
 #include "knock/knock_monitor.h"
 #include "pin_map.h"
 #include "race/race_manager.h"
+#include "sensors/pressure_sensor.h"
+#include "sensors/thermistor_sensor.h"
 #include "settings/settings_manager.h"
 #include "state/vehicle_state.h"
 #include "storage/log_manager.h"
@@ -39,8 +41,30 @@ knock::KnockMonitor g_knock;
 touch::TouchManager g_touch;
 ui::AssetManager g_assets;
 ui::ScreenDashboard g_screen;
+sensors::ThermistorSensor g_iatThermistor;
+sensors::ThermistorSensor g_engineBayThermistor;
+sensors::ThermistorSensor g_cabinThermistor;
+sensors::ThermistorSensor g_ambientThermistor;
+sensors::PressureSensor g_oilPressureSensor;
+sensors::PressureSensor g_fuelPressureSensor;
+sensors::PressureSensor g_methPressureSensor;
+sensors::PressureSensor g_boostRefPressureSensor;
+sensors::PressureSensor g_sparePressure1Sensor;
+sensors::PressureSensor g_sparePressure2Sensor;
 
 constexpr uint32_t kTaskWatchdogTimeoutS = 6;
+constexpr uint16_t kAnalogFaultIat = 1U << 0;
+constexpr uint16_t kAnalogFaultEngineBay = 1U << 1;
+constexpr uint16_t kAnalogFaultCabin = 1U << 2;
+constexpr uint16_t kAnalogFaultAmbient = 1U << 3;
+constexpr uint16_t kAnalogFaultOil = 1U << 4;
+constexpr uint16_t kAnalogFaultFuel = 1U << 5;
+constexpr uint16_t kAnalogFaultMeth = 1U << 6;
+constexpr uint16_t kAnalogFaultBoostRef = 1U << 7;
+constexpr uint16_t kAnalogFaultSpare1 = 1U << 8;
+constexpr uint16_t kAnalogFaultSpare2 = 1U << 9;
+constexpr uint16_t kFaultFlagTempSensors = 0x0800;
+constexpr uint16_t kFaultFlagPressureSensors = 0x1000;
 
 void initTaskWatchdog() {
 #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
@@ -91,6 +115,79 @@ void applySettingsToState() {
   state::VehicleState current = state::g_vehicle_state.read();
   g_settings.loadIntoState(current);
   state::g_vehicle_state.write(current);
+}
+
+void configureAnalogSensorsFromState(const state::VehicleState& cfg) {
+  const bool sensorsEnabled = cfg.analog_sensors_enabled;
+  const uint16_t sampleMs = cfg.analog_sensor_sample_ms < 10 ? 10 : cfg.analog_sensor_sample_ms;
+
+  sensors::ThermistorConfig tc{};
+  tc.pullup_ohms = cfg.thermistor_pullup_ohms;
+  tc.update_period_ms = sampleMs;
+  tc.stale_timeout_ms = static_cast<uint16_t>(sampleMs * 6U);
+  tc.filter_alpha = 0.20f;
+
+  tc.enabled = sensorsEnabled && cfg.iat_sensor_enabled;
+  tc.adc_pin = cfg.iat_adc_pin;
+  g_iatThermistor.configure(tc);
+  g_iatThermistor.begin();
+
+  tc.enabled = sensorsEnabled && cfg.engine_bay_sensor_enabled;
+  tc.adc_pin = cfg.engine_bay_adc_pin;
+  tc.max_valid_temp_c = 200.0f;
+  g_engineBayThermistor.configure(tc);
+  g_engineBayThermistor.begin();
+
+  tc.enabled = sensorsEnabled && cfg.cabin_temp_sensor_enabled;
+  tc.adc_pin = cfg.cabin_temp_adc_pin;
+  tc.max_valid_temp_c = 120.0f;
+  g_cabinThermistor.configure(tc);
+  g_cabinThermistor.begin();
+
+  tc.enabled = sensorsEnabled && cfg.ambient_temp_sensor_enabled;
+  tc.adc_pin = cfg.ambient_temp_adc_pin;
+  tc.max_valid_temp_c = 120.0f;
+  g_ambientThermistor.configure(tc);
+  g_ambientThermistor.begin();
+
+  sensors::PressureSensorConfig pc{};
+  pc.sensor_min_v = cfg.pressure_sensor_min_v;
+  pc.sensor_max_v = cfg.pressure_sensor_max_v;
+  pc.pressure_max_psi = cfg.pressure_sensor_max_psi;
+  pc.update_period_ms = sampleMs;
+  pc.stale_timeout_ms = static_cast<uint16_t>(sampleMs * 6U);
+  pc.filter_alpha = 0.20f;
+  pc.max_valid_psi = cfg.pressure_sensor_max_psi + 25.0f;
+
+  pc.enabled = sensorsEnabled && cfg.oil_pressure_sensor_enabled;
+  pc.adc_pin = cfg.oil_pressure_adc_pin;
+  g_oilPressureSensor.configure(pc);
+  g_oilPressureSensor.begin();
+
+  pc.enabled = sensorsEnabled && cfg.fuel_pressure_sensor_enabled;
+  pc.adc_pin = cfg.fuel_pressure_adc_pin;
+  g_fuelPressureSensor.configure(pc);
+  g_fuelPressureSensor.begin();
+
+  pc.enabled = sensorsEnabled && cfg.meth_pressure_sensor_enabled;
+  pc.adc_pin = cfg.meth_pressure_adc_pin;
+  g_methPressureSensor.configure(pc);
+  g_methPressureSensor.begin();
+
+  pc.enabled = sensorsEnabled && cfg.boost_ref_pressure_sensor_enabled;
+  pc.adc_pin = cfg.boost_ref_pressure_adc_pin;
+  g_boostRefPressureSensor.configure(pc);
+  g_boostRefPressureSensor.begin();
+
+  pc.enabled = sensorsEnabled && cfg.spare_pressure_1_sensor_enabled;
+  pc.adc_pin = cfg.spare_pressure_1_adc_pin;
+  g_sparePressure1Sensor.configure(pc);
+  g_sparePressure1Sensor.begin();
+
+  pc.enabled = sensorsEnabled && cfg.spare_pressure_2_sensor_enabled;
+  pc.adc_pin = cfg.spare_pressure_2_adc_pin;
+  g_sparePressure2Sensor.configure(pc);
+  g_sparePressure2Sensor.begin();
 }
 
 void setupWifiFromSettings() {
@@ -166,6 +263,120 @@ void touchTask(void*) {
   }
 }
 
+void analogSensorTask(void*) {
+  registerTaskWatchdog();
+  uint32_t lastConfigRefreshMs = 0;
+  state::VehicleState lastConfig{};
+
+  while (true) {
+    const uint32_t nowMs = millis();
+    if ((nowMs - lastConfigRefreshMs) >= 1000U) {
+      lastConfigRefreshMs = nowMs;
+      const state::VehicleState cfg = state::g_vehicle_state.read();
+      const bool configChanged = cfg.analog_sensors_enabled != lastConfig.analog_sensors_enabled ||
+                                 cfg.analog_sensor_sample_ms != lastConfig.analog_sensor_sample_ms ||
+                                 cfg.thermistor_pullup_ohms != lastConfig.thermistor_pullup_ohms ||
+                                 cfg.iat_adc_pin != lastConfig.iat_adc_pin ||
+                                 cfg.engine_bay_adc_pin != lastConfig.engine_bay_adc_pin ||
+                                 cfg.cabin_temp_adc_pin != lastConfig.cabin_temp_adc_pin ||
+                                 cfg.ambient_temp_adc_pin != lastConfig.ambient_temp_adc_pin ||
+                                 cfg.oil_pressure_adc_pin != lastConfig.oil_pressure_adc_pin ||
+                                 cfg.fuel_pressure_adc_pin != lastConfig.fuel_pressure_adc_pin ||
+                                 cfg.meth_pressure_adc_pin != lastConfig.meth_pressure_adc_pin ||
+                                 cfg.boost_ref_pressure_adc_pin != lastConfig.boost_ref_pressure_adc_pin ||
+                                 cfg.spare_pressure_1_adc_pin != lastConfig.spare_pressure_1_adc_pin ||
+                                 cfg.spare_pressure_2_adc_pin != lastConfig.spare_pressure_2_adc_pin ||
+                                 cfg.iat_sensor_enabled != lastConfig.iat_sensor_enabled ||
+                                 cfg.engine_bay_sensor_enabled != lastConfig.engine_bay_sensor_enabled ||
+                                 cfg.cabin_temp_sensor_enabled != lastConfig.cabin_temp_sensor_enabled ||
+                                 cfg.ambient_temp_sensor_enabled != lastConfig.ambient_temp_sensor_enabled ||
+                                 cfg.oil_pressure_sensor_enabled != lastConfig.oil_pressure_sensor_enabled ||
+                                 cfg.fuel_pressure_sensor_enabled != lastConfig.fuel_pressure_sensor_enabled ||
+                                 cfg.meth_pressure_sensor_enabled != lastConfig.meth_pressure_sensor_enabled ||
+                                 cfg.boost_ref_pressure_sensor_enabled != lastConfig.boost_ref_pressure_sensor_enabled ||
+                                 cfg.spare_pressure_1_sensor_enabled != lastConfig.spare_pressure_1_sensor_enabled ||
+                                 cfg.spare_pressure_2_sensor_enabled != lastConfig.spare_pressure_2_sensor_enabled ||
+                                 cfg.pressure_sensor_min_v != lastConfig.pressure_sensor_min_v ||
+                                 cfg.pressure_sensor_max_v != lastConfig.pressure_sensor_max_v ||
+                                 cfg.pressure_sensor_max_psi != lastConfig.pressure_sensor_max_psi;
+      if (configChanged) {
+        configureAnalogSensorsFromState(cfg);
+        lastConfig = cfg;
+      }
+    }
+
+    g_iatThermistor.update(nowMs);
+    g_engineBayThermistor.update(nowMs);
+    g_cabinThermistor.update(nowMs);
+    g_ambientThermistor.update(nowMs);
+    g_oilPressureSensor.update(nowMs);
+    g_fuelPressureSensor.update(nowMs);
+    g_methPressureSensor.update(nowMs);
+    g_boostRefPressureSensor.update(nowMs);
+    g_sparePressure1Sensor.update(nowMs);
+    g_sparePressure2Sensor.update(nowMs);
+
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      uint16_t analogFaultFlags = 0;
+
+      s.intake_temp_valid = g_iatThermistor.valid();
+      s.engine_bay_temp_valid = g_engineBayThermistor.valid();
+      s.cabin_temp_valid = g_cabinThermistor.valid();
+      s.outside_temp_valid = g_ambientThermistor.valid();
+      s.oil_pressure_valid = g_oilPressureSensor.valid();
+      s.fuel_pressure_valid = g_fuelPressureSensor.valid();
+      s.meth_pressure_valid = g_methPressureSensor.valid();
+      s.boost_ref_pressure_valid = g_boostRefPressureSensor.valid();
+      s.spare_pressure_1_valid = g_sparePressure1Sensor.valid();
+      s.spare_pressure_2_valid = g_sparePressure2Sensor.valid();
+
+      if (s.intake_temp_valid) s.intake_temp = g_iatThermistor.valueC();
+      else if (s.iat_sensor_enabled) analogFaultFlags |= kAnalogFaultIat;
+
+      if (s.engine_bay_temp_valid) s.engine_bay_temp = g_engineBayThermistor.valueC();
+      else if (s.engine_bay_sensor_enabled) analogFaultFlags |= kAnalogFaultEngineBay;
+
+      if (s.cabin_temp_valid) s.cabin_temp = g_cabinThermistor.valueC();
+      else if (s.cabin_temp_sensor_enabled) analogFaultFlags |= kAnalogFaultCabin;
+
+      if (s.outside_temp_valid) s.outside_temp = g_ambientThermistor.valueC();
+      else if (s.ambient_temp_sensor_enabled) analogFaultFlags |= kAnalogFaultAmbient;
+
+      if (s.oil_pressure_valid) s.oil_pressure_psi = g_oilPressureSensor.valuePsi();
+      else if (s.oil_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultOil;
+
+      if (s.fuel_pressure_valid) s.fuel_pressure_psi = g_fuelPressureSensor.valuePsi();
+      else if (s.fuel_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultFuel;
+
+      if (s.meth_pressure_valid) s.meth_pressure_psi = g_methPressureSensor.valuePsi();
+      else if (s.meth_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultMeth;
+
+      if (s.boost_ref_pressure_valid) s.boost_ref_pressure_psi = g_boostRefPressureSensor.valuePsi();
+      else if (s.boost_ref_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultBoostRef;
+
+      if (s.spare_pressure_1_valid) s.spare_pressure_1_psi = g_sparePressure1Sensor.valuePsi();
+      else if (s.spare_pressure_1_sensor_enabled) analogFaultFlags |= kAnalogFaultSpare1;
+
+      if (s.spare_pressure_2_valid) s.spare_pressure_2_psi = g_sparePressure2Sensor.valuePsi();
+      else if (s.spare_pressure_2_sensor_enabled) analogFaultFlags |= kAnalogFaultSpare2;
+
+      s.analog_sensor_fault_flags = analogFaultFlags;
+      s.last_analog_sensor_ms = nowMs;
+
+      const bool tempFault = (analogFaultFlags & (kAnalogFaultIat | kAnalogFaultEngineBay | kAnalogFaultCabin | kAnalogFaultAmbient)) != 0U;
+      const bool pressureFault = (analogFaultFlags & (kAnalogFaultOil | kAnalogFaultFuel | kAnalogFaultMeth | kAnalogFaultBoostRef |
+                                                       kAnalogFaultSpare1 | kAnalogFaultSpare2)) != 0U;
+      if (tempFault) s.fault_flags |= kFaultFlagTempSensors;
+      else s.fault_flags &= static_cast<uint16_t>(~kFaultFlagTempSensors);
+      if (pressureFault) s.fault_flags |= kFaultFlagPressureSensors;
+      else s.fault_flags &= static_cast<uint16_t>(~kFaultFlagPressureSensors);
+    });
+
+    feedTaskWatchdog();
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
 void screenTask(void*) {
   registerTaskWatchdog();
   uint32_t lastFpsMs = millis();
@@ -230,6 +441,17 @@ void storageTask(void*) {
                static_cast<double>(s.knock_threshold), knockEventCountChanged ? 1U : 0U,
                static_cast<unsigned>(s.knock_fault_code_pending));
       g_logs.enqueue("knock", knockLine);
+
+      char analogLine[256];
+      snprintf(analogLine, sizeof(analogLine),
+               "intake_air_temp_c=%.2f,engine_bay_temp_c=%.2f,cabin_temp_c=%.2f,ambient_temp_c=%.2f,oil_pressure_psi=%.2f,fuel_pressure_psi=%.2f,meth_pressure_psi=%.2f,boost_ref_pressure_psi=%.2f,spare_pressure_1_psi=%.2f,spare_pressure_2_psi=%.2f,sensor_fault_flags=0x%04X",
+               static_cast<double>(s.intake_temp), static_cast<double>(s.engine_bay_temp),
+               static_cast<double>(s.cabin_temp), static_cast<double>(s.outside_temp),
+               static_cast<double>(s.oil_pressure_psi), static_cast<double>(s.fuel_pressure_psi),
+               static_cast<double>(s.meth_pressure_psi), static_cast<double>(s.boost_ref_pressure_psi),
+               static_cast<double>(s.spare_pressure_1_psi), static_cast<double>(s.spare_pressure_2_psi),
+               static_cast<unsigned>(s.analog_sensor_fault_flags));
+      g_logs.enqueue("sensors", analogLine);
 
       if (s.fault_flags != 0) {
         char faultLine[48];
@@ -345,6 +567,7 @@ void setup() {
   registerTaskWatchdog();
   g_settings.begin();
   applySettingsToState();
+  configureAnalogSensorsFromState(state::g_vehicle_state.read());
   if (pins::kLcdBacklight != 255) {
     analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
   }
@@ -387,6 +610,7 @@ void setup() {
   xTaskCreatePinnedToCore(webTask, "web_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(knockTask, "knock_task", 6144, nullptr, 2, nullptr, 0);
+  xTaskCreatePinnedToCore(analogSensorTask, "analog_sensor_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(screenTask, "screen_task", 8192, nullptr, 1, nullptr, 1);

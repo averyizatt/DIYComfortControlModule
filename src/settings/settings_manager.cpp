@@ -96,6 +96,42 @@ void SettingsManager::load() {
   safeCopy(settings_.wifi_ssid, ssid.c_str());
   safeCopy(settings_.wifi_password, pass.c_str());
   safeCopy(settings_.web_password, webpass.c_str());
+
+  settings_.analog_sensors_enabled = prefs_.getBool("an_en", settings_.analog_sensors_enabled);
+  settings_.analog_sensor_sample_ms = prefs_.getUShort("an_rate", settings_.analog_sensor_sample_ms);
+  settings_.thermistor_pullup_ohms = prefs_.getFloat("th_pull", settings_.thermistor_pullup_ohms);
+  settings_.iat_adc_pin = prefs_.getUChar("an_iat_p", settings_.iat_adc_pin);
+  settings_.engine_bay_adc_pin = prefs_.getUChar("an_bay_p", settings_.engine_bay_adc_pin);
+  settings_.cabin_temp_adc_pin = prefs_.getUChar("an_cab_p", settings_.cabin_temp_adc_pin);
+  settings_.ambient_temp_adc_pin = prefs_.getUChar("an_amb_p", settings_.ambient_temp_adc_pin);
+  settings_.oil_pressure_adc_pin = prefs_.getUChar("an_oil_p", settings_.oil_pressure_adc_pin);
+  settings_.fuel_pressure_adc_pin = prefs_.getUChar("an_fuel_p", settings_.fuel_pressure_adc_pin);
+  settings_.meth_pressure_adc_pin = prefs_.getUChar("an_meth_p", settings_.meth_pressure_adc_pin);
+  settings_.boost_ref_pressure_adc_pin = prefs_.getUChar("an_boost_p", settings_.boost_ref_pressure_adc_pin);
+  settings_.spare_pressure_1_adc_pin = prefs_.getUChar("an_sp1_p", settings_.spare_pressure_1_adc_pin);
+  settings_.spare_pressure_2_adc_pin = prefs_.getUChar("an_sp2_p", settings_.spare_pressure_2_adc_pin);
+  settings_.iat_sensor_enabled = prefs_.getBool("an_iat_en", settings_.iat_sensor_enabled);
+  settings_.engine_bay_sensor_enabled = prefs_.getBool("an_bay_en", settings_.engine_bay_sensor_enabled);
+  settings_.cabin_temp_sensor_enabled = prefs_.getBool("an_cab_en", settings_.cabin_temp_sensor_enabled);
+  settings_.ambient_temp_sensor_enabled = prefs_.getBool("an_amb_en", settings_.ambient_temp_sensor_enabled);
+  settings_.oil_pressure_sensor_enabled = prefs_.getBool("an_oil_en", settings_.oil_pressure_sensor_enabled);
+  settings_.fuel_pressure_sensor_enabled = prefs_.getBool("an_fuel_en", settings_.fuel_pressure_sensor_enabled);
+  settings_.meth_pressure_sensor_enabled = prefs_.getBool("an_meth_en", settings_.meth_pressure_sensor_enabled);
+  settings_.boost_ref_pressure_sensor_enabled = prefs_.getBool("an_boost_en", settings_.boost_ref_pressure_sensor_enabled);
+  settings_.spare_pressure_1_sensor_enabled = prefs_.getBool("an_sp1_en", settings_.spare_pressure_1_sensor_enabled);
+  settings_.spare_pressure_2_sensor_enabled = prefs_.getBool("an_sp2_en", settings_.spare_pressure_2_sensor_enabled);
+  settings_.pressure_sensor_min_v = prefs_.getFloat("an_pminv", settings_.pressure_sensor_min_v);
+  settings_.pressure_sensor_max_v = prefs_.getFloat("an_pmaxv", settings_.pressure_sensor_max_v);
+  settings_.pressure_sensor_max_psi = prefs_.getFloat("an_pmaxp", settings_.pressure_sensor_max_psi);
+
+  if (settings_.analog_sensor_sample_ms < 10) settings_.analog_sensor_sample_ms = 10;
+  if (settings_.analog_sensor_sample_ms > 1000) settings_.analog_sensor_sample_ms = 1000;
+  if (settings_.thermistor_pullup_ohms < 1000.0f) settings_.thermistor_pullup_ohms = 1000.0f;
+  if (settings_.thermistor_pullup_ohms > 100000.0f) settings_.thermistor_pullup_ohms = 100000.0f;
+  if (settings_.pressure_sensor_min_v < 0.1f) settings_.pressure_sensor_min_v = 0.1f;
+  if (settings_.pressure_sensor_max_v <= settings_.pressure_sensor_min_v + 0.1f) settings_.pressure_sensor_max_v = settings_.pressure_sensor_min_v + 0.1f;
+  if (settings_.pressure_sensor_max_v > 5.0f) settings_.pressure_sensor_max_v = 5.0f;
+  if (settings_.pressure_sensor_max_psi < 5.0f) settings_.pressure_sensor_max_psi = 5.0f;
 }
 
 void SettingsManager::loadIntoState(state::VehicleState& s) const {
@@ -142,6 +178,32 @@ void SettingsManager::loadIntoState(state::VehicleState& s) const {
   s.race_start_longitude = settings_.race_start_longitude;
   s.race_start_point_set = settings_.race_start_point_set;
   s.wifi_ap_mode = settings_.wifi_ap_mode;
+  s.analog_sensors_enabled = settings_.analog_sensors_enabled;
+  s.analog_sensor_sample_ms = settings_.analog_sensor_sample_ms;
+  s.thermistor_pullup_ohms = settings_.thermistor_pullup_ohms;
+  s.iat_adc_pin = settings_.iat_adc_pin;
+  s.engine_bay_adc_pin = settings_.engine_bay_adc_pin;
+  s.cabin_temp_adc_pin = settings_.cabin_temp_adc_pin;
+  s.ambient_temp_adc_pin = settings_.ambient_temp_adc_pin;
+  s.oil_pressure_adc_pin = settings_.oil_pressure_adc_pin;
+  s.fuel_pressure_adc_pin = settings_.fuel_pressure_adc_pin;
+  s.meth_pressure_adc_pin = settings_.meth_pressure_adc_pin;
+  s.boost_ref_pressure_adc_pin = settings_.boost_ref_pressure_adc_pin;
+  s.spare_pressure_1_adc_pin = settings_.spare_pressure_1_adc_pin;
+  s.spare_pressure_2_adc_pin = settings_.spare_pressure_2_adc_pin;
+  s.iat_sensor_enabled = settings_.iat_sensor_enabled;
+  s.engine_bay_sensor_enabled = settings_.engine_bay_sensor_enabled;
+  s.cabin_temp_sensor_enabled = settings_.cabin_temp_sensor_enabled;
+  s.ambient_temp_sensor_enabled = settings_.ambient_temp_sensor_enabled;
+  s.oil_pressure_sensor_enabled = settings_.oil_pressure_sensor_enabled;
+  s.fuel_pressure_sensor_enabled = settings_.fuel_pressure_sensor_enabled;
+  s.meth_pressure_sensor_enabled = settings_.meth_pressure_sensor_enabled;
+  s.boost_ref_pressure_sensor_enabled = settings_.boost_ref_pressure_sensor_enabled;
+  s.spare_pressure_1_sensor_enabled = settings_.spare_pressure_1_sensor_enabled;
+  s.spare_pressure_2_sensor_enabled = settings_.spare_pressure_2_sensor_enabled;
+  s.pressure_sensor_min_v = settings_.pressure_sensor_min_v;
+  s.pressure_sensor_max_v = settings_.pressure_sensor_max_v;
+  s.pressure_sensor_max_psi = settings_.pressure_sensor_max_psi;
 }
 
 void SettingsManager::updateFromState(const state::VehicleState& s) {
@@ -188,6 +250,32 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.race_start_longitude = s.race_start_longitude;
   settings_.race_start_point_set = s.race_start_point_set;
   settings_.wifi_ap_mode = s.wifi_ap_mode;
+  settings_.analog_sensors_enabled = s.analog_sensors_enabled;
+  settings_.analog_sensor_sample_ms = s.analog_sensor_sample_ms;
+  settings_.thermistor_pullup_ohms = s.thermistor_pullup_ohms;
+  settings_.iat_adc_pin = s.iat_adc_pin;
+  settings_.engine_bay_adc_pin = s.engine_bay_adc_pin;
+  settings_.cabin_temp_adc_pin = s.cabin_temp_adc_pin;
+  settings_.ambient_temp_adc_pin = s.ambient_temp_adc_pin;
+  settings_.oil_pressure_adc_pin = s.oil_pressure_adc_pin;
+  settings_.fuel_pressure_adc_pin = s.fuel_pressure_adc_pin;
+  settings_.meth_pressure_adc_pin = s.meth_pressure_adc_pin;
+  settings_.boost_ref_pressure_adc_pin = s.boost_ref_pressure_adc_pin;
+  settings_.spare_pressure_1_adc_pin = s.spare_pressure_1_adc_pin;
+  settings_.spare_pressure_2_adc_pin = s.spare_pressure_2_adc_pin;
+  settings_.iat_sensor_enabled = s.iat_sensor_enabled;
+  settings_.engine_bay_sensor_enabled = s.engine_bay_sensor_enabled;
+  settings_.cabin_temp_sensor_enabled = s.cabin_temp_sensor_enabled;
+  settings_.ambient_temp_sensor_enabled = s.ambient_temp_sensor_enabled;
+  settings_.oil_pressure_sensor_enabled = s.oil_pressure_sensor_enabled;
+  settings_.fuel_pressure_sensor_enabled = s.fuel_pressure_sensor_enabled;
+  settings_.meth_pressure_sensor_enabled = s.meth_pressure_sensor_enabled;
+  settings_.boost_ref_pressure_sensor_enabled = s.boost_ref_pressure_sensor_enabled;
+  settings_.spare_pressure_1_sensor_enabled = s.spare_pressure_1_sensor_enabled;
+  settings_.spare_pressure_2_sensor_enabled = s.spare_pressure_2_sensor_enabled;
+  settings_.pressure_sensor_min_v = s.pressure_sensor_min_v;
+  settings_.pressure_sensor_max_v = s.pressure_sensor_max_v;
+  settings_.pressure_sensor_max_psi = s.pressure_sensor_max_psi;
 }
 
 bool SettingsManager::save() {
@@ -238,6 +326,32 @@ bool SettingsManager::save() {
   prefs_.putString("wifi_ssid", settings_.wifi_ssid);
   prefs_.putString("wifi_pass", settings_.wifi_password);
   prefs_.putString("web_pass", settings_.web_password);
+  prefs_.putBool("an_en", settings_.analog_sensors_enabled);
+  prefs_.putUShort("an_rate", settings_.analog_sensor_sample_ms);
+  prefs_.putFloat("th_pull", settings_.thermistor_pullup_ohms);
+  prefs_.putUChar("an_iat_p", settings_.iat_adc_pin);
+  prefs_.putUChar("an_bay_p", settings_.engine_bay_adc_pin);
+  prefs_.putUChar("an_cab_p", settings_.cabin_temp_adc_pin);
+  prefs_.putUChar("an_amb_p", settings_.ambient_temp_adc_pin);
+  prefs_.putUChar("an_oil_p", settings_.oil_pressure_adc_pin);
+  prefs_.putUChar("an_fuel_p", settings_.fuel_pressure_adc_pin);
+  prefs_.putUChar("an_meth_p", settings_.meth_pressure_adc_pin);
+  prefs_.putUChar("an_boost_p", settings_.boost_ref_pressure_adc_pin);
+  prefs_.putUChar("an_sp1_p", settings_.spare_pressure_1_adc_pin);
+  prefs_.putUChar("an_sp2_p", settings_.spare_pressure_2_adc_pin);
+  prefs_.putBool("an_iat_en", settings_.iat_sensor_enabled);
+  prefs_.putBool("an_bay_en", settings_.engine_bay_sensor_enabled);
+  prefs_.putBool("an_cab_en", settings_.cabin_temp_sensor_enabled);
+  prefs_.putBool("an_amb_en", settings_.ambient_temp_sensor_enabled);
+  prefs_.putBool("an_oil_en", settings_.oil_pressure_sensor_enabled);
+  prefs_.putBool("an_fuel_en", settings_.fuel_pressure_sensor_enabled);
+  prefs_.putBool("an_meth_en", settings_.meth_pressure_sensor_enabled);
+  prefs_.putBool("an_boost_en", settings_.boost_ref_pressure_sensor_enabled);
+  prefs_.putBool("an_sp1_en", settings_.spare_pressure_1_sensor_enabled);
+  prefs_.putBool("an_sp2_en", settings_.spare_pressure_2_sensor_enabled);
+  prefs_.putFloat("an_pminv", settings_.pressure_sensor_min_v);
+  prefs_.putFloat("an_pmaxv", settings_.pressure_sensor_max_v);
+  prefs_.putFloat("an_pmaxp", settings_.pressure_sensor_max_psi);
   return true;
 }
 

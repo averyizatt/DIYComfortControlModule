@@ -50,6 +50,24 @@ struct VehicleState {
   float engine_bay_temp = 35.0f;
   float intake_temp = 25.0f;
   float intercooler_temp = 24.0f;
+  float oil_pressure_psi = 0.0f;
+  float fuel_pressure_psi = 0.0f;
+  float meth_pressure_psi = 0.0f;
+  float boost_ref_pressure_psi = 0.0f;
+  float spare_pressure_1_psi = 0.0f;
+  float spare_pressure_2_psi = 0.0f;
+  bool cabin_temp_valid = false;
+  bool outside_temp_valid = false;
+  bool engine_bay_temp_valid = false;
+  bool intake_temp_valid = false;
+  bool oil_pressure_valid = false;
+  bool fuel_pressure_valid = false;
+  bool meth_pressure_valid = false;
+  bool boost_ref_pressure_valid = false;
+  bool spare_pressure_1_valid = false;
+  bool spare_pressure_2_valid = false;
+  uint16_t analog_sensor_fault_flags = 0;
+  uint32_t last_analog_sensor_ms = 0;
 
   // Water meth — CCM controls only enable/disable and mixture ratio.
   // All injection thresholds (boost trigger, IAT, max duty) are owned by the meth module itself.
@@ -177,6 +195,32 @@ struct VehicleState {
   uint8_t display_brightness = 180;
   bool night_mode_enabled = false;
   uint8_t tach_scaling_mode = 0;
+  bool analog_sensors_enabled = true;
+  uint16_t analog_sensor_sample_ms = 50;
+  float thermistor_pullup_ohms = 10000.0f;
+  uint8_t iat_adc_pin = 255;
+  uint8_t engine_bay_adc_pin = 255;
+  uint8_t cabin_temp_adc_pin = 255;
+  uint8_t ambient_temp_adc_pin = 255;
+  uint8_t oil_pressure_adc_pin = 255;
+  uint8_t fuel_pressure_adc_pin = 255;
+  uint8_t meth_pressure_adc_pin = 255;
+  uint8_t boost_ref_pressure_adc_pin = 255;
+  uint8_t spare_pressure_1_adc_pin = 255;
+  uint8_t spare_pressure_2_adc_pin = 255;
+  bool iat_sensor_enabled = false;
+  bool engine_bay_sensor_enabled = false;
+  bool cabin_temp_sensor_enabled = false;
+  bool ambient_temp_sensor_enabled = false;
+  bool oil_pressure_sensor_enabled = false;
+  bool fuel_pressure_sensor_enabled = false;
+  bool meth_pressure_sensor_enabled = false;
+  bool boost_ref_pressure_sensor_enabled = false;
+  bool spare_pressure_1_sensor_enabled = false;
+  bool spare_pressure_2_sensor_enabled = false;
+  float pressure_sensor_min_v = 0.5f;
+  float pressure_sensor_max_v = 4.5f;
+  float pressure_sensor_max_psi = 100.0f;
 
   // Web and diagnostics
   uint16_t web_connected_clients = 0;
