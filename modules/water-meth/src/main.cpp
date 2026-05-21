@@ -319,8 +319,11 @@ void setup() {
   pumpDriver.begin(pins::PUMP_PWM, config.pwmFrequencyHz, config.pwmResolutionBits);
   warningOutput.begin(pins::WARNING_LED, true);
 
-  if (canBridge.begin(pins::CAN_TX, pins::CAN_RX)) Serial.println("CAN: online");
-  else Serial.println("CAN: TWAI init failed — running serial-only");
+  if (canBridge.begin(pins::CAN_TX, pins::CAN_RX)) {
+    Serial.println("CAN: online");
+  } else {
+    Serial.println("CAN: TWAI init failed — running serial-only");
+  }
 
   printSetupSummary();
   printHelp();
