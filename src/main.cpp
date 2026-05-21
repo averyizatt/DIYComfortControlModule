@@ -331,34 +331,34 @@ void analogSensorTask(void*) {
       s.spare_pressure_2_valid = g_sparePressure2Sensor.valid();
 
       if (s.intake_temp_valid) s.intake_temp = g_iatThermistor.valueC();
-      else if (s.iat_sensor_enabled) analogFaultFlags |= kAnalogFaultIat;
+      else if (g_iatThermistor.config().enabled) analogFaultFlags |= kAnalogFaultIat;
 
       if (s.engine_bay_temp_valid) s.engine_bay_temp = g_engineBayThermistor.valueC();
-      else if (s.engine_bay_sensor_enabled) analogFaultFlags |= kAnalogFaultEngineBay;
+      else if (g_engineBayThermistor.config().enabled) analogFaultFlags |= kAnalogFaultEngineBay;
 
       if (s.cabin_temp_valid) s.cabin_temp = g_cabinThermistor.valueC();
-      else if (s.cabin_temp_sensor_enabled) analogFaultFlags |= kAnalogFaultCabin;
+      else if (g_cabinThermistor.config().enabled) analogFaultFlags |= kAnalogFaultCabin;
 
       if (s.outside_temp_valid) s.outside_temp = g_ambientThermistor.valueC();
-      else if (s.ambient_temp_sensor_enabled) analogFaultFlags |= kAnalogFaultAmbient;
+      else if (g_ambientThermistor.config().enabled) analogFaultFlags |= kAnalogFaultAmbient;
 
       if (s.oil_pressure_valid) s.oil_pressure_psi = g_oilPressureSensor.valuePsi();
-      else if (s.oil_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultOil;
+      else if (g_oilPressureSensor.config().enabled) analogFaultFlags |= kAnalogFaultOil;
 
       if (s.fuel_pressure_valid) s.fuel_pressure_psi = g_fuelPressureSensor.valuePsi();
-      else if (s.fuel_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultFuel;
+      else if (g_fuelPressureSensor.config().enabled) analogFaultFlags |= kAnalogFaultFuel;
 
       if (s.meth_pressure_valid) s.meth_pressure_psi = g_methPressureSensor.valuePsi();
-      else if (s.meth_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultMeth;
+      else if (g_methPressureSensor.config().enabled) analogFaultFlags |= kAnalogFaultMeth;
 
       if (s.boost_ref_pressure_valid) s.boost_ref_pressure_psi = g_boostRefPressureSensor.valuePsi();
-      else if (s.boost_ref_pressure_sensor_enabled) analogFaultFlags |= kAnalogFaultBoostRef;
+      else if (g_boostRefPressureSensor.config().enabled) analogFaultFlags |= kAnalogFaultBoostRef;
 
       if (s.spare_pressure_1_valid) s.spare_pressure_1_psi = g_sparePressure1Sensor.valuePsi();
-      else if (s.spare_pressure_1_sensor_enabled) analogFaultFlags |= kAnalogFaultSpare1;
+      else if (g_sparePressure1Sensor.config().enabled) analogFaultFlags |= kAnalogFaultSpare1;
 
       if (s.spare_pressure_2_valid) s.spare_pressure_2_psi = g_sparePressure2Sensor.valuePsi();
-      else if (s.spare_pressure_2_sensor_enabled) analogFaultFlags |= kAnalogFaultSpare2;
+      else if (g_sparePressure2Sensor.config().enabled) analogFaultFlags |= kAnalogFaultSpare2;
 
       s.analog_sensor_fault_flags = analogFaultFlags;
       s.last_analog_sensor_ms = nowMs;

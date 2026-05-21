@@ -824,7 +824,7 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   snprintf(buf, sizeof(buf), "BOOST %.0f kPa", static_cast<double>(s.boost_kpa));
   lv_label_set_text(boostValLabel_, buf);
 
-  snprintf(buf, sizeof(buf), "BAT %.1fV  %u sats  IAT %.1fC  O/F/M %.0f/%.0f/%.0fpsi",
+  snprintf(buf, sizeof(buf), "BAT %.1fV  %u sats  IAT %.1fC  OIL/FUEL/METH %.0f/%.0f/%.0fpsi",
            static_cast<double>(s.battery_voltage),
            static_cast<unsigned>(s.gps_satellites),
            static_cast<double>(s.intake_temp),
@@ -980,6 +980,28 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
   // 12 lines * ~32 chars ~= 384 + ~64 bytes for labels/precision headroom.
   constexpr size_t kTempsBufSize = 448;
   char buf[kTempsBufSize];
+  char tempValid[24] = {};
+  char pressureValid[32] = {};
+  bool hasTempValid = false;
+  bool hasPressureValid = false;
+  auto appendValid = [](char* dst, size_t dstSize, const char* token, bool& hasAny) {
+    if (!dst || !token || dstSize == 0) return;
+    if (hasAny) strncat(dst, " ", dstSize - strlen(dst) - 1);
+    strncat(dst, token, dstSize - strlen(dst) - 1);
+    hasAny = true;
+  };
+  if (s.intake_temp_valid) appendValid(tempValid, sizeof(tempValid), "IAT", hasTempValid);
+  if (s.engine_bay_temp_valid) appendValid(tempValid, sizeof(tempValid), "BAY", hasTempValid);
+  if (s.cabin_temp_valid) appendValid(tempValid, sizeof(tempValid), "CAB", hasTempValid);
+  if (s.outside_temp_valid) appendValid(tempValid, sizeof(tempValid), "AMB", hasTempValid);
+  if (!hasTempValid) strncpy(tempValid, "NONE", sizeof(tempValid) - 1);
+
+  if (s.oil_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "OIL", hasPressureValid);
+  if (s.fuel_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "FUEL", hasPressureValid);
+  if (s.meth_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "METH", hasPressureValid);
+  if (s.boost_ref_pressure_valid) appendValid(pressureValid, sizeof(pressureValid), "BOOST", hasPressureValid);
+  if (!hasPressureValid) strncpy(pressureValid, "NONE", sizeof(pressureValid) - 1);
+
   snprintf(buf, sizeof(buf),
            "Cabin:        %.1f C\n"
            "Outside:      %.1f C\n"
@@ -991,7 +1013,7 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
            "Meth Press:   %.1f psi\n"
            "Boost Ref:    %.1f psi\n"
            "Spare 1/2:    %.1f / %.1f psi\n"
-           "Validity T/P: %s%s%s%s / %s%s%s%s\n"
+           "Validity T/P: %s / %s\n"
            "ESP die:      %d C",
            static_cast<double>(s.cabin_temp),
            static_cast<double>(s.outside_temp),
@@ -1004,14 +1026,8 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
            static_cast<double>(s.boost_ref_pressure_psi),
            static_cast<double>(s.spare_pressure_1_psi),
            static_cast<double>(s.spare_pressure_2_psi),
-           s.intake_temp_valid ? "IAT " : "",
-           s.engine_bay_temp_valid ? "BAY " : "",
-           s.cabin_temp_valid ? "CAB " : "",
-           s.outside_temp_valid ? "AMB " : "",
-           s.oil_pressure_valid ? "OIL " : "",
-           s.fuel_pressure_valid ? "FUEL " : "",
-           s.meth_pressure_valid ? "METH " : "",
-           s.boost_ref_pressure_valid ? "BOOST " : "",
+           tempValid,
+           pressureValid,
            static_cast<int>(s.esp_die_temp_c));
   lv_label_set_text(tempsLabel_, buf);
 }
