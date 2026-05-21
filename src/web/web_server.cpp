@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "meth/meth_config.h"
+#include "web/WebApiLogic.hpp"
 
 namespace web {
 
@@ -319,22 +320,6 @@ uint8_t sanitizeMethRatioValue(uint8_t ratio) {
   return meth::sanitizeRatio(ratio);
 }
 
-const char* manualTestRejectReasonText(uint8_t code) {
-  switch (code) {
-    case 1:
-      return "offline";
-    case 2:
-      return "fault";
-    case 3:
-      return "cooldown";
-    case 4:
-      return "duty_zero";
-    case 5:
-      return "duty_over_max";
-    default:
-      return "none";
-  }
-}
 }  // namespace
 
 bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr,
@@ -573,11 +558,13 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
           else if (action == "reset_baseline") { s.knock_reset_baseline_request = true; }
           else if (action == "clear_events")   { s.knock_clear_event_count_request = true; }
           else if (action == "simulate_event") {
+            if (web::knockSimulationAllowed(
 #if defined(DEMO_MODE) && (DEMO_MODE == 1)
-            s.knock_simulate_event_request = true;
+                    true,
 #else
-            if (s.knock_demo_mode_enabled) s.knock_simulate_event_request = true;
+                    false,
 #endif
+                    s.knock_demo_mode_enabled)) s.knock_simulate_event_request = true;
           }
         }
         // Existing key-value fields (backward compatible)
@@ -597,11 +584,13 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if ((obj["reset_baseline"] | false) == true) s.knock_reset_baseline_request = true;
         if ((obj["clear_event_count"] | false) == true) s.knock_clear_event_count_request = true;
         if ((obj["simulate_event"] | false) == true) {
+          if (web::knockSimulationAllowed(
 #if defined(DEMO_MODE) && (DEMO_MODE == 1)
-          s.knock_simulate_event_request = true;
+                  true,
 #else
-          if (s.knock_demo_mode_enabled) s.knock_simulate_event_request = true;
+                  false,
 #endif
+                  s.knock_demo_mode_enabled)) s.knock_simulate_event_request = true;
         }
       });
       settingsMgr_->updateFromState(stateStore_->read());
@@ -626,7 +615,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
       free(req->_tempObject); req->_tempObject = nullptr;
       JsonObject obj = doc.as<JsonObject>();
       const int channel = obj["channel"] | 0;
-      if (channel < 1 || channel > 3) {
+      if (!web::ledChannelInRange(channel)) {
         req->send(400, "application/json", "{\"error\":\"invalid channel\"}");
         return;
       }
@@ -692,7 +681,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
           const state::VehicleState snapshot = stateStore_->read();
           JsonDocument out;
           out["error"] = "manual test rejected by safety policy";
-          out["reason"] = manualTestRejectReasonText(snapshot.meth_manual_test_reject_reason);
+          out["reason"] = web::manualTestRejectReasonText(snapshot.meth_manual_test_reject_reason);
           out["cooldown_ms_remaining"] = snapshot.meth_manual_test_cooldown_ms_remaining;
           String body; serializeJson(out, body);
           req->send(409, "application/json", body); return;
@@ -853,7 +842,7 @@ String WebServerManager::stateJson() const {
   doc["pump_duty"] = s.meth_pump_duty;
   doc["tank_level"] = s.meth_tank_level;
   doc["selected_meth_ratio"] = s.meth_selected_ratio_percent;
-  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_reject_reason"] = web::manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
   doc["knock_enabled"] = s.knock_enabled;
   doc["knock_energy"] = s.knock_energy;
@@ -953,7 +942,7 @@ String WebServerManager::canStatusJson() const {
   doc["reset_reason"] = s.reset_reason;
   doc["brownout_reset_count"] = s.brownout_reset_count;
   doc["watchdog_reset_count"] = s.watchdog_reset_count;
-  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_reject_reason"] = web::manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
   doc["web_connected_clients"] = s.web_connected_clients;
   String out;
@@ -1063,7 +1052,7 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["race_validation_flags"] = s.race_validation_flags;
   doc["brownout_reset_count"] = s.brownout_reset_count;
   doc["watchdog_reset_count"] = s.watchdog_reset_count;
-  doc["meth_manual_test_reject_reason"] = manualTestRejectReasonText(s.meth_manual_test_reject_reason);
+  doc["meth_manual_test_reject_reason"] = web::manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
   doc["knock_energy"] = s.knock_energy;
   doc["knock_baseline"] = s.knock_baseline;

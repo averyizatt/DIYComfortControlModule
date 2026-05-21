@@ -346,6 +346,50 @@ This verifies that:
 
 For bench bring-up and manual verification, use [`docs/BENCH_VALIDATION_CHECKLIST.md`](docs/BENCH_VALIDATION_CHECKLIST.md).
 
+## Testing
+
+Host-native unit tests live under `test/` and are organized by subsystem:
+
+- `test/test_can_protocol`
+- `test/test_meth_controller`
+- `test/test_pressure_sensor`
+- `test/test_thermistor_sensor`
+- `test/test_knock_monitor`
+- `test/test_tach_manager`
+- `test/test_settings`
+- `test/test_vehicle_state`
+- `test/test_web_api`
+- `test/test_logging`
+- `test/mocks`
+
+The native test environment is defined in [`platformio.ini`](platformio.ini) as `native` and is intended for deterministic, non-hardware validation of safety logic, conversion math, CAN packing, and command validation.
+
+### Run all tests
+
+```bash
+pio test -e native
+```
+
+### Run one test suite
+
+```bash
+pio test -e native -f test_pressure_sensor
+```
+
+### Add a new suite
+
+1. Create a new `test/test_<feature>/test_main.cpp`
+2. Keep the test logic host-native and deterministic
+3. Reuse the interfaces and mocks in `test/mocks`
+4. Prefer extracting pure logic from hardware-coupled code before adding new tests
+
+### Interpreting failures
+
+- Conversion or packing failures usually indicate a contract/math regression
+- Meth, knock, and vehicle-state failures should be treated as safety regressions first
+- Web API failures usually indicate validation gaps or command-handling drift
+- Logging failures usually indicate formatting or flush-path regressions
+
 ## Pin Configuration
 
 ### Source of truth

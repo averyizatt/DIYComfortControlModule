@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "sensors/ThermistorMath.hpp"
+
 namespace sensors {
 
 namespace {
@@ -115,55 +117,40 @@ void ThermistorSensor::update(uint32_t now_ms) {
   }
 
   raw_voltage_v_ = computeAverageVoltage();
+  thermistor_math::Config mathConfig{};
+  mathConfig.enabled = config_.enabled;
+  mathConfig.pullup_ohms = config_.pullup_ohms;
+  mathConfig.adc_vref = config_.adc_vref;
+  mathConfig.filter_alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
+  mathConfig.min_valid_temp_c = config_.min_valid_temp_c;
+  mathConfig.max_valid_temp_c = config_.max_valid_temp_c;
+  mathConfig.open_circuit_threshold_v = config_.open_circuit_threshold_v;
+  mathConfig.short_threshold_v = config_.short_threshold_v;
+  mathConfig.use_steinhart_hart = config_.use_steinhart_hart;
+  mathConfig.steinhart_a = config_.steinhart_a;
+  mathConfig.steinhart_b = config_.steinhart_b;
+  mathConfig.steinhart_c = config_.steinhart_c;
+  mathConfig.lut = reinterpret_cast<const thermistor_math::LutPoint*>(config_.lut);
+  mathConfig.lut_size = config_.lut_size;
+  const thermistor_math::Result result = thermistor_math::evaluate(raw_voltage_v_, mathConfig, filtered_temp_c_);
 
-  if (!isfinite(raw_voltage_v_) || raw_voltage_v_ < 0.0f || raw_voltage_v_ > config_.adc_vref + kAdcVrefTolerance) {
-    valid_ = false;
-    fault_ = ThermistorFault::AdcError;
-    return;
+  resistance_ohms_ = result.resistance_ohms;
+  filtered_temp_c_ = result.filtered_temp_c;
+  valid_ = result.valid;
+  switch (result.fault) {
+    case thermistor_math::Fault::None: fault_ = ThermistorFault::None; break;
+    case thermistor_math::Fault::Disabled: fault_ = ThermistorFault::Disabled; break;
+    case thermistor_math::Fault::OpenCircuit: fault_ = ThermistorFault::OpenCircuit; break;
+    case thermistor_math::Fault::ShortToGround: fault_ = ThermistorFault::ShortToGround; break;
+    case thermistor_math::Fault::OutOfRange: fault_ = ThermistorFault::OutOfRange; break;
+    case thermistor_math::Fault::InvalidConfig: fault_ = ThermistorFault::InvalidConfig; break;
+    case thermistor_math::Fault::StaleReading: fault_ = ThermistorFault::StaleReading; break;
+    case thermistor_math::Fault::AdcError:
+    default:
+      fault_ = ThermistorFault::AdcError;
+      break;
   }
-
-  if (raw_voltage_v_ >= config_.open_circuit_threshold_v) {
-    valid_ = false;
-    fault_ = ThermistorFault::OpenCircuit;
-    return;
-  }
-
-  if (raw_voltage_v_ <= config_.short_threshold_v) {
-    valid_ = false;
-    fault_ = ThermistorFault::ShortToGround;
-    return;
-  }
-
-  const float denom = config_.adc_vref - raw_voltage_v_;
-  if (denom <= 0.0001f) {
-    valid_ = false;
-    fault_ = ThermistorFault::OpenCircuit;
-    return;
-  }
-
-  resistance_ohms_ = (config_.pullup_ohms * raw_voltage_v_) / denom;
-  if (!isfinite(resistance_ohms_) || resistance_ohms_ < kMinResistanceOhms) {
-    valid_ = false;
-    fault_ = ThermistorFault::AdcError;
-    return;
-  }
-
-  const float temp_c = config_.use_steinhart_hart ? steinhartHartTempC(resistance_ohms_) : lookupTempC(resistance_ohms_);
-  if (!isfinite(temp_c) || temp_c < config_.min_valid_temp_c || temp_c > config_.max_valid_temp_c) {
-    valid_ = false;
-    fault_ = ThermistorFault::OutOfRange;
-    return;
-  }
-
-  if (!isfinite(filtered_temp_c_)) {
-    filtered_temp_c_ = temp_c;
-  } else {
-    const float alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
-    filtered_temp_c_ += (temp_c - filtered_temp_c_) * alpha;
-  }
-
-  valid_ = true;
-  fault_ = ThermistorFault::None;
+  if (!valid_) return;
   last_update_ms_ = now_ms;
 }
 

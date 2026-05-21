@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "sensors/PressureMath.hpp"
+
 namespace sensors {
 
 namespace {
@@ -84,52 +86,42 @@ void PressureSensor::update(uint32_t now_ms) {
   }
 
   adc_node_voltage_v_ = computeAverageAdcNodeVoltage();
-  if (!isfinite(adc_node_voltage_v_) || adc_node_voltage_v_ < 0.0f || adc_node_voltage_v_ > config_.adc_vref + kAdcVrefTolerance) {
-    valid_ = false;
-    fault_ = PressureFault::AdcError;
-    return;
+  pressure_math::Config mathConfig{};
+  mathConfig.enabled = config_.enabled;
+  mathConfig.adc_vref = config_.adc_vref;
+  mathConfig.filter_alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
+  mathConfig.divider_top_ohms = config_.divider_top_ohms;
+  mathConfig.divider_bottom_ohms = config_.divider_bottom_ohms;
+  mathConfig.sensor_min_v = config_.sensor_min_v;
+  mathConfig.sensor_max_v = config_.sensor_max_v;
+  mathConfig.pressure_min_psi = config_.pressure_min_psi;
+  mathConfig.pressure_max_psi = config_.pressure_max_psi;
+  mathConfig.calibration_scale = config_.calibration_scale;
+  mathConfig.calibration_offset_psi = config_.calibration_offset_psi;
+  mathConfig.open_circuit_threshold_v = config_.open_circuit_threshold_v;
+  mathConfig.short_threshold_v = config_.short_threshold_v;
+  mathConfig.min_valid_psi = config_.min_valid_psi;
+  mathConfig.max_valid_psi = config_.max_valid_psi;
+  const pressure_math::Result result = pressure_math::evaluate(adc_node_voltage_v_, mathConfig, filtered_psi_);
+
+  sensor_voltage_v_ = result.sensor_voltage_v;
+  filtered_psi_ = result.filtered_psi;
+  valid_ = result.valid;
+  switch (result.fault) {
+    case pressure_math::Fault::None: fault_ = PressureFault::None; break;
+    case pressure_math::Fault::Disabled: fault_ = PressureFault::Disabled; break;
+    case pressure_math::Fault::OpenCircuit: fault_ = PressureFault::OpenCircuit; break;
+    case pressure_math::Fault::ShortToGround: fault_ = PressureFault::ShortToGround; break;
+    case pressure_math::Fault::OutOfRange: fault_ = PressureFault::OutOfRange; break;
+    case pressure_math::Fault::InvalidConfig: fault_ = PressureFault::InvalidConfig; break;
+    case pressure_math::Fault::StaleReading: fault_ = PressureFault::StaleReading; break;
+    case pressure_math::Fault::ShortToVcc: fault_ = PressureFault::ShortToVcc; break;
+    case pressure_math::Fault::AdcError:
+    default:
+      fault_ = PressureFault::AdcError;
+      break;
   }
-
-  const float divider_scale = (config_.divider_top_ohms + config_.divider_bottom_ohms) / config_.divider_bottom_ohms;
-  sensor_voltage_v_ = adc_node_voltage_v_ * divider_scale;
-
-  if (!isfinite(sensor_voltage_v_) || sensor_voltage_v_ < -0.01f || sensor_voltage_v_ > 5.5f) {
-    valid_ = false;
-    fault_ = PressureFault::AdcError;
-    return;
-  }
-
-  if (sensor_voltage_v_ >= config_.open_circuit_threshold_v) {
-    valid_ = false;
-    fault_ = PressureFault::OpenCircuit;
-    return;
-  }
-
-  if (sensor_voltage_v_ <= config_.short_threshold_v) {
-    valid_ = false;
-    fault_ = PressureFault::ShortToGround;
-    return;
-  }
-
-  const float normalized = (sensor_voltage_v_ - config_.sensor_min_v) / (config_.sensor_max_v - config_.sensor_min_v);
-  float psi = config_.pressure_min_psi + normalized * (config_.pressure_max_psi - config_.pressure_min_psi);
-  psi = (psi * config_.calibration_scale) + config_.calibration_offset_psi;
-
-  if (!isfinite(psi) || psi < config_.min_valid_psi || psi > config_.max_valid_psi) {
-    valid_ = false;
-    fault_ = PressureFault::OutOfRange;
-    return;
-  }
-
-  if (!isfinite(filtered_psi_)) {
-    filtered_psi_ = psi;
-  } else {
-    const float alpha = constrain(config_.filter_alpha, kMinFilterAlpha, kMaxFilterAlpha);
-    filtered_psi_ += (psi - filtered_psi_) * alpha;
-  }
-
-  valid_ = true;
-  fault_ = PressureFault::None;
+  if (!valid_) return;
   last_update_ms_ = now_ms;
 }
 
