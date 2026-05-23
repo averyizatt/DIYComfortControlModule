@@ -57,6 +57,67 @@ The module performs:
 
 - `0x300` (`ID_ENGINE_METH_STATE`) now publishes real IAT and engine-bay temperature values.
 - `0x303` (`ID_ENGINE_SENSOR_EXT`) publishes pressure channels plus ambient/cabin temperatures and analog fault flags.
+- `0x307` (`ID_ENGINE_KNOCK_STATE`) publishes knock status, energy/baseline/threshold, and rolling event counters.
+- `0x308` (`ID_ENGINE_KNOCK_FAULT`) publishes knock warning/critical and sensor health faults.
+
+## Nano ESP32 pinout used by this firmware
+
+Source of truth: `/tmp/workspace/averyizatt/DIYComfortControlModule/modules/water-meth/include/pins.h`
+
+| Function | GPIO | Arduino label |
+| --- | ---: | --- |
+| MAP / boost sensor ADC | 1 | A0 |
+| Knock sensor ADC | 2 | A1 |
+| Float switch digital | 8 | D11 |
+| Pump PWM output | 18 | D10 |
+| Warning LED output | 17 | D9 |
+| Native TWAI TX | 5 | D4 |
+| Native TWAI RX | 6 | D5 |
+| IAT thermistor | 7 | D6 |
+| Engine bay thermistor | 8 | D11 |
+| Cabin thermistor | 9 | GPIO only |
+| Ambient thermistor | 10 | GPIO only |
+| Oil / Fuel / Meth / BoostRef / Spare1 / Spare2 pressure ADC | 11 / 12 / 13 / 14 / 15 / 16 | GPIO only |
+
+### MCP2515 SPI wiring note
+
+If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware SPI bus:
+
+- MOSI = GPIO8 (D11)
+- MISO = GPIO47 (D12)
+- SCK = GPIO48 (D13)
+- CS / INT / RST can be assigned to free GPIO pins in that module's firmware
+
+This module's new knock input is on GPIO2 (A1) to avoid conflict with SPI SCK on GPIO48.
+
+## Knock subsystem in-module
+
+Knock detection now runs entirely in this firmware:
+
+- ADC sampling + centered absolute energy computation
+- adaptive baseline + dynamic threshold (`multiplier * baseline + offset`)
+- warning/critical event windows with cooldown
+- sensor health checks (low activity/disconnect + clipping)
+- response modes:
+  - `LOG` (telemetry/fault reporting only)
+  - `WARN` (telemetry/fault reporting only)
+  - `FORCE` (force minimum spray on critical knock)
+  - `SHUTDOWN` (force pump off on critical knock)
+
+### Serial commands for knock tuning
+
+- `KNOCK SHOW`
+- `KNOCK ENABLE 0|1`
+- `KNOCK BOOSTKPA <kpa>`
+- `KNOCK MULT <value>`
+- `KNOCK OFFSET <value>`
+- `KNOCK MODE LOG|WARN|FORCE|SHUTDOWN`
+- `KNOCK RESET`
+
+### Optional/unsupported sensors
+
+- If a pressure channel is physically unwired, leave it disabled in firmware config to avoid persistent fault bits.
+- MAP/boost control uses the dedicated MAP ADC (`GPIO1 / A0`); the boost-reference pressure channel remains optional telemetry.
 
 ## Build
 

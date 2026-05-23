@@ -6,8 +6,10 @@
 #include "app_config.h"
 #include "can_bridge.h"
 #include "injection_controller.h"
+#include "knock_monitor.h"
 #include "pins.h"
 #include "sensors.h"
+#include "can_contract/can_protocol.h"
 
 namespace {
 AppConfig config = defaultConfig();
@@ -29,6 +31,7 @@ PumpDriver pumpDriver;
 WarningOutput warningOutput;
 InjectionController controller;
 CanBridge canBridge;
+KnockMonitor knockMonitor;
 Preferences preferences;
 
 uint32_t lastLoopMs = 0;
@@ -53,6 +56,14 @@ constexpr uint16_t kFaultBoostRef = 1U << 7;
 constexpr uint16_t kFaultSpare1 = 1U << 8;
 constexpr uint16_t kFaultSpare2 = 1U << 9;
 
+constexpr uint8_t kKnockStatusOnline = 1U << 0;
+constexpr uint8_t kKnockStatusSignalValid = 1U << 1;
+constexpr uint8_t kKnockStatusWarning = 1U << 2;
+constexpr uint8_t kKnockStatusCritical = 1U << 3;
+constexpr uint8_t kKnockStatusSensorFault = 1U << 4;
+constexpr uint8_t kKnockStatusClipping = 1U << 5;
+constexpr uint8_t kKnockStatusBaselineLearned = 1U << 6;
+
 inline bool elapsed(uint32_t now, uint32_t start, uint32_t intervalMs) {
   return static_cast<uint32_t>(now - start) >= intervalMs;
 }
@@ -63,6 +74,13 @@ void printHelp() {
   Serial.println("  METH <liters>    - set methanol volume");
   Serial.println("  SHOW             - print current config/blend");
   Serial.println("  MODE OFF|BOOST|PRIME");
+  Serial.println("  KNOCK SHOW");
+  Serial.println("  KNOCK ENABLE 0|1");
+  Serial.println("  KNOCK BOOSTKPA <kpa>");
+  Serial.println("  KNOCK MULT <value>");
+  Serial.println("  KNOCK OFFSET <value>");
+  Serial.println("  KNOCK MODE LOG|WARN|FORCE|SHUTDOWN");
+  Serial.println("  KNOCK RESET");
   Serial.println("  HELP");
 }
 
@@ -113,7 +131,54 @@ void printSetupSummary() {
   Serial.print("Blend water/meth (L): ");
   Serial.print(blend.waterLiters, 2); Serial.print(" / "); Serial.print(blend.methLiters, 2);
   Serial.print("  Meth%: "); Serial.println(blend.methPercent, 1);
+  Serial.print("Knock ADC pin: "); Serial.println(pins::KNOCK_SENSOR_ADC);
+  Serial.print("Knock boost gate kPa: "); Serial.println(config.knock.boostEnableKpa, 1);
+  Serial.print("Knock threshold (mult/offset): ");
+  Serial.print(config.knock.thresholdMultiplier, 2); Serial.print(" / ");
+  Serial.println(config.knock.thresholdOffset, 1);
   Serial.println("--------------------------------");
+}
+
+const char *knockModeName(KnockResponseMode mode) {
+  switch (mode) {
+  case KnockResponseMode::LogOnly: return "LOG";
+  case KnockResponseMode::WarnOnly: return "WARN";
+  case KnockResponseMode::ForceSpray: return "FORCE";
+  case KnockResponseMode::SafetyShutdown: return "SHUTDOWN";
+  default: return "UNKNOWN";
+  }
+}
+
+bool parseKnockMode(const String &token, KnockResponseMode &modeOut) {
+  if (token.equalsIgnoreCase("LOG")) {
+    modeOut = KnockResponseMode::LogOnly;
+    return true;
+  }
+  if (token.equalsIgnoreCase("WARN")) {
+    modeOut = KnockResponseMode::WarnOnly;
+    return true;
+  }
+  if (token.equalsIgnoreCase("FORCE")) {
+    modeOut = KnockResponseMode::ForceSpray;
+    return true;
+  }
+  if (token.equalsIgnoreCase("SHUTDOWN")) {
+    modeOut = KnockResponseMode::SafetyShutdown;
+    return true;
+  }
+  return false;
+}
+
+void printKnockSummary() {
+  Serial.print("Knock enabled: "); Serial.println(config.knock.enabled ? "YES" : "NO");
+  Serial.print("Knock mode: "); Serial.println(knockModeName(config.knock.responseMode));
+  Serial.print("Knock boost gate kPa: "); Serial.println(config.knock.boostEnableKpa, 1);
+  Serial.print("Knock threshold multiplier: "); Serial.println(config.knock.thresholdMultiplier, 2);
+  Serial.print("Knock threshold offset: "); Serial.println(config.knock.thresholdOffset, 2);
+  Serial.print("Knock cooldown ms: "); Serial.println(config.knock.eventCooldownMs);
+  Serial.print("Knock warn/crit counts: ");
+  Serial.print(config.knock.warningThresholdCount); Serial.print("/");
+  Serial.println(config.knock.criticalThresholdCount);
 }
 
 void configureAnalogSensors() {
@@ -292,6 +357,75 @@ void parseCommand(const String &line) {
     return;
   }
 
+  if (cmd.equalsIgnoreCase("KNOCK SHOW")) {
+    printKnockSummary();
+    return;
+  }
+
+  if (cmd.startsWith("KNOCK ENABLE ") || cmd.startsWith("knock enable ")) {
+    const String value = cmd.substring(13);
+    if (value == "1" || value.equalsIgnoreCase("ON") || value.equalsIgnoreCase("TRUE")) {
+      config.knock.enabled = true;
+    } else if (value == "0" || value.equalsIgnoreCase("OFF") || value.equalsIgnoreCase("FALSE")) {
+      config.knock.enabled = false;
+    } else {
+      Serial.println("Invalid KNOCK ENABLE value. Use 0|1.");
+      return;
+    }
+    Serial.print("Knock enabled: "); Serial.println(config.knock.enabled ? "YES" : "NO");
+    return;
+  }
+
+  if (cmd.startsWith("KNOCK BOOSTKPA ") || cmd.startsWith("knock boostkpa ")) {
+    float value = 0.0f;
+    if (parsePositiveFloat(cmd.substring(14), value) && value >= 0.0f) {
+      config.knock.boostEnableKpa = value;
+      Serial.print("Knock boost gate set to "); Serial.println(config.knock.boostEnableKpa, 1);
+    } else {
+      Serial.println("Invalid KNOCK BOOSTKPA value.");
+    }
+    return;
+  }
+
+  if (cmd.startsWith("KNOCK MULT ") || cmd.startsWith("knock mult ")) {
+    float value = 0.0f;
+    if (parsePositiveFloat(cmd.substring(11), value) && value > 0.0f) {
+      config.knock.thresholdMultiplier = value;
+      Serial.print("Knock multiplier set to "); Serial.println(config.knock.thresholdMultiplier, 2);
+    } else {
+      Serial.println("Invalid KNOCK MULT value.");
+    }
+    return;
+  }
+
+  if (cmd.startsWith("KNOCK OFFSET ") || cmd.startsWith("knock offset ")) {
+    float value = 0.0f;
+    if (parsePositiveFloat(cmd.substring(13), value) && value >= 0.0f) {
+      config.knock.thresholdOffset = value;
+      Serial.print("Knock offset set to "); Serial.println(config.knock.thresholdOffset, 2);
+    } else {
+      Serial.println("Invalid KNOCK OFFSET value.");
+    }
+    return;
+  }
+
+  if (cmd.startsWith("KNOCK MODE ") || cmd.startsWith("knock mode ")) {
+    KnockResponseMode mode = KnockResponseMode::WarnOnly;
+    if (!parseKnockMode(cmd.substring(11), mode)) {
+      Serial.println("Invalid KNOCK MODE. Use LOG|WARN|FORCE|SHUTDOWN");
+      return;
+    }
+    config.knock.responseMode = mode;
+    Serial.print("Knock mode set to "); Serial.println(knockModeName(config.knock.responseMode));
+    return;
+  }
+
+  if (cmd.equalsIgnoreCase("KNOCK RESET")) {
+    knockMonitor.clearFaults();
+    Serial.println("Knock event counters and faults cleared.");
+    return;
+  }
+
   Serial.println("Unknown command. Type HELP.");
 }
 
@@ -317,6 +451,7 @@ void setup() {
   mapSensor.begin(pins::MAP_SENSOR_ADC, config.map);
   floatSensor.begin(pins::FLOAT_SENSOR_DIGITAL, config.floatActiveLow, config.floatDebounceMs);
   configureAnalogSensors();
+  knockMonitor.begin(pins::KNOCK_SENSOR_ADC, config.knock);
   pumpDriver.begin(pins::PUMP_PWM, config.pwmFrequencyHz, config.pwmResolutionBits);
   warningOutput.begin(pins::WARNING_LED, true);
 
@@ -352,6 +487,8 @@ void loop() {
   SensorReadings readings = mapSensor.read();
   readings.tankLow = floatSensor.update();
   updateAnalogReadings(readings, now);
+  knockMonitor.setConfig(config.knock);
+  const KnockStateSnapshot knockState = knockMonitor.update(readings.mapKpa, 0, now);
 
   AppConfig effectiveConfig = config;
   if (!canBridge.isArmed() && canBridge.isOnline()) effectiveConfig.mode = InjectionMode::Off;
@@ -365,8 +502,22 @@ void loop() {
     result = controller.update(readings, effectiveConfig, blend);
   }
 
+  bool knockSafetyShutdown = false;
+  if (knockState.requestSafetyShutdown) {
+    result.pump.enabled = false;
+    result.pump.dutyPercent = 0.0f;
+    result.finalDutyPercent = 0.0f;
+    knockSafetyShutdown = true;
+  } else if (knockState.requestForceSpray && result.failsafe == FailsafeReason::None &&
+             !result.pump.enabled) {
+    result.pump.enabled = true;
+    result.pump.dutyPercent = effectiveConfig.dutyMinPercent;
+    result.finalDutyPercent = effectiveConfig.dutyMinPercent;
+  }
+
   pumpDriver.apply(result.pump);
-  warningOutput.set(result.failsafe != FailsafeReason::None);
+  warningOutput.set(result.failsafe != FailsafeReason::None || knockSafetyShutdown ||
+                    knockState.warningActive || knockState.criticalActive);
 
   if (result.failsafe != lastReportedCanFault) {
     if (result.failsafe != FailsafeReason::None) {
@@ -381,6 +532,33 @@ void loop() {
       canBridge.sendFault(code, kFaultSeverityWarning, 0, 0);
     }
     lastReportedCanFault = result.failsafe;
+  }
+
+  if (knockSafetyShutdown) {
+    canBridge.sendFault(can_protocol::meth_fault_code::SAFETY_SHUTDOWN,
+                        kFaultSeverityWarning, 0, 0);
+  }
+
+  can_protocol::EngineKnockState knockCan{};
+  if (knockState.online) knockCan.status_flags |= kKnockStatusOnline;
+  if (knockState.signalValid) knockCan.status_flags |= kKnockStatusSignalValid;
+  if (knockState.warningActive) knockCan.status_flags |= kKnockStatusWarning;
+  if (knockState.criticalActive) knockCan.status_flags |= kKnockStatusCritical;
+  if (knockState.sensorFault) knockCan.status_flags |= kKnockStatusSensorFault;
+  if (knockState.clippingDetected) knockCan.status_flags |= kKnockStatusClipping;
+  if (knockState.baselineLearned) knockCan.status_flags |= kKnockStatusBaselineLearned;
+  knockCan.energy = can_protocol::clampU8(static_cast<int>(knockState.energy));
+  knockCan.baseline = can_protocol::clampU8(static_cast<int>(knockState.baseline));
+  knockCan.threshold = can_protocol::clampU8(static_cast<int>(knockState.threshold));
+  knockCan.event_count = knockState.eventCount;
+  knockCan.last_event_rpm_div100 = can_protocol::clampU8(static_cast<int>(knockState.lastEventRpm / 100));
+  knockCan.last_event_boost_kpa = knockState.lastEventBoostKpa;
+  canBridge.sendKnockStateIfDue(knockCan, now);
+
+  KnockFaultEvent knockFault{};
+  if (knockMonitor.consumeFault(knockFault)) {
+    canBridge.sendKnockFault(knockFault.code, knockFault.severity,
+                             knockFault.data0, knockFault.data1);
   }
 
   if (result.failsafe != lastFailsafe) {
@@ -404,6 +582,12 @@ void loop() {
   Serial.print(readings.methPressurePsi, 1);
   Serial.print(" dutyOut="); Serial.print(result.finalDutyPercent, 1);
   Serial.print(" fs="); Serial.print(failsafeName(result.failsafe));
+  Serial.print(" knockE/T=");
+  Serial.print(knockState.energy, 1); Serial.print("/");
+  Serial.print(knockState.threshold, 1);
+  Serial.print(" knockWC=");
+  Serial.print(knockState.warningActive ? "1" : "0");
+  Serial.print(knockState.criticalActive ? "1" : "0");
   Serial.print(" analogFault=0x"); Serial.print(readings.analogFaultFlags, HEX);
   Serial.println();
 }
