@@ -40,7 +40,6 @@ public:
   bool consumeFault(KnockFaultEvent &eventOut);
 
 private:
-  float sampleEnergy() const;
   void updateSignalHealth(uint16_t sampleRaw, float absCentered, uint32_t nowMs);
   void updateBaseline(bool detectActive);
   void maybeQueueFault(uint8_t code, uint8_t severity, uint8_t data0, uint8_t data1, uint32_t nowMs);

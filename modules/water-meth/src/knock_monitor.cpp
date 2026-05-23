@@ -20,12 +20,9 @@ constexpr uint16_t kClipWindowThreshold = 20;
 constexpr uint32_t kBaselineLearnMs = 3000;
 constexpr uint32_t kTaskIntervalMs = 20;
 
-inline uint8_t clampU8FromFloat(float v) {
-  return can_protocol::clampU8(static_cast<int>(v));
-}
-
 inline uint8_t encodeRpmDiv100(uint16_t rpm) {
-  return static_cast<uint8_t>((rpm / 100U) > 255U ? 255U : (rpm / 100U));
+  const uint16_t rpmDiv100 = rpm / 100U;
+  return static_cast<uint8_t>(rpmDiv100 > 255U ? 255U : rpmDiv100);
 }
 } // namespace
 
@@ -69,17 +66,6 @@ void KnockMonitor::clearFaults() {
   faultPending_ = false;
 }
 
-float KnockMonitor::sampleEnergy() const {
-  if (adcPin_ < 0) return 0.0f;
-  float accum = 0.0f;
-  for (uint8_t i = 0; i < kSamplesPerTick; ++i) {
-    const uint16_t raw = static_cast<uint16_t>(analogRead(adcPin_));
-    const int16_t centered = static_cast<int16_t>(raw) - static_cast<int16_t>(kAdcMidpoint);
-    accum += fabsf(static_cast<float>(centered));
-  }
-  return accum / static_cast<float>(kSamplesPerTick);
-}
-
 void KnockMonitor::updateSignalHealth(uint16_t sampleRaw, float absCentered, uint32_t nowMs) {
   activityEma_ += kActivityAlpha * (absCentered - activityEma_);
 
@@ -115,6 +101,8 @@ void KnockMonitor::updateSignalHealth(uint16_t sampleRaw, float absCentered, uin
 
 void KnockMonitor::updateBaseline(bool detectActive) {
   if (!config_.baselineLearningEnabled) return;
+  // Freeze baseline adaptation during active detection/warning/critical windows
+  // so sustained knock activity is not learned as normal background noise.
   if (detectActive || state_.warningActive || state_.criticalActive) return;
 
   const float alpha = state_.baselineLearned ? kBaselineAlphaSlow : kBaselineAlphaFast;
@@ -176,7 +164,7 @@ KnockStateSnapshot KnockMonitor::update(float boostKpa, uint16_t rpm, uint32_t n
   if (state_.sensorFault) {
     maybeQueueFault(can_protocol::knock_fault_code::SENSOR_DISCONNECTED,
                     static_cast<uint8_t>(can_protocol::FaultSeverity::WARNING),
-                    clampU8FromFloat(activityEma_), 0, nowMs);
+                    can_protocol::clampU8(static_cast<int>(activityEma_)), 0, nowMs);
   } else if (state_.clippingDetected) {
     maybeQueueFault(can_protocol::knock_fault_code::SIGNAL_CLIPPING,
                     static_cast<uint8_t>(can_protocol::FaultSeverity::WARNING),
@@ -185,14 +173,14 @@ KnockStateSnapshot KnockMonitor::update(float boostKpa, uint16_t rpm, uint32_t n
   } else if (!state_.baselineLearned && config_.enabled) {
     maybeQueueFault(can_protocol::knock_fault_code::BASELINE_NOT_LEARNED,
                     static_cast<uint8_t>(can_protocol::FaultSeverity::INFO),
-                    clampU8FromFloat(state_.baseline), 0, nowMs);
+                    can_protocol::clampU8(static_cast<int>(state_.baseline)), 0, nowMs);
   } else if (detectActive && (state_.energy > state_.threshold) &&
              ((nowMs - lastEventMs_) >= config_.eventCooldownMs)) {
     lastEventMs_ = nowMs;
     ++eventCountRolling_;
     if (eventWindowCount_ < 255) ++eventWindowCount_;
     state_.lastEventRpm = rpm;
-    state_.lastEventBoostKpa = clampU8FromFloat(boostKpa);
+    state_.lastEventBoostKpa = can_protocol::clampU8(static_cast<int>(boostKpa));
 
     const bool critical = eventWindowCount_ >= config_.criticalThresholdCount;
     const bool warning = eventWindowCount_ >= config_.warningThresholdCount;

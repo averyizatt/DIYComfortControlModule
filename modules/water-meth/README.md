@@ -62,26 +62,26 @@ The module performs:
 
 ## Nano ESP32 pinout used by this firmware
 
-Source of truth: `/tmp/workspace/averyizatt/DIYComfortControlModule/modules/water-meth/include/pins.h`
+Source of truth: `modules/water-meth/include/pins.h`
 
 | Function | GPIO | Arduino label |
 | --- | ---: | --- |
 | MAP / boost sensor ADC | 1 | A0 |
 | Knock sensor ADC | 2 | A1 |
-| Float switch digital | 8 | D11 |
-| Pump PWM output | 18 | D10 |
-| Warning LED output | 17 | D9 |
-| Native TWAI TX | 5 | D4 |
-| Native TWAI RX | 6 | D5 |
-| IAT thermistor | 7 | D6 |
-| Engine bay thermistor | 8 | D11 |
-| Cabin thermistor | 9 | GPIO only |
-| Ambient thermistor | 10 | GPIO only |
-| Oil / Fuel / Meth / BoostRef / Spare1 / Spare2 pressure ADC | 11 / 12 / 13 / 14 / 15 / 16 | GPIO only |
+| Float switch digital | 8 | GPIO8 (shared with engine-bay thermistor by default) |
+| Pump PWM output | 18 | GPIO18 |
+| Warning LED output | 17 | GPIO17 |
+| Native TWAI TX | 5 | GPIO5 |
+| Native TWAI RX | 6 | GPIO6 |
+| IAT thermistor | 7 | GPIO7 |
+| Engine bay thermistor | 8 | GPIO8 (shared with float switch by default) |
+| Cabin thermistor | 9 | GPIO9 |
+| Ambient thermistor | 10 | GPIO10 |
+| Oil / Fuel / Meth / BoostRef / Spare1 / Spare2 pressure ADC | 11 / 12 / 13 / 14 / 15 / 16 | GPIO11-16 |
 
 ### MCP2515 SPI wiring note
 
-If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware SPI bus:
+If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware SPI bus (this is a mutually-exclusive wiring profile with the default GPIO8 sensor usage):
 
 - MOSI = GPIO8 (D11)
 - MISO = GPIO47 (D12)
@@ -89,6 +89,7 @@ If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware S
 - CS / INT / RST can be assigned to free GPIO pins in that module's firmware
 
 This module's new knock input is on GPIO2 (A1) to avoid conflict with SPI SCK on GPIO48.
+The default pin map still has a shared GPIO8 assignment for float + engine-bay thermistor; remap one if both are used, and remap GPIO8 users when switching to MCP2515 SPI mode.
 
 ## Knock subsystem in-module
 
@@ -100,7 +101,7 @@ Knock detection now runs entirely in this firmware:
 - sensor health checks (low activity/disconnect + clipping)
 - response modes:
   - `LOG` (telemetry/fault reporting only)
-  - `WARN` (telemetry/fault reporting only)
+  - `WARN` (currently same runtime behavior as LOG, reserved for stricter warning-only policy)
   - `FORCE` (force minimum spray on critical knock)
   - `SHUTDOWN` (force pump off on critical knock)
 

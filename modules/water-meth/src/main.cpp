@@ -320,6 +320,8 @@ void parseCommand(const String &line) {
   String cmd = line;
   cmd.trim();
   if (cmd.length() == 0) return;
+  String cmdUpper = cmd;
+  cmdUpper.toUpperCase();
 
   if (cmd.equalsIgnoreCase("HELP")) { printHelp(); return; }
   if (cmd.equalsIgnoreCase("SHOW")) { printSetupSummary(); return; }
@@ -357,13 +359,13 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.equalsIgnoreCase("KNOCK SHOW")) {
+  if (cmdUpper == "KNOCK SHOW") {
     printKnockSummary();
     return;
   }
 
-  if (cmd.startsWith("KNOCK ENABLE ") || cmd.startsWith("knock enable ")) {
-    const String value = cmd.substring(13);
+  if (cmdUpper.startsWith("KNOCK ENABLE ")) {
+    const String value = cmd.substring(String("KNOCK ENABLE ").length());
     if (value == "1" || value.equalsIgnoreCase("ON") || value.equalsIgnoreCase("TRUE")) {
       config.knock.enabled = true;
     } else if (value == "0" || value.equalsIgnoreCase("OFF") || value.equalsIgnoreCase("FALSE")) {
@@ -376,9 +378,9 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.startsWith("KNOCK BOOSTKPA ") || cmd.startsWith("knock boostkpa ")) {
+  if (cmdUpper.startsWith("KNOCK BOOSTKPA ")) {
     float value = 0.0f;
-    if (parsePositiveFloat(cmd.substring(14), value) && value >= 0.0f) {
+    if (parsePositiveFloat(cmd.substring(String("KNOCK BOOSTKPA ").length()), value) && value >= 0.0f) {
       config.knock.boostEnableKpa = value;
       Serial.print("Knock boost gate set to "); Serial.println(config.knock.boostEnableKpa, 1);
     } else {
@@ -387,9 +389,9 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.startsWith("KNOCK MULT ") || cmd.startsWith("knock mult ")) {
+  if (cmdUpper.startsWith("KNOCK MULT ")) {
     float value = 0.0f;
-    if (parsePositiveFloat(cmd.substring(11), value) && value > 0.0f) {
+    if (parsePositiveFloat(cmd.substring(String("KNOCK MULT ").length()), value) && value > 0.0f) {
       config.knock.thresholdMultiplier = value;
       Serial.print("Knock multiplier set to "); Serial.println(config.knock.thresholdMultiplier, 2);
     } else {
@@ -398,9 +400,9 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.startsWith("KNOCK OFFSET ") || cmd.startsWith("knock offset ")) {
+  if (cmdUpper.startsWith("KNOCK OFFSET ")) {
     float value = 0.0f;
-    if (parsePositiveFloat(cmd.substring(13), value) && value >= 0.0f) {
+    if (parsePositiveFloat(cmd.substring(String("KNOCK OFFSET ").length()), value) && value >= 0.0f) {
       config.knock.thresholdOffset = value;
       Serial.print("Knock offset set to "); Serial.println(config.knock.thresholdOffset, 2);
     } else {
@@ -409,9 +411,9 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.startsWith("KNOCK MODE ") || cmd.startsWith("knock mode ")) {
+  if (cmdUpper.startsWith("KNOCK MODE ")) {
     KnockResponseMode mode = KnockResponseMode::WarnOnly;
-    if (!parseKnockMode(cmd.substring(11), mode)) {
+    if (!parseKnockMode(cmd.substring(String("KNOCK MODE ").length()), mode)) {
       Serial.println("Invalid KNOCK MODE. Use LOG|WARN|FORCE|SHUTDOWN");
       return;
     }
@@ -420,7 +422,7 @@ void parseCommand(const String &line) {
     return;
   }
 
-  if (cmd.equalsIgnoreCase("KNOCK RESET")) {
+  if (cmdUpper == "KNOCK RESET") {
     knockMonitor.clearFaults();
     Serial.println("Knock event counters and faults cleared.");
     return;
@@ -488,6 +490,7 @@ void loop() {
   readings.tankLow = floatSensor.update();
   updateAnalogReadings(readings, now);
   knockMonitor.setConfig(config.knock);
+  // Standalone water-meth module currently has no RPM input path, so RPM is reported as 0.
   const KnockStateSnapshot knockState = knockMonitor.update(readings.mapKpa, 0, now);
 
   AppConfig effectiveConfig = config;
