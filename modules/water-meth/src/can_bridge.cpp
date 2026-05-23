@@ -245,6 +245,46 @@ void CanBridge::sendFault(uint8_t code, uint8_t severity, uint8_t data0, uint8_t
 #endif
 }
 
+void CanBridge::sendKnockStateIfDue(const can_protocol::EngineKnockState& state, uint32_t nowMs) {
+#if WMETH_HAS_TWAI
+  if (!twaiReady_) return;
+  static uint32_t lastKnockTxMs = 0;
+  if ((nowMs - lastKnockTxMs) < kStateTxIntervalMs) return;
+  lastKnockTxMs = nowMs;
+
+  const can_protocol::CanFrame frame = can_protocol::packEngineKnockState(state);
+  twai_message_t tx{};
+  tx.identifier = frame.id;
+  tx.extd = 0;
+  tx.rtr = 0;
+  tx.data_length_code = frame.dlc;
+  for (uint8_t i = 0; i < frame.dlc; ++i) tx.data[i] = frame.data[i];
+  twai_transmit(&tx, 0);
+#else
+  (void)state;
+  (void)nowMs;
+#endif
+}
+
+void CanBridge::sendKnockFault(uint8_t code, uint8_t severity, uint8_t data0, uint8_t data1) {
+#if WMETH_HAS_TWAI
+  if (!twaiReady_) return;
+  const can_protocol::CanFrame frame = can_protocol::packEngineKnockFault(code, severity, data0, data1);
+  twai_message_t tx{};
+  tx.identifier = frame.id;
+  tx.extd = 0;
+  tx.rtr = 0;
+  tx.data_length_code = frame.dlc;
+  for (uint8_t i = 0; i < frame.dlc; ++i) tx.data[i] = frame.data[i];
+  twai_transmit(&tx, 0);
+#else
+  (void)code;
+  (void)severity;
+  (void)data0;
+  (void)data1;
+#endif
+}
+
 void CanBridge::sendConfigAck(uint8_t version, uint8_t status,
                               uint8_t rejectReason, uint8_t activeRatioPercent) {
 #if WMETH_HAS_TWAI
