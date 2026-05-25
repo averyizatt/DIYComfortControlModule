@@ -3,10 +3,14 @@
 namespace pins {
 // Core controls (preserve established hardware defaults)
 constexpr int MAP_SENSOR_ADC = 1;       // GPIO1 / A0
-constexpr int FLOAT_SENSOR_DIGITAL = 8; // GPIO8
-constexpr int PUMP_PWM = 18;            // GPIO18
+constexpr int FLOAT_SENSOR_DIGITAL = 3; // GPIO3 / D3
+constexpr int PUMP_PWM = 2;             // GPIO2 / D2
 constexpr int WARNING_LED = 17;         // GPIO17
-constexpr int KNOCK_SENSOR_ADC = 2;     // GPIO2 / A1 (safe with MCP2515 SPI: MOSI=GPIO8, MISO=GPIO47, SCK=GPIO48)
+constexpr int KNOCK_SENSOR_ADC = 4;     // GPIO4 / D4
+
+// MCP2515 SPI CAN module control pins (when using MCP2515 profile)
+constexpr int CAN_SPI_CS = 10;  // GPIO10 / D10
+constexpr int CAN_SPI_INT = 7;  // GPIO7 / D7
 
 // TWAI CAN transceiver pins
 constexpr int CAN_TX = 5; // GPIO5

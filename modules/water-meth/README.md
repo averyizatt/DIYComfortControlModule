@@ -67,9 +67,9 @@ Source of truth: `modules/water-meth/include/pins.h`
 | Function | GPIO | Arduino label |
 | --- | ---: | --- |
 | MAP / boost sensor ADC | 1 | A0 |
-| Knock sensor ADC | 2 | A1 |
-| Float switch digital | 8 | GPIO8 (shared with engine-bay thermistor by default) |
-| Pump PWM output | 18 | GPIO18 |
+| Knock sensor ADC | 4 | D4 |
+| Float switch digital | 3 | D3 |
+| Pump PWM output | 2 | D2 |
 | Warning LED output | 17 | GPIO17 |
 | Native TWAI TX | 5 | GPIO5 |
 | Native TWAI RX | 6 | GPIO6 |
@@ -86,10 +86,11 @@ If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware S
 - MOSI = GPIO8 (D11)
 - MISO = GPIO47 (D12)
 - SCK = GPIO48 (D13)
-- CS / INT / RST can be assigned to free GPIO pins in that module's firmware
+- CS / INT default to GPIO10 (D10) and GPIO7 (D7) in this module
+- RST can be assigned to any free GPIO if used
 
-This module's new knock input is on GPIO2 (A1) to avoid conflict with SPI SCK on GPIO48.
-The default pin map still has a shared GPIO8 assignment for float + engine-bay thermistor; remap one if both are used, and remap GPIO8 users when switching to MCP2515 SPI mode.
+The default pin map uses GPIO3 (D3) for the level switch and GPIO2 (D2) for pump PWM.
+GPIO7 is used as MCP2515 INT by default; remap either INT or IAT thermistor input if both are needed.
 
 ## Knock subsystem in-module
 
