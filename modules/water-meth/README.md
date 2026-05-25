@@ -67,17 +67,20 @@ Source of truth: `modules/water-meth/include/pins.h`
 | Function | GPIO | Arduino label |
 | --- | ---: | --- |
 | MAP / boost sensor ADC | 1 | A0 |
-| Knock sensor ADC | 4 | D4 |
+| Knock sensor ADC | 2 | A1 |
 | Float switch digital | 3 | D3 |
 | Pump PWM output | 2 | D2 |
 | Warning LED output | 17 | GPIO17 |
 | Native TWAI TX | 5 | GPIO5 |
 | Native TWAI RX | 6 | GPIO6 |
-| IAT thermistor | 7 | GPIO7 |
-| Engine bay thermistor | 8 | GPIO8 (shared with float switch by default) |
+| IAT thermistor | 4 | D4 |
+| DHT11 input | 6 | D6 |
+| Engine bay thermistor | 8 | GPIO8 |
 | Cabin thermistor | 9 | GPIO9 |
 | Ambient thermistor | 10 | GPIO10 |
-| Oil / Fuel / Meth / BoostRef / Spare1 / Spare2 pressure ADC | 11 / 12 / 13 / 14 / 15 / 16 | GPIO11-16 |
+| Oil pressure ADC | 11 | A4 |
+| Fuel pressure ADC | 12 | A5 |
+| Meth / BoostRef / Spare1 / Spare2 pressure ADC | 13 / 14 / 15 / 16 | GPIO13-16 |
 
 ### MCP2515 SPI wiring note
 
@@ -89,8 +92,7 @@ If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware S
 - CS / INT default to GPIO10 (D10) and GPIO7 (D7) in this module
 - RST can be assigned to any free GPIO if used
 
-The default pin map uses GPIO3 (D3) for the level switch and GPIO2 (D2) for pump PWM.
-GPIO7 is used as MCP2515 INT by default; remap either INT or IAT thermistor input if both are needed.
+The default pin map uses CS=D10, INT=D7, level switch=D3, pump PWM=D2, knock=A1, and IAT=D4.
 
 ## Knock subsystem in-module
 
