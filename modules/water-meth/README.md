@@ -64,35 +64,36 @@ The module performs:
 
 Source of truth: `modules/water-meth/include/pins.h`
 
-| Function | GPIO | Arduino label |
-| --- | ---: | --- |
-| MAP / boost sensor ADC | 1 | A0 |
-| Knock sensor ADC | 2 | A1 |
-| Float switch digital | 3 | D3 |
-| Pump PWM output | 2 | D2 |
-| Warning LED output | 17 | GPIO17 |
-| Native TWAI TX | 5 | GPIO5 |
-| Native TWAI RX | 6 | GPIO6 |
-| IAT thermistor | 4 | D4 |
-| DHT11 input | 6 | D6 |
-| Engine bay thermistor | 8 | GPIO8 |
-| Cabin thermistor | 9 | GPIO9 |
-| Ambient thermistor | 10 | GPIO10 |
-| Oil pressure ADC | 11 | A4 |
-| Fuel pressure ADC | 12 | A5 |
-| Meth / BoostRef / Spare1 / Spare2 pressure ADC | 13 / 14 / 15 / 16 | GPIO13-16 |
+| Function | Pin |
+| --- | --- |
+| MAP / boost sensor ADC | A0 |
+| Knock sensor ADC | A1 |
+| Float switch digital | D3 |
+| Pump PWM output | D2 |
+| Warning LED output | GPIO17 |
+| Native TWAI TX | D5 |
+| Native TWAI RX | D6 |
+| IAT thermistor | D4 |
+| DHT11 input | D6 |
+| Engine bay thermistor | GPIO8 |
+| Cabin thermistor | GPIO9 |
+| Ambient thermistor | GPIO10 |
+| Oil pressure ADC | A4 |
+| Fuel pressure ADC | A5 |
+| Meth / BoostRef / Spare1 / Spare2 pressure ADC | GPIO13 / GPIO14 / GPIO15 / GPIO16 |
 
 ### MCP2515 SPI wiring note
 
 If using an SPI CAN module instead of native TWAI, use the Nano ESP32 hardware SPI bus (this is a mutually-exclusive wiring profile with the default GPIO8 sensor usage):
 
-- MOSI = GPIO8 (D11)
-- MISO = GPIO47 (D12)
-- SCK = GPIO48 (D13)
-- CS / INT default to GPIO10 (D10) and GPIO7 (D7) in this module
+- MOSI = D11
+- MISO = D12
+- SCK = D13
+- CS / INT default to D10 and D7 in this module
 - RST can be assigned to any free GPIO if used
 
 The default pin map uses CS=D10, INT=D7, level switch=D3, pump PWM=D2, knock=A1, and IAT=D4.
+Native TWAI RX (D6) and DHT11 (D6) share a pin in this mapping, so they are mutually exclusive unless you remap one.
 
 ## Knock subsystem in-module
 
