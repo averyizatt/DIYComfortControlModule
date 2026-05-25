@@ -457,7 +457,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_obj_set_pos(rpmUnit, 4, arcY + 84);
 
   // ---- RIGHT: Speed arc ----
-  spdArc_ = makeArc(parent, 308, arcY, arcSz, 260);
+  spdArc_ = makeArc(parent, 308, arcY, arcSz, 160);
 
   spdValLabel_ = lv_label_create(parent);
   lv_label_set_text(spdValLabel_, "0");
@@ -467,7 +467,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_obj_set_pos(spdValLabel_, 308, arcY + 52);
 
   lv_obj_t* spdUnit = lv_label_create(parent);
-  lv_label_set_text(spdUnit, "km/h");
+  lv_label_set_text(spdUnit, "mph");
   lv_obj_set_width(spdUnit, arcSz);
   lv_obj_set_style_text_align(spdUnit, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(spdUnit, lv_color_hex(0x7090a0), 0);
@@ -514,14 +514,14 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildMethPage(lv_obj_t* parent) {
-  methStateLabel_  = makeLabel(parent, 0,  0, 310, "METH | State: 0 | Duty: 0% | Tank: 0%");
-  methSensorLabel_ = makeLabel(parent, 0, 24, 310, "MAP: 0 kPa  IAT: 0.0 C  Bay: 0.0 C");
-  methParamLabel_  = makeLabel(parent, 0, 48, 310, "Ratio: 0%  Flow: 0  Armed: NO");
+  methStateLabel_  = makeLabel(parent, 0,  0, kWidth, "--", &lv_font_montserrat_28);
+  methSensorLabel_ = makeLabel(parent, 0, 40, kWidth, "--", &lv_font_montserrat_24);
+  methParamLabel_  = makeLabel(parent, 0, 76, kWidth, "--", &lv_font_montserrat_24);
 
-  methArmBtn_      = makeBtn(parent, "ARM",        4,  82, 148, 48, onMethArmClicked,   this);
+  methArmBtn_      = makeBtn(parent, "ON",         4, 114, 148, 52, onMethArmClicked,   this);
   methArmBtnLabel_ = btnLabel(methArmBtn_);
 
-  methRatioBtn_      = makeBtn(parent, "RATIO 50%", 160, 82, 148, 48, onMethRatioClicked, this);
+  methRatioBtn_      = makeBtn(parent, "RATIO 50%", 160, 114, 148, 52, onMethRatioClicked, this);
   methRatioBtnLabel_ = btnLabel(methRatioBtn_);
 }
 
@@ -530,12 +530,13 @@ void ScreenDashboard::buildMethPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
-  tailStatusLabel_ = makeLabel(parent, 0, 0, 310,
-      "Taillights: OFFLINE  Bright: 0\nL: 0  R: 0  Thermal derate: 0%");
+  tailStatusLabel_ = makeLabel(parent, 0, 0, kWidth,
+      "Taillights: OFFLINE  Bright: 0\nL: 0  R: 0  Thermal derate: 0%",
+      &lv_font_montserrat_24);
 
   // Mode button panel
   tailModePanel_ = lv_obj_create(parent);
-  lv_obj_set_pos(tailModePanel_, 0, 52);
+  lv_obj_set_pos(tailModePanel_, 0, 68);
   lv_obj_set_size(tailModePanel_, 312, 200);
   lv_obj_set_style_pad_all(tailModePanel_, 2, LV_PART_MAIN);
   lv_obj_set_style_border_width(tailModePanel_, 0, LV_PART_MAIN);
@@ -549,7 +550,7 @@ void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
 
   // Show-option submenu panel
   tailShowPanel_ = lv_obj_create(parent);
-  lv_obj_set_pos(tailShowPanel_, 0, 52);
+  lv_obj_set_pos(tailShowPanel_, 0, 68);
   lv_obj_set_size(tailShowPanel_, 312, 310);
   lv_obj_set_style_pad_all(tailShowPanel_, 2, LV_PART_MAIN);
   lv_obj_set_style_border_width(tailShowPanel_, 0, LV_PART_MAIN);
@@ -579,12 +580,12 @@ void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildLedsPage(lv_obj_t* parent) {
-  makeLabel(parent, 0, 0, 310, "Interior LEDs", &lv_font_montserrat_16);
+  makeLabel(parent, 0, 0, kWidth, "Interior LEDs", &lv_font_montserrat_20);
 
-  ledStatusLabel_ = makeLabel(parent, 0, 28, 310,
-      "CH1: OFF  CH2: OFF  CH3: OFF", &lv_font_montserrat_12);
+  ledStatusLabel_ = makeLabel(parent, 0, 28, kWidth,
+      "CH1: OFF  CH2: OFF  CH3: OFF", &lv_font_montserrat_24);
 
-  makeLabel(parent, 0, 52, 310, "Select mode (all channels):", &lv_font_montserrat_12);
+  makeLabel(parent, 0, 66, kWidth, "Select mode (all channels):", &lv_font_montserrat_18);
 
   static const char* const kModeNames[5] = { "OFF", "STATIC", "BREATHE", "RAINBOW", "RPM" };
   constexpr lv_coord_t btnW = 58, btnH = 44;
@@ -592,15 +593,14 @@ void ScreenDashboard::buildLedsPage(lv_obj_t* parent) {
   for (uint8_t i = 0; i < 5; i++) {
     s_ledModeCtxs[i] = {this, static_cast<state::LedMode>(i)};
     const lv_coord_t bx = static_cast<lv_coord_t>(startX + i * (btnW + gapX));
-    ledModeBtns_[i] = makeBtn(parent, kModeNames[i], bx, 72, btnW, btnH, onLedModeClicked, &s_ledModeCtxs[i]);
-    lv_obj_set_style_text_font(btnLabel(ledModeBtns_[i]), &lv_font_montserrat_12, 0);
+    ledModeBtns_[i] = makeBtn(parent, kModeNames[i], bx, 94, btnW, btnH, onLedModeClicked, &s_ledModeCtxs[i]);
+    lv_obj_set_style_text_font(btnLabel(ledModeBtns_[i]), &lv_font_montserrat_14, 0);
   }
 
-  makeLabel(parent, 0, 130, 310,
-      "Color presets:", &lv_font_montserrat_12);
-  // Informational note
-  makeLabel(parent, 0, 152, 310,
-      "Colors are set via web interface\nor saved presets.", &lv_font_montserrat_12);
+  makeLabel(parent, 0, 150, kWidth,
+      "Color presets:", &lv_font_montserrat_18);
+  makeLabel(parent, 0, 174, kWidth,
+      "Colors are set via web interface\nor saved presets.", &lv_font_montserrat_16);
 }
 
 // ---------------------------------------------------------------------------
@@ -634,18 +634,16 @@ void ScreenDashboard::buildGpsPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildTempsPage(lv_obj_t* parent) {
-  makeLabel(parent, 0, 0, 310, "Temperatures", &lv_font_montserrat_16);
-
-  tempsLabel_ = makeLabel(parent, 0, 30, 310,
-      "Cabin:        --\n"
-      "Outside:      --\n"
-      "Engine Bay:   --\n"
-      "Intake Air:   --\n"
-      "Intercooler:  --\n"
-      "ESP die:      --",
-      &lv_font_montserrat_14);
+  tempsLabel_ = makeLabel(parent, 0, 0, kWidth,
+      "Cabin:     --\n"
+      "Outside:   --\n"
+      "Eng Bay:   --\n"
+      "Intake:    --\n"
+      "Intercool: --\n"
+      "ESP die:   --",
+      &lv_font_montserrat_28);
   lv_label_set_long_mode(tempsLabel_, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(tempsLabel_, 310);
+  lv_obj_set_width(tempsLabel_, kWidth);
 }
 
 // ---------------------------------------------------------------------------
@@ -803,18 +801,19 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(s.rpm));
   lv_label_set_text(rpmValLabel_, buf);
 
-  // ---- Speed arc ----
+  // ---- Speed arc (mph) ----
+  const float spdMph = s.speed * 0.621371f;
   const int16_t spdClamped = static_cast<int16_t>(
-      (s.speed > 260.0f) ? 260 : (s.speed < 0.0f) ? 0 : static_cast<int16_t>(s.speed));
+      (spdMph > 160.0f) ? 160 : (spdMph < 0.0f) ? 0 : static_cast<int16_t>(spdMph));
   lv_arc_set_value(spdArc_, spdClamped);
 
   lv_color_t spdColor;
-  if (s.speed >= 180.0f)      spdColor = lv_palette_main(LV_PALETTE_RED);
-  else if (s.speed >= 100.0f) spdColor = lv_palette_main(LV_PALETTE_ORANGE);
-  else                        spdColor = lv_palette_main(LV_PALETTE_GREEN);
+  if (spdMph >= 112.0f)      spdColor = lv_palette_main(LV_PALETTE_RED);
+  else if (spdMph >= 62.0f)  spdColor = lv_palette_main(LV_PALETTE_ORANGE);
+  else                       spdColor = lv_palette_main(LV_PALETTE_GREEN);
   lv_obj_set_style_arc_color(spdArc_, spdColor, LV_PART_INDICATOR);
 
-  snprintf(buf, sizeof(buf), "%.0f", static_cast<double>(s.speed));
+  snprintf(buf, sizeof(buf), "%.0f", static_cast<double>(spdMph));
   lv_label_set_text(spdValLabel_, buf);
 
   // ---- Centre strip ----
@@ -870,7 +869,7 @@ void ScreenDashboard::updateMethPage(const state::VehicleState& s, uint32_t /*no
   lv_label_set_text(methParamLabel_, buf);
 
   lv_label_set_text(methArmBtnLabel_,
-                    s.meth_desired_armed ? "DISARM" : "ARM");
+                    s.meth_desired_armed ? "OFF" : "ON");
 
   snprintf(buf, sizeof(buf), "RATIO  %u%%",
            static_cast<unsigned>(s.meth_selected_ratio_percent));
@@ -889,15 +888,48 @@ void ScreenDashboard::updateTailPage(const state::VehicleState& s) {
            static_cast<unsigned>(s.taillight_thermal_derate));
   lv_label_set_text(tailStatusLabel_, buf);
 
+  static constexpr const char* kTailShowNames[kTaillightShowOptionCount] = {
+    "Rainbow",     // 0
+    "Chase",       // 1
+    "Theater",     // 2
+    "Fire",        // 3
+    "Meteor",      // 4
+    "Police",      // 5
+    "Night Rider", // 6
+    "Color Cycle", // 7
+    "Sparkle",     // 8
+    "Plasma",      // 9
+    "Matrix",      // 10
+    "Juggle",      // 11
+    "BPM",         // 12
+    "Confetti",    // 13
+    "Ocean",       // 14
+    "Lightning",   // 15
+    "Heartbeat",   // 16
+    "Ripple",      // 17
+    "Sunrise",     // 18
+    "Text Scroll", // 19
+    "Colorwaves",  // 20
+    "TwinkleFox",  // 21
+    "Bounce",      // 22
+    "Fireworks",   // 23
+    "Drip",        // 24
+    "Cylon",       // 25
+    "V8",          // 26
+    "Drag Launch", // 27
+    "Neon",        // 28
+    "Streaks",     // 29
+    "Radar",       // 30
+    "Aurora",      // 31
+    "Glitch",      // 32
+  };
   for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
     const uint16_t optVal = static_cast<uint16_t>(tailShowPage_) * kTaillightShowOptionsPerPage + i;
-    char label[12];
     if (optVal < kTaillightShowOptionCount) {
-      snprintf(label, sizeof(label), "SHOW %u", static_cast<unsigned>(optVal + 1U));
+      lv_label_set_text(btnLabel(tailShowOptBtns_[i]), kTailShowNames[optVal]);
     } else {
-      snprintf(label, sizeof(label), "--");
+      lv_label_set_text(btnLabel(tailShowOptBtns_[i]), "--");
     }
-    lv_label_set_text(btnLabel(tailShowOptBtns_[i]), label);
   }
 
   char page[16];
@@ -1008,12 +1040,6 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
            "Engine Bay:   %.1f C\n"
            "Intake Air:   %.1f C\n"
            "Intercooler:  %.1f C\n"
-           "Oil Press:    %.1f psi\n"
-           "Fuel Press:   %.1f psi\n"
-           "Meth Press:   %.1f psi\n"
-           "Boost Ref:    %.1f psi\n"
-           "Spare 1/2:    %.1f / %.1f psi\n"
-           "Validity T/P: %s / %s\n"
            "ESP die:      %d C",
            static_cast<double>(s.cabin_temp),
            static_cast<double>(s.outside_temp),
@@ -1341,7 +1367,7 @@ void ScreenDashboard::onMethArmClicked(lv_event_t* e) {
   const bool arm = !state::g_vehicle_state.read().meth_desired_armed;
   if (self->canMgr_->sendMethArm(arm)) {
     state::g_vehicle_state.mutate([arm](state::VehicleState& vs) { vs.meth_desired_armed = arm; });
-    self->setActionFeedback(arm ? "METH ARMED" : "METH DISARMED", millis());
+    self->setActionFeedback(arm ? "METH ON" : "METH OFF", millis());
   } else {
     self->setActionFeedback("METH CMD REJECTED", millis());
   }
@@ -1429,10 +1455,18 @@ void ScreenDashboard::onTailShowOptClicked(lv_event_t* e) {
   }
   if (!self->canMgr_) return;
   const uint8_t option = static_cast<uint8_t>(optVal);
+  static constexpr const char* kTailShowFbNames[] = {
+    "Rainbow", "Chase", "Theater", "Fire", "Meteor", "Police",
+    "Night Rider", "Color Cycle", "Sparkle", "Plasma", "Matrix",
+    "Juggle", "BPM", "Confetti", "Ocean", "Lightning", "Heartbeat",
+    "Ripple", "Sunrise", "Text Scroll", "Colorwaves", "TwinkleFox",
+    "Bounce", "Fireworks", "Drip", "Cylon", "V8", "Drag Launch",
+    "Neon", "Streaks", "Radar", "Aurora", "Glitch",
+  };
   if (self->canMgr_->sendTaillightShowOption(option)) {
-    char fb[20];
-    snprintf(fb, sizeof(fb), "SHOW %u", static_cast<unsigned>(option + 1U));
-    self->setActionFeedback(fb, millis());
+    const char* name = (option < kTaillightShowOptionCount)
+        ? kTailShowFbNames[option] : "?";
+    self->setActionFeedback(name, millis());
   } else {
     self->setActionFeedback("SHOW CMD REJECTED", millis());
   }

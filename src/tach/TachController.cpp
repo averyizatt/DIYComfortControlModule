@@ -30,7 +30,9 @@ void TachController::startupSweep(uint16_t maxRpm, uint16_t step, uint32_t delay
 }
 
 uint32_t TachController::rpmToFrequency(uint16_t rpm) const {
-  return math::rpmToFrequencyHz(rpm, static_cast<uint8_t>(scaleMode_));
+  const uint16_t divisor = (scaleMode_ == core::TachScaleMode::RpmDiv15) ? 15 : 30;
+  const uint32_t hz = rpm / divisor;
+  return hz > 0 ? hz : 1;
 }
 
 }  // namespace ccm::tach

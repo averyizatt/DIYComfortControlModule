@@ -32,7 +32,7 @@ class ScreenDashboard {
   static constexpr uint8_t  kPageCount = 8;
   static constexpr uint32_t kActionFeedbackMs             = 1200;
   static constexpr uint8_t  kTaillightShowOptionsPerPage  = 6;
-  static constexpr uint8_t  kTaillightShowOptionCount     = 24;
+  static constexpr uint8_t  kTaillightShowOptionCount     = 33;
   static constexpr uint8_t  kTaillightShowPageCount       =
       static_cast<uint8_t>((kTaillightShowOptionCount + kTaillightShowOptionsPerPage - 1U)
                            / kTaillightShowOptionsPerPage);

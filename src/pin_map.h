@@ -120,7 +120,7 @@ namespace pins {
 #endif
 
 #ifndef CCM_PIN_TACH_OUT
-#define CCM_PIN_TACH_OUT 13  // ← was 6→39; GPIO 39 is LED_DATA2
+#define CCM_PIN_TACH_OUT 13  // LEDC PWM → 2N2222A base (1kΩ) → collector pulls tach line to 12V
 #endif
 #ifndef CCM_PIN_TACH_IN
 #define CCM_PIN_TACH_IN 2
