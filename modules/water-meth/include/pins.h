@@ -1,27 +1,33 @@
 #pragma once
+#include <Arduino.h>
 
 <<<<<<< HEAD
 namespace pins {
 // Core controls (preserve established hardware defaults)
-constexpr int MAP_SENSOR_ADC = 1;       // GPIO1 / A0
-constexpr int FLOAT_SENSOR_DIGITAL = 8; // GPIO8
-constexpr int PUMP_PWM = 18;            // GPIO18
+constexpr int MAP_SENSOR_ADC = A0;      // A0
+constexpr int FLOAT_SENSOR_DIGITAL = D3; // D3
+constexpr int PUMP_PWM = D2;            // D2
 constexpr int WARNING_LED = 17;         // GPIO17
-constexpr int KNOCK_SENSOR_ADC = 2;     // GPIO2 / A1 (safe with MCP2515 SPI: MOSI=GPIO8, MISO=GPIO47, SCK=GPIO48)
+constexpr int KNOCK_SENSOR_ADC = A1;    // A1
+
+// MCP2515 SPI CAN module control pins (when using MCP2515 profile)
+constexpr int CAN_SPI_CS = D10;  // D10
+constexpr int CAN_SPI_INT = D7;  // D7
 
 // TWAI CAN transceiver pins
-constexpr int CAN_TX = 5; // GPIO5
-constexpr int CAN_RX = 6; // GPIO6
+constexpr int CAN_TX = D5; // D5
+constexpr int CAN_RX = D6; // D6 (shares D6 with DHT11_PIN if both features are enabled)
 
 // Thermistors (default disabled unless wired)
-constexpr int IAT_THERM_PIN = 7;        // GPIO7
+constexpr int IAT_THERM_PIN = D4;       // D4
+constexpr int DHT11_PIN = D6;           // D6
 constexpr int ENGINE_BAY_THERM_PIN = 8; // GPIO8
 constexpr int CABIN_THERM_PIN = 9;      // GPIO9
 constexpr int AMBIENT_THERM_PIN = 10;   // GPIO10
 
 // Pressure transducers (divider-scaled to ADC)
-constexpr int OIL_PRESSURE_ADC = 11;       // GPIO11
-constexpr int FUEL_PRESSURE_ADC = 12;      // GPIO12
+constexpr int OIL_PRESSURE_ADC = A4;       // A4
+constexpr int FUEL_PRESSURE_ADC = A5;      // A5
 constexpr int METH_PRESSURE_ADC = 13;      // GPIO13
 constexpr int BOOST_REF_PRESSURE_ADC = 14; // GPIO14
 constexpr int SPARE_PRESSURE_1_ADC = 15;   // GPIO15
