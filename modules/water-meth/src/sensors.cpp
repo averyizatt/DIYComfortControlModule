@@ -11,6 +11,8 @@ constexpr float kMinFilterAlpha = 0.01f;
 constexpr float kMaxFilterAlpha = 1.0f;
 constexpr float kMinResistanceOhms = 1.0f;
 constexpr float kKelvinOffset = 273.15f;
+constexpr float kMapVoltageMargin = 0.10f;
+constexpr float kPressureVoltageMargin = 0.08f;
 
 // Unsigned subtraction is rollover-safe for millis() timestamps.
 inline bool elapsed(uint32_t now, uint32_t start, uint32_t intervalMs) {
@@ -50,21 +52,24 @@ SensorReadings MapSensor::read() const {
   const float voltage = static_cast<float>(raw) * (kAdcRefVoltage / kAdcMaxCount);
   const float mapKpa = kpaFromVoltage(voltage);
   const float boostPsi = (mapKpa - calibration_.baroKpa) * kPsiPerKpa;
+  const bool inRange = (voltage >= (calibration_.vMin - kMapVoltageMargin)) &&
+                       (voltage <= (calibration_.vMax + kMapVoltageMargin));
 
   readings.mapRaw = raw;
   readings.mapVoltage = voltage;
   readings.mapKpa = mapKpa;
   readings.boostPsi = boostPsi;
-  readings.mapValid = valid_;
+  readings.mapValid = valid_ && inRange;
   return readings;
 }
 
 bool MapSensor::valid() const { return valid_; }
 
-void FloatSensor::begin(int digitalPin, bool activeLow, uint32_t debounceMs) {
+void FloatSensor::begin(int digitalPin, bool activeLow, uint32_t debounceMs, uint32_t lowHoldMs) {
   pin_ = digitalPin;
   activeLow_ = activeLow;
   debounceMs_ = debounceMs;
+  lowHoldMs_ = lowHoldMs;
 
   if (pin_ >= 0) {
     pinMode(pin_, INPUT_PULLUP);
@@ -72,12 +77,15 @@ void FloatSensor::begin(int digitalPin, bool activeLow, uint32_t debounceMs) {
 
   lastRawLow_ = rawIsLow();
   debouncedLow_ = lastRawLow_;
+  sustainedLow_ = lastRawLow_;
+  lowSinceMs_ = sustainedLow_ ? millis() : 0;
   lastChangeMs_ = millis();
 }
 
 bool FloatSensor::rawIsLow() const {
   if (pin_ < 0) {
-    return true;
+    // Unwired/disabled input is treated as full (not low).
+    return false;
   }
 
   const bool pinHigh = digitalRead(pin_) == HIGH;
@@ -97,10 +105,18 @@ bool FloatSensor::update() {
     debouncedLow_ = rawLow;
   }
 
-  return debouncedLow_;
+  if (debouncedLow_) {
+    if (lowSinceMs_ == 0) lowSinceMs_ = now;
+    sustainedLow_ = elapsed(now, lowSinceMs_, lowHoldMs_);
+  } else {
+    lowSinceMs_ = 0;
+    sustainedLow_ = false;
+  }
+
+  return sustainedLow_;
 }
 
-bool FloatSensor::isLow() const { return debouncedLow_; }
+bool FloatSensor::isLow() const { return sustainedLow_; }
 
 void TempSensor::begin(int dataPin) {
   pin_ = dataPin;
@@ -285,6 +301,14 @@ void PressureSensor::update(uint32_t nowMs) {
     fault_ = PressureFault::AdcError;
     return;
   }
+
+  if (sensorVoltage_ < (config_.sensorMinV - kPressureVoltageMargin) ||
+      sensorVoltage_ > (config_.sensorMaxV + kPressureVoltageMargin)) {
+    valid_ = false;
+    fault_ = PressureFault::OutOfRange;
+    return;
+  }
+
   if (sensorVoltage_ >= config_.openCircuitThresholdV) {
     valid_ = false;
     fault_ = PressureFault::OpenCircuit;

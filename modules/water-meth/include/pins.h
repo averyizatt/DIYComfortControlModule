@@ -13,12 +13,17 @@ constexpr int KNOCK_SENSOR_ADC = A1;    // A1
 constexpr int CAN_SPI_CS = D10;  // D10
 constexpr int CAN_SPI_INT = D7;  // D7
 
+// Bench-test button: wire a momentary switch between D9 and GND.
+// Holding it fires the pump at benchTestDutyPercent (internal pull-up, active LOW).
+constexpr int BENCH_TEST_BUTTON = D9; // D9 / GPIO18
+
 // Thermistors (default disabled unless wired)
 constexpr int IAT_THERM_PIN = D4;       // D4
 constexpr int DHT11_PIN = D6;           // D6
 constexpr int ENGINE_BAY_THERM_PIN = 8; // GPIO8
 constexpr int CABIN_THERM_PIN = 9;      // GPIO9
-constexpr int AMBIENT_THERM_PIN = 10;   // GPIO10
+// Disabled by default because GPIO10 maps to D10, which is used by MCP2515 CS.
+constexpr int AMBIENT_THERM_PIN = -1;
 
 // Pressure transducers (divider-scaled to ADC)
 constexpr int OIL_PRESSURE_ADC = A4;       // A4
