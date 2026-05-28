@@ -9,6 +9,8 @@ bool TouchManager::begin(TwoWire& wire, uint8_t sdaPin, uint8_t sclPin, uint8_t 
   intPin_ = intPin;
 
   wire_->begin(sdaPin, sclPin);
+  // FT6x36 is stable at Fast-Mode I2C and responds quicker with a higher bus clock.
+  wire_->setClock(400000U);
   if (rstPin_ != 255) {
     pinMode(rstPin_, OUTPUT);
     digitalWrite(rstPin_, LOW);

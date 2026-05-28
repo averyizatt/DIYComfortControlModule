@@ -19,6 +19,10 @@ enum class ManualTestRejectReason : uint8_t {
 struct ManualTestDecision {
   bool allowed = false;
   ManualTestRejectReason reason = ManualTestRejectReason::NONE;
+
+  ManualTestDecision() = default;
+  ManualTestDecision(bool isAllowed, ManualTestRejectReason rejectReason)
+      : allowed(isAllowed), reason(rejectReason) {}
 };
 
 inline bool canArm(const state::VehicleState& s) {

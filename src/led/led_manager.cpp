@@ -9,6 +9,7 @@ constexpr uint32_t kWarningFlashMs = 120;
 constexpr uint32_t kCanFaultFlashMs = 100;
 constexpr uint32_t kStartupSweepDurationMs = 1800;
 constexpr uint32_t kStartupStepMs = 40;
+constexpr uint8_t kStartupBrightnessCap = 80;
 constexpr uint16_t kRpmBrightnessScaleDivisor = 30;
 constexpr uint16_t kRpmGaugeMax = 7000;
 // RPM startup animation phases (ms from boot)
@@ -47,16 +48,16 @@ void LedManager::renderRpmStartup(Channel& ch, uint32_t elapsed) {
     }
   } else if (elapsed < kRpmStartupHoldEnd) {
     // Phase 2: all LEDs on in final RPM colours
-    ch.strip->setBrightness(200);
+    ch.strip->setBrightness(kStartupBrightnessCap);
     for (uint16_t i = 0; i < n; ++i) ch.strip->setPixelColor(i, rpmGaugeColor(i, n));
   } else if (elapsed < kRpmStartupFadeEnd) {
     // Phase 3: fade brightness to black
     const float alpha = 1.0f - static_cast<float>(elapsed - kRpmStartupHoldEnd) /
                                 static_cast<float>(kRpmStartupFadeEnd - kRpmStartupHoldEnd);
-    ch.strip->setBrightness(static_cast<uint8_t>(200.0f * alpha));
+    ch.strip->setBrightness(static_cast<uint8_t>(kStartupBrightnessCap * alpha));
     for (uint16_t i = 0; i < n; ++i) ch.strip->setPixelColor(i, rpmGaugeColor(i, n));
   } else {
-    ch.strip->setBrightness(200);
+    ch.strip->setBrightness(kStartupBrightnessCap);
     ch.strip->clear();
   }
   ch.strip->show();
@@ -224,7 +225,10 @@ void LedManager::tick(const state::VehicleState& s) {
         renderRpmStartup(channels_[i], elapsed);
       } else {
         channels_[i].mode = state::LedMode::STARTUP_SWEEP;
+        const uint8_t originalBrightness = channels_[i].brightness;
+        channels_[i].brightness = min<uint8_t>(originalBrightness, kStartupBrightnessCap);
         renderChannel(channels_[i], s, nowMs + i * 80U, i);
+        channels_[i].brightness = originalBrightness;
       }
     }
     if (elapsed > kRpmStartupFadeEnd && !s.led_startup_preview) {

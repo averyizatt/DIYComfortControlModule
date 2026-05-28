@@ -261,6 +261,13 @@ struct VehicleState {
   float race_best_lap_s = -1.0f;
   float race_lap_delta_s = 0.0f;
   uint32_t race_last_lap_ms = 0;
+
+  // IMU / G-force (MPU-6050)
+  float imu_g_lateral      = 0.0f;  // left/right G  (+ = right)
+  float imu_g_longitudinal = 0.0f;  // fore/aft G     (+ = acceleration)
+  float imu_g_total        = 0.0f;  // sqrt(lat² + lon²) horizontal vector
+  float imu_g_peak         = 0.0f;  // max imu_g_total since boot
+  bool  imu_online         = false;
 };
 
 }  // namespace state

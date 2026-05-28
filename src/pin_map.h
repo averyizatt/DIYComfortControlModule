@@ -25,14 +25,14 @@ namespace pins {
 //  CTP RST       15  (ADC2_CH4)
 //  CTP SCL       16  (ADC2_CH5)
 // ── Other peripherals ────────────────────────────────────────────────────────
-//  CAN TX        47  (GP)   was 5→38; 38 is LED_DATA1
-//  CAN RX         4  (ADC1_CH3)
+//  CAN TX        47  (GP)   legacy TWAI only; not used in SPI-CAN mode
+//  CAN RX         4  (ADC1_CH3)  legacy TWAI only; reused for Gyro INT in SPI-CAN mode
 //  CAN SPI CS    11  (ADC2_CH0)  was 17; 17 is SPI_MISO
 //  CAN SPI INT   18  (ADC2_CH7)
 //  CAN SPI RST   21  (GP)
 //  Tach OUT      13  (ADC2_CH2)  was 6→39; 39 is LED_DATA2  [LEDC output]
 //  Tach IN        2  (ADC1_CH1)
-//  Gyro INT      14  (ADC2_CH3)  was 3→40; 40 is LED_DATA3
+//  Gyro INT       4  (ADC1_CH3)  moved from 14; shares old legacy CAN RX pin
 //  Battery ADC    1  (ADC1_CH0)  was 46; 46 is LCD_DC
 //  Knock ADC     48  (ADC1_CH7)
 //  GPS RX        41  (GP)
@@ -91,10 +91,10 @@ namespace pins {
 #endif
 
 #ifndef CCM_PIN_CAN_TX
-#define CCM_PIN_CAN_TX 47   // ← was 5→38; GPIO 38 is LED_DATA1
+#define CCM_PIN_CAN_TX 47   // Legacy TWAI only; SPI-CAN uses CS/INT/RST on separate pins.
 #endif
 #ifndef CCM_PIN_CAN_RX
-#define CCM_PIN_CAN_RX 4
+#define CCM_PIN_CAN_RX 4    // Legacy TWAI only; active SPI-CAN builds do not use this pin.
 #endif
 #ifndef CCM_PIN_CAN_SPI_CS
 #define CCM_PIN_CAN_SPI_CS 11  // ← was 17; moved – GPIO 17 now used for SPI_MISO
@@ -149,7 +149,7 @@ namespace pins {
 #define CCM_PIN_GYRO_SDA CCM_PIN_TOUCH_SDA
 #endif
 #ifndef CCM_PIN_GYRO_INT
-#define CCM_PIN_GYRO_INT 14  // ← was 3→40; GPIO 40 is LED_DATA3
+#define CCM_PIN_GYRO_INT 4   // Reuse legacy CAN RX pin now that CAN runs over SPI only.
 #endif
 #ifndef CCM_PIN_GYRO_ADDR_SEL
 #define CCM_PIN_GYRO_ADDR_SEL 255

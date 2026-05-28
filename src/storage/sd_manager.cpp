@@ -18,7 +18,15 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   // SD.begin() manages CS internally; it needs CS HIGH at call time so the
   // card can complete the 74-clock power-up sequence before selection.
   mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
-  Serial0.printf("[SD] mount %s\n", mounted_ ? "OK" : "FAILED (no card?)");
+  if (!mounted_) {
+    delay(50);
+    mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
+  }
+  if (!mounted_) {
+    delay(50);
+    mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
+  }
+  Serial0.printf("[SD] mount %s (cs=%u)\n", mounted_ ? "OK" : "FAILED (no card?)", static_cast<unsigned>(sdCsPin_));
 
   if (!mounted_) {
     setStatus("mount_failed", true);

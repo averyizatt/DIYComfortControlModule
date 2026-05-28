@@ -93,6 +93,7 @@ class ScreenDashboard {
   static void onKnockResetBaselineClicked(lv_event_t* e);
   static void onKnockClearEventsClicked(lv_event_t* e);
   static void onKnockSimulateClicked(lv_event_t* e);
+  static void onLedMasterSwitchChanged(lv_event_t* e);
 
   // ---- Dependencies ---------------------------------------------------
   canbus::CanManager*           canMgr_      = nullptr;
@@ -135,11 +136,22 @@ class ScreenDashboard {
   lv_obj_t* raceLapBtn_      = nullptr;
   lv_obj_t* raceStopBtn_     = nullptr;
   lv_obj_t* raceResetBtn_    = nullptr;
+  lv_obj_t* gLiveLabel_      = nullptr;  // "X.XX G" current G
+  lv_obj_t* gPeakLabel_      = nullptr;  // "PK X.XX" peak G
+  lv_obj_t* gLatBar_         = nullptr;  // lateral G bar (-100..+100)
 
   // -- METH page --
+  lv_obj_t* methBadgeLabel_    = nullptr;
   lv_obj_t* methStateLabel_    = nullptr;
   lv_obj_t* methSensorLabel_   = nullptr;
   lv_obj_t* methParamLabel_    = nullptr;
+  lv_obj_t* methOnlineLed_     = nullptr;
+  lv_obj_t* methOfflineSpinner_ = nullptr;
+  lv_obj_t* methDutyMeter_     = nullptr;
+  lv_meter_indicator_t* methDutyNeedle_ = nullptr;
+  lv_obj_t* methTankMeter_     = nullptr;
+  lv_meter_indicator_t* methTankArc_ = nullptr;
+  lv_obj_t* methFlowDropdown_  = nullptr;
   lv_obj_t* methArmBtn_        = nullptr;
   lv_obj_t* methArmBtnLabel_   = nullptr;
   lv_obj_t* methRatioBtn_      = nullptr;
@@ -147,6 +159,8 @@ class ScreenDashboard {
 
   // -- TAIL page --
   lv_obj_t* tailStatusLabel_   = nullptr;
+  lv_obj_t* tailOnlineLed_     = nullptr;
+  lv_obj_t* tailModeDropdown_  = nullptr;
   lv_obj_t* tailModePanel_     = nullptr;
   lv_obj_t* tailStockBtn_      = nullptr;
   lv_obj_t* tailSeqBtn_        = nullptr;
@@ -162,16 +176,22 @@ class ScreenDashboard {
 
   // -- LEDS page --
   lv_obj_t* ledStatusLabel_  = nullptr;
+  lv_obj_t* ledMasterSwitch_ = nullptr;
+  lv_obj_t* ledMasterLabel_  = nullptr;
   lv_obj_t* ledModeBtns_[5]  = {};  // OFF, STATIC, BREATHE, RAINBOW, RPM
 
   // -- GPS page --
   lv_obj_t* gpsSpdLabel_  = nullptr;
   lv_obj_t* gpsInfoLabel_ = nullptr;
+  lv_obj_t* gpsFixLed_    = nullptr;
+  lv_obj_t* gpsSatMeter_  = nullptr;
+  lv_meter_indicator_t* gpsSatNeedle_ = nullptr;
   float     gpsSpeedFilteredMph_      = 0.0f;
   bool      gpsSpeedFilterInitialized_ = false;
 
   // -- TEMPS page --
   lv_obj_t* tempsLabel_ = nullptr;
+  lv_obj_t* tempsTable_ = nullptr;
 
   // -- DIAG page --
   lv_obj_t* diagLabel_ = nullptr;
@@ -185,6 +205,14 @@ class ScreenDashboard {
   lv_obj_t* knockBaselineBar_      = nullptr;
   lv_obj_t* knockThresholdLabel_   = nullptr;
   lv_obj_t* knockThresholdBar_     = nullptr;
+  lv_obj_t* knockGraphLabel_       = nullptr;
+  lv_obj_t* knockGraphChart_       = nullptr;
+  lv_chart_series_t* knockGraphEnergySeries_ = nullptr;
+  lv_chart_series_t* knockGraphBaselineSeries_ = nullptr;
+  lv_chart_series_t* knockGraphThresholdSeries_ = nullptr;
+  lv_obj_t* knockWarnLed_          = nullptr;
+  lv_obj_t* knockCritLed_          = nullptr;
+  lv_obj_t* knockLearningSpinner_  = nullptr;
   lv_obj_t* knockEventLabel_       = nullptr;
   lv_obj_t* knockLastLabel_        = nullptr;
   lv_obj_t* knockEnableBtn_        = nullptr;

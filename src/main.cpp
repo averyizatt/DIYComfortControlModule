@@ -23,6 +23,7 @@
 #include "ui/asset_manager.h"
 #include "ui/screen_dashboard.h"
 #include "web/web_server.h"
+#include "imu/imu_service.h"
 
 namespace {
 canbus::CanManager g_can;
@@ -51,6 +52,7 @@ sensors::PressureSensor g_methPressureSensor;
 sensors::PressureSensor g_boostRefPressureSensor;
 sensors::PressureSensor g_sparePressure1Sensor;
 sensors::PressureSensor g_sparePressure2Sensor;
+imu::ImuService g_imu;
 
 constexpr uint32_t kTaskWatchdogTimeoutS = 6;
 constexpr uint16_t kAnalogFaultIat = 1U << 0;
@@ -65,6 +67,22 @@ constexpr uint16_t kAnalogFaultSpare1 = 1U << 8;
 constexpr uint16_t kAnalogFaultSpare2 = 1U << 9;
 constexpr uint16_t kFaultFlagTempSensors = 0x0800;
 constexpr uint16_t kFaultFlagPressureSensors = 0x1000;
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "POWERON";
+    case ESP_RST_EXT: return "EXT";
+    case ESP_RST_SW: return "SW";
+    case ESP_RST_PANIC: return "PANIC";
+    case ESP_RST_INT_WDT: return "INT_WDT";
+    case ESP_RST_TASK_WDT: return "TASK_WDT";
+    case ESP_RST_WDT: return "WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT: return "BROWNOUT";
+    case ESP_RST_SDIO: return "SDIO";
+    default: return "UNKNOWN";
+  }
+}
 
 void initTaskWatchdog() {
 #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
@@ -249,8 +267,10 @@ void raceTask(void*) {
 
 void touchTask(void*) {
   registerTaskWatchdog();
+  constexpr uint32_t kTouchTaskPeriodMs = 10;
   while (true) {
     const touch::TouchSample t = g_touch.read();
+    g_imu.update();  // same I2C bus — keep in one task to avoid concurrent Wire access
     g_screen.handleTouch(t, millis());
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
       s.touch_online = g_touch.online();
@@ -259,7 +279,7 @@ void touchTask(void*) {
       }
     });
     feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(25));
+    vTaskDelay(pdMS_TO_TICKS(kTouchTaskPeriodMs));
   }
 }
 
@@ -381,6 +401,7 @@ void screenTask(void*) {
   registerTaskWatchdog();
   uint32_t lastFpsMs = millis();
   uint32_t frameCount = 0;
+  constexpr uint32_t kScreenTaskPeriodMs = 16;
 
   while (true) {
     const state::VehicleState s = state::g_vehicle_state.read();
@@ -396,7 +417,7 @@ void screenTask(void*) {
     }
 
     feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(33));
+    vTaskDelay(pdMS_TO_TICKS(kScreenTaskPeriodMs));
   }
 }
 
@@ -555,6 +576,12 @@ void setup() {
   Serial0.begin(115200);  // UART0 -> COM8 (CH343 bridge) for hardware diagnostics
   delay(200);  // give COM8 monitor time to connect before first prints
 
+  const esp_reset_reason_t resetReason = esp_reset_reason();
+  Serial0.printf("[BOOT] reset=%s free_heap=%lu die_temp=%d\n",
+                 resetReasonName(resetReason),
+                 static_cast<unsigned long>(ESP.getFreeHeap()),
+                 static_cast<int>(temperatureRead()));
+
   pinMode(pins::kLcdRst, OUTPUT);
   pinMode(pins::kLcdDc, OUTPUT);
   digitalWrite(pins::kLcdRst, HIGH);
@@ -579,6 +606,7 @@ void setup() {
 
   // The display uses HSPI (SPI3) via Arduino_ESP32SPI – no SPI.begin() needed
   g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
+  g_imu.begin(Wire);  // MPU-6050 shares the same I2C bus
   // SD uses FSPI (SPI2). Must explicitly init with our custom pins before
   // SD.begin() — otherwise the library falls back to ESP32-S3 defaults (11/12/13).
   SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kSdCs);
@@ -613,9 +641,9 @@ void setup() {
   xTaskCreatePinnedToCore(knockTask, "knock_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(analogSensorTask, "analog_sensor_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(touchTask, "touch_task", 4096, nullptr, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(screenTask, "screen_task", 8192, nullptr, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(heartbeatTask, "hb_task", 3072, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(touchTask,   "touch_task",   5120, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(screenTask, "screen_task", 12288, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(heartbeatTask, "hb_task",       3072, nullptr, 1, nullptr, 1);
 }
 
 void loop() {

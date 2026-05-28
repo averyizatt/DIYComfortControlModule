@@ -25,7 +25,7 @@
    MEMORY SETTINGS
  *====================*/
 #define LV_MEM_CUSTOM          0
-#define LV_MEM_SIZE            (64U * 1024U)   /* 64 KB LVGL internal heap */
+#define LV_MEM_SIZE            (80U * 1024U)   /* 80 KB LVGL internal heap */
 #define LV_MEM_ADR             0               /* 0 = place in normal BSS  */
 #define LV_MEM_POOL_INCLUDE    "stdlib.h"
 #define LV_MEM_POOL_ALLOC      malloc
@@ -35,8 +35,8 @@
 /*====================
    HAL SETTINGS
  *====================*/
-#define LV_DISP_DEF_REFR_PERIOD   33   /* ms  ~30 FPS                    */
-#define LV_INDEV_DEF_READ_PERIOD  25   /* ms  touch polling interval     */
+#define LV_DISP_DEF_REFR_PERIOD   16   /* ms  ~60 FPS                    */
+#define LV_INDEV_DEF_READ_PERIOD  12   /* ms  touch polling interval     */
 
 /* Use Arduino millis() as LVGL tick source */
 #define LV_TICK_CUSTOM             1
@@ -63,12 +63,13 @@
    RENDERING
  *====================*/
 #define LV_DRAW_COMPLEX       1
-#define LV_SHADOW_CACHE_SIZE  0
-#define LV_CIRCLE_CACHE_SIZE  4
-#define LV_IMG_CACHE_DEF_SIZE 0
+#define LV_SHADOW_CACHE_SIZE  8   /* cache computed shadow masks; each card uses shadow_width=8 */
+#define LV_CIRCLE_CACHE_SIZE  8   /* more arc/circle cache entries (arcs on dash/meth/gps) */
+#define LV_IMG_CACHE_DEF_SIZE 4
 #define LV_GRADIENT_MAX_STOPS 2
-#define LV_GRAD_CACHE_DEF_SIZE 0
-#define LV_DITHER_GRADIENT    0
+#define LV_GRAD_CACHE_DEF_SIZE 4096  /* bytes; must hold ≥1 entry: 480×(lv_color_t + lv_color32_t) ≈ 2.9 KB */
+#define LV_DITHER_GRADIENT    1      /* ordered dithering for gradients – eliminates colour banding
+                                        on 16-bit (RGB565) bars, arcs, and backgrounds */
 #define LV_DISP_ROT_MAX_BUF   (10 * 1024)
 
 /*====================
@@ -83,27 +84,27 @@
 /*====================
    FONTS
  *====================*/
-#define LV_FONT_MONTSERRAT_8  0
-#define LV_FONT_MONTSERRAT_10 0
+#define LV_FONT_MONTSERRAT_8  1
+#define LV_FONT_MONTSERRAT_10 1
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_18 1
 #define LV_FONT_MONTSERRAT_20 1
-#define LV_FONT_MONTSERRAT_22 0
+#define LV_FONT_MONTSERRAT_22 1
 #define LV_FONT_MONTSERRAT_24 1
-#define LV_FONT_MONTSERRAT_26 0
+#define LV_FONT_MONTSERRAT_26 1
 #define LV_FONT_MONTSERRAT_28 1
-#define LV_FONT_MONTSERRAT_30 0
+#define LV_FONT_MONTSERRAT_30 1
 #define LV_FONT_MONTSERRAT_32 1
-#define LV_FONT_MONTSERRAT_34 0
-#define LV_FONT_MONTSERRAT_36 0
-#define LV_FONT_MONTSERRAT_38 0
+#define LV_FONT_MONTSERRAT_34 1
+#define LV_FONT_MONTSERRAT_36 1
+#define LV_FONT_MONTSERRAT_38 1
 #define LV_FONT_MONTSERRAT_40 1
-#define LV_FONT_MONTSERRAT_42 0
-#define LV_FONT_MONTSERRAT_44 0
-#define LV_FONT_MONTSERRAT_46 0
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_42 1
+#define LV_FONT_MONTSERRAT_44 1
+#define LV_FONT_MONTSERRAT_46 1
+#define LV_FONT_MONTSERRAT_48 1
 
 #define LV_FONT_UNSCII_8    0
 #define LV_FONT_UNSCII_16   0
@@ -121,44 +122,44 @@
 #define LV_USE_ARC           1   /* RPM gauge */
 #define LV_USE_BAR           1   /* boost bar, temp bars */
 #define LV_USE_BTN           1
-#define LV_USE_BTNMATRIX     0
-#define LV_USE_CANVAS        0
-#define LV_USE_CHECKBOX      0
-#define LV_USE_DROPDOWN      0
-#define LV_USE_IMG           0
+#define LV_USE_BTNMATRIX     1
+#define LV_USE_CANVAS        1
+#define LV_USE_CHECKBOX      1
+#define LV_USE_DROPDOWN      1
+#define LV_USE_IMG           1
 #define LV_USE_LABEL         1
 #  define LV_LABEL_TEXT_SELECTION 0
 #  define LV_LABEL_LONG_TXT_HINT  0
-#define LV_USE_LINE          0
-#define LV_USE_ROLLER        0
+#define LV_USE_LINE          1
+#define LV_USE_ROLLER        1
 #  define LV_ROLLER_INF_PAGES  7
-#define LV_USE_SLIDER        0
-#define LV_USE_SWITCH        0
-#define LV_USE_TEXTAREA      0
+#define LV_USE_SLIDER        1
+#define LV_USE_SWITCH        1
+#define LV_USE_TEXTAREA      1
 #  define LV_TEXTAREA_DEF_PWD_SHOW_TIME 1500
-#define LV_USE_TABLE         0
+#define LV_USE_TABLE         1
 
 /*====================
    EXTRA COMPONENTS
  *====================*/
-#define LV_USE_TABVIEW    0   /* replaced by custom bottom nav */
+#define LV_USE_TABVIEW    1
 
-#define LV_USE_WIN        0
-#define LV_USE_SPAN       0
-#define LV_USE_MSGBOX     0
-#define LV_USE_TILEVIEW   0
-#define LV_USE_LIST       0
-#define LV_USE_MENU       0
-#define LV_USE_METER      0
-#define LV_USE_CALENDAR   0
-#define LV_USE_KEYBOARD   0
-#define LV_USE_CHART      0
-#define LV_USE_COLORWHEEL 0
-#define LV_USE_IMGBTN     0   /* requires LV_USE_IMG */
-#define LV_USE_ANIMIMG    0   /* requires LV_USE_IMG */
-#define LV_USE_LED        0
-#define LV_USE_SPINNER    0
-#define LV_USE_SPINBOX    0   /* requires LV_USE_TEXTAREA */
+#define LV_USE_WIN        1
+#define LV_USE_SPAN       1
+#define LV_USE_MSGBOX     1
+#define LV_USE_TILEVIEW   1
+#define LV_USE_LIST       1
+#define LV_USE_MENU       1
+#define LV_USE_METER      1
+#define LV_USE_CALENDAR   1
+#define LV_USE_KEYBOARD   1
+#define LV_USE_CHART      1
+#define LV_USE_COLORWHEEL 1
+#define LV_USE_IMGBTN     1   /* requires LV_USE_IMG */
+#define LV_USE_ANIMIMG    1   /* requires LV_USE_IMG */
+#define LV_USE_LED        1
+#define LV_USE_SPINNER    1
+#define LV_USE_SPINBOX    1   /* requires LV_USE_TEXTAREA */
 
 /*====================
    THEMES
@@ -166,7 +167,7 @@
 #define LV_USE_THEME_DEFAULT 1
 #  define LV_THEME_DEFAULT_DARK            1   /* Dark mode */
 #  define LV_THEME_DEFAULT_GROW            0
-#  define LV_THEME_DEFAULT_TRANSITION_TIME 80
+#  define LV_THEME_DEFAULT_TRANSITION_TIME 60
 #define LV_USE_THEME_BASIC   0
 #define LV_USE_THEME_MONO    0
 
@@ -174,7 +175,7 @@
    LAYOUTS
  *====================*/
 #define LV_USE_FLEX 1
-#define LV_USE_GRID 0
+#define LV_USE_GRID 1
 
 /*====================
    FILE SYSTEM (all off)
@@ -187,11 +188,11 @@
 /*====================
    IMAGE DECODERS (all off)
  *====================*/
-#define LV_USE_PNG    0
-#define LV_USE_BMP    0
-#define LV_USE_SJPG   0
-#define LV_USE_GIF    0
-#define LV_USE_QRCODE 0
+#define LV_USE_PNG    1
+#define LV_USE_BMP    1
+#define LV_USE_SJPG   1
+#define LV_USE_GIF    1
+#define LV_USE_QRCODE 1
 
 /*====================
    PERFORMANCE MONITOR
@@ -205,9 +206,9 @@
  *====================*/
 #define LV_USE_BIDI                  0
 #define LV_USE_ARABIC_PERSIAN_CHARS  0
-#define LV_USE_FRAGMENT              0
-#define LV_USE_IMGFONT               0
-#define LV_USE_SNAPSHOT              0
+#define LV_USE_FRAGMENT              1
+#define LV_USE_IMGFONT               1
+#define LV_USE_SNAPSHOT              1
 
 /*====================
    3rd PARTY (all off)

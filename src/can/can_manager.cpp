@@ -5,7 +5,24 @@
 #include "meth/MethSafetyLogic.hpp"
 #include "state/StateHelpers.hpp"
 
-#if __has_include(<driver/twai.h>)
+#include <SPI.h>
+
+#ifndef CCM_CAN_TRANSPORT_SPI
+#define CCM_CAN_TRANSPORT_SPI 0
+#endif
+
+#ifndef CCM_CAN_TRANSPORT_TWAI
+#define CCM_CAN_TRANSPORT_TWAI 1
+#endif
+
+#if CCM_CAN_TRANSPORT_SPI && __has_include(<mcp2515.h>)
+#include <mcp2515.h>
+#define CCM_HAS_SPI_CAN 1
+#else
+#define CCM_HAS_SPI_CAN 0
+#endif
+
+#if CCM_CAN_TRANSPORT_TWAI && __has_include(<driver/twai.h>)
 #include <driver/twai.h>
 #define CCM_HAS_TWAI 1
 #else
@@ -42,13 +59,50 @@ constexpr uint8_t DUTY_ZERO = 4;
 constexpr uint8_t DUTY_OVER_MAX = 5;
 }  // namespace meth_manual_test_reject_reason
 
+#if CCM_HAS_SPI_CAN
+MCP2515 g_mcp2515(pins::kCanSpiCs);
+bool g_spiCanOnline = false;
+
+bool initSpiCan() {
+  SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kCanSpiCs);
+  pinMode(pins::kCanSpiInt, INPUT_PULLUP);
+
+  if (pins::kCanSpiRst != 255) {
+    pinMode(pins::kCanSpiRst, OUTPUT);
+    digitalWrite(pins::kCanSpiRst, LOW);
+    delay(2);
+    digitalWrite(pins::kCanSpiRst, HIGH);
+    delay(2);
+  }
+
+  g_mcp2515.reset();
+  if (g_mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ) != MCP2515::ERROR_OK) {
+    g_spiCanOnline = false;
+    return false;
+  }
+  if (g_mcp2515.setNormalMode() != MCP2515::ERROR_OK) {
+    g_spiCanOnline = false;
+    return false;
+  }
+
+  g_spiCanOnline = true;
+  return true;
+}
+#endif
+
 }  // namespace
 
 bool CanManager::begin(bool tryHardwareCan) {
   hwCanReady_ = false;
 
-#if CCM_HAS_TWAI
+#if CCM_HAS_SPI_CAN
   if (tryHardwareCan) {
+    hwCanReady_ = initSpiCan();
+  }
+#endif
+
+#if CCM_HAS_TWAI
+  if (!hwCanReady_ && tryHardwareCan) {
     twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(static_cast<gpio_num_t>(pins::kCanTx),
                                                                  static_cast<gpio_num_t>(pins::kCanRx), TWAI_MODE_NORMAL);
     twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
@@ -242,8 +296,21 @@ bool CanManager::sendMethConfigBroadcast() {
 
 bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
   bool sent = false;
+
+#if CCM_HAS_SPI_CAN
+  if (hwCanReady_ && g_spiCanOnline) {
+    struct can_frame tx{};
+    tx.can_id = frame.id & 0x7FFU;
+    tx.can_dlc = frame.dlc;
+    for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
+      tx.data[i] = frame.data[i];
+    }
+    sent = g_mcp2515.sendMessage(&tx) == MCP2515::ERROR_OK;
+  }
+#endif
+
 #if CCM_HAS_TWAI
-  if (hwCanReady_) {
+  if (!sent && hwCanReady_) {
     twai_message_t tx{};
     tx.identifier = frame.id;
     tx.extd = 0;
@@ -271,6 +338,26 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
 }
 
 bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
+#if CCM_HAS_SPI_CAN
+  if (hwCanReady_ && g_spiCanOnline) {
+    struct can_frame rx{};
+    if (g_mcp2515.readMessage(&rx) != MCP2515::ERROR_OK) {
+      return false;
+    }
+    frame.id = static_cast<uint16_t>(rx.can_id & 0x7FFU);
+    frame.dlc = rx.can_dlc;
+    for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
+      frame.data[i] = rx.data[i];
+    }
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.can_rx_count++;
+      s.can_last_rx_id = frame.id;
+      s.can_last_rx_ms = millis();
+    });
+    return true;
+  }
+#endif
+
 #if CCM_HAS_TWAI
   if (hwCanReady_) {
     twai_message_t rx{};
@@ -337,6 +424,8 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       s.boost_kpa = msg.boost_kpa;
       s.intake_temp = msg.iat_c;
       s.engine_bay_temp = msg.engine_bay_c;
+      s.intake_temp_valid = true;
+      s.engine_bay_temp_valid = true;
       s.fault_flags = static_cast<uint16_t>((s.fault_flags & 0xFF00U) | msg.fault_flags);
       s.last_meth_ms = nowMs;
       s.meth_online = true;
@@ -384,6 +473,10 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       s.boost_ref_pressure_valid = true;
       s.outside_temp_valid = true;
       s.cabin_temp_valid = true;
+      s.last_analog_sensor_ms = nowMs;
+      s.last_meth_ms = nowMs;
+      s.meth_online = true;
+      s.can_online = true;
     });
     return;
   }
