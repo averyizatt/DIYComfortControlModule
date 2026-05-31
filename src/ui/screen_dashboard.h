@@ -106,6 +106,7 @@ class ScreenDashboard {
   uint8_t  activePage_            = 0;
 
   touch::TouchSample lastTouch_ = {};
+  portMUX_TYPE        touchMux_  = portMUX_INITIALIZER_UNLOCKED;  // guards lastTouch_ (touchTask writes, screenTask reads)
 
   // ---- LVGL widget pointers -------------------------------------------
 

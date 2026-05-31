@@ -45,8 +45,9 @@ class CanManager {
   uint32_t manualTestStartMs_ = 0;
   uint32_t lastManualTestStopMs_ = 0;
   uint32_t lastMethConfigTxMs_ = 0;
-  uint32_t lastKnockTxMs_ = 0;
   uint32_t lastSensorExtTxMs_ = 0;
+  uint32_t lastCanErrCheckMs_ = 0;   // last MCP2515 EFLG read
+  bool     canRxWarnSent_ = false;   // one-shot "silent bus" warning
 };
 
 }  // namespace canbus

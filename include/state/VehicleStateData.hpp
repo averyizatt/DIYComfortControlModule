@@ -221,6 +221,7 @@ struct VehicleState {
   float tach_generated_frequency_hz = 0.0f;
   int8_t esp_die_temp_c = 0;
   uint32_t heap_free_bytes = 0;
+  uint32_t heap_min_free_bytes = 0xFFFFFFFFUL;  // watermark: lowest heap ever observed
   uint8_t reset_reason = 0;
   char current_log_file[64]{};
   char last_sd_write_status[32]{};

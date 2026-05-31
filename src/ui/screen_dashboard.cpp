@@ -162,9 +162,14 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
 
 void ScreenDashboard::lvglTouchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
   auto* self = static_cast<ScreenDashboard*>(drv->user_data);
-  if (self->lastTouch_.touched) {
-    data->point.x = static_cast<lv_coord_t>(self->lastTouch_.x);
-    data->point.y = static_cast<lv_coord_t>(self->lastTouch_.y);
+  // lastTouch_ is written by touchTask and read here from screenTask — use a spinlock
+  // to prevent a torn read if preemption occurs mid-write on the same core.
+  portENTER_CRITICAL(&self->touchMux_);
+  const touch::TouchSample t = self->lastTouch_;
+  portEXIT_CRITICAL(&self->touchMux_);
+  if (t.touched) {
+    data->point.x = static_cast<lv_coord_t>(t.x);
+    data->point.y = static_cast<lv_coord_t>(t.y);
     data->state   = LV_INDEV_STATE_PRESSED;
   } else {
     data->state = LV_INDEV_STATE_RELEASED;
@@ -185,10 +190,13 @@ void ScreenDashboard::attach(canbus::CanManager* canMgr, race::RacePerformanceMa
 bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
                              uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso) {
 #if CCM_HAS_ARDUINO_GFX
-  // Use HSPI (SPI3) for the display so it never shares a host with the
-  // Arduino SPI class / SD library (which both use FSPI / SPI2 by default).
-  // This avoids all spi_bus_initialize() conflicts regardless of init order.
-  s_bus = new Arduino_ESP32SPI(lcdDc, lcdCs, spiSck, spiMosi, spiMiso, HSPI);
+  // All three SPI devices — CAN (CS=11), SD (CS=5), and LCD (CS=10) — share the
+  // same physical bus on GPIO8 (SCK), GPIO3 (MOSI), GPIO17 (MISO). They must all
+  // use the SAME SPI peripheral. Using FSPI (SPI2) here matches SPI.begin() in
+  // setup(), so spi_bus_initialize() finds the host already running and just adds
+  // the display as an additional device. Using HSPI would reroute those GPIOs away
+  // from FSPI via the GPIO matrix, silently breaking SD and CAN transactions.
+  s_bus = new Arduino_ESP32SPI(lcdDc, lcdCs, spiSck, spiMosi, spiMiso, FSPI);
   // Chip confirmed ILI9488 (mislabeled as ST7796S on this Hosyond module).
   // rotation=1: 90° CW landscape (480×320).
   s_gfx = new Arduino_ILI9488(s_bus, lcdRst, 1 /*rotation 90°CW*/, false /*ips*/);
@@ -263,7 +271,10 @@ void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
 
 void ScreenDashboard::handleTouch(const touch::TouchSample& sample, uint32_t /*nowMs*/) {
   // Normalize raw coordinates and buffer for the LVGL indev driver.
-  lastTouch_ = normalizeRaw(sample);
+  const touch::TouchSample normalized = normalizeRaw(sample);
+  portENTER_CRITICAL(&touchMux_);
+  lastTouch_ = normalized;
+  portEXIT_CRITICAL(&touchMux_);
 
   // Mark touch event in shared vehicle state so CAN telemetry can observe it.
   if (lastTouch_.touched) {
@@ -1393,6 +1404,7 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
 }
 
 void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
+  if (!diagLabel_) return;
   // Compute seconds-ago values from uptime and last-seen timestamps
   const uint32_t now = s.uptime_ms;
   auto msAgo = [now](uint32_t ts) -> uint32_t {
@@ -1411,28 +1423,47 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     default: resetStr = "UNK";  break;
   }
 
-  constexpr size_t kDiagBufSize = 640;
+  // Format string has exactly one spec per arg — previous version had 14
+  // orphaned args (no matching spec) causing snprintf to pass integers to
+  // %s handlers, which dereferenced them as pointers → ESP32 panic/reboot.
+  constexpr size_t kDiagBufSize = 820;
   char buf[kDiagBufSize];
   snprintf(buf, sizeof(buf),
-    "SYS: Heap %luB  Die %dC  Uptime %lus  Reset %s  BO:%u WD:%u\n"
-    "NET: WiFi %s  Clients %u  Touch %s  FPS %.1f\n"
-    "CAN: RX %lu TX %lu BadCRC %lu  LastRX 0x%03X %lus  TX 0x%03X %lus\n"
-    "SD: %s %llu/%llu MB  Errors %lu  Log %s  Write %s\n"
-    "METH: St %u  Duty %u%%  Tank %s  On %s  Flow %u  Ratio %u%%\n"
-    "KNOCK: En %s  Sig %s  Warn %s  Crit %s  Learn %s  E %.1f B %.1f T %.1f\n"
-    "ANALOG: IAT %.1f(%s) Bay %.1f(%s) Cabin %.1f(%s) Amb %.1f(%s) Oil %.1f(%s) Fuel %.1f(%s) Meth %.1f(%s) Boost %.1f(%s)\n"
-    "TACH %.1f/%.1f Hz Src %u  GPS %s type%u sats%u alt%d m",
+    // SYS: 8 specs
+    "SYS: Heap %luB(min %luB) Die %dC Up %lus Rst %s BO:%u WD:%u Fl:%u\n"
+    // NET: 4 specs
+    "NET: WiFi %s Cli %u Touch %s FPS %.1f\n"
+    // CAN: 7 specs
+    "CAN: RX %lu TX %lu CRC %lu LastRX 0x%03X %lus LastTX 0x%03X %lus\n"
+    // SD: 6 specs
+    "SD: %s %llu/%llu MB Err %lu Log %s St %s\n"
+    // METH: 10 specs
+    "METH: St %u Duty %u%% Tnk %s On %s Flow %u Ratio %u%% Arm %s Tst %s Rej %u CD %u\n"
+    // KNOCK line 1: 8 specs
+    "KNOCK: En %s Sig %s Warn %s Crit %s Lrn %s Flt %s Clip %s Mode %u\n"
+    // KNOCK line 2: 8 specs
+    "KNOCK: E %.1f B %.1f T %.1f Ev %u RPM %u Kpa %.0f Hi %u Lo %u\n"
+    // ANALOG line 1: 8 specs
+    "ANALOG: IAT %.1f(%s) Bay %.1f(%s) Cab %.1f(%s) Amb %.1f(%s)\n"
+    // ANALOG line 2: 8 specs
+    "ANALOG: Oil %.1f(%s) Fuel %.1f(%s) Meth %.1f(%s) Bst %.1f(%s)\n"
+    // TACH+GPS: 7 specs  (tach_input + tach_generated — duplicate removed)
+    "TACH in %.1f gen %.1f Hz Src %u GPS %s type%u sats%u alt%d m",
+    // SYS (8)
     static_cast<unsigned long>(s.heap_free_bytes),
+    static_cast<unsigned long>(s.heap_min_free_bytes),
     static_cast<int>(s.esp_die_temp_c),
     static_cast<unsigned long>(s.uptime_ms / 1000UL),
     resetStr,
     static_cast<unsigned>(s.brownout_reset_count),
     static_cast<unsigned>(s.watchdog_reset_count),
+    static_cast<unsigned>(s.fault_flags),
+    // NET (4)
     s.wifi_ap_mode ? "AP" : (s.wifi_connected ? "STA" : "OFF"),
     static_cast<unsigned>(s.web_connected_clients),
     s.touch_online ? "OK" : "OFFLINE",
     static_cast<double>(s.ui_fps),
-    // CAN
+    // CAN (7)
     static_cast<unsigned long>(s.can_rx_count),
     static_cast<unsigned long>(s.can_tx_count),
     static_cast<unsigned long>(s.can_bad_checksum_count),
@@ -1440,14 +1471,14 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     static_cast<unsigned long>(msAgo(s.can_last_rx_ms)),
     static_cast<unsigned>(s.can_last_tx_id),
     static_cast<unsigned long>(msAgo(s.can_last_tx_ms)),
-    static_cast<unsigned>(s.fault_flags),
-    // STORAGE
+    // SD (6)
     s.sd_mounted ? "YES" : "NO",
     static_cast<unsigned long long>(s.sd_used_bytes  / 1048576ULL),
     static_cast<unsigned long long>(s.sd_size_bytes  / 1048576ULL),
     static_cast<unsigned long>(s.sd_write_error_count),
     s.current_log_file[0] ? s.current_log_file : "none",
     s.last_sd_write_status[0] ? s.last_sd_write_status : "--",
+    // METH (10)
     static_cast<unsigned>(s.meth_state),
     static_cast<unsigned>(s.meth_pump_duty),
     (s.meth_tank_level == 0) ? "EMPTY" : "OK",
@@ -1458,31 +1489,35 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     s.manual_test_running ? "YES" : "NO",
     static_cast<unsigned>(s.meth_manual_test_reject_reason),
     static_cast<unsigned>(s.meth_manual_test_cooldown_ms_remaining),
+    // KNOCK line 1 (8)
     s.knock_enabled ? "YES" : "NO",
     s.knock_signal_valid ? "YES" : "NO",
     s.knock_warning_active ? "YES" : "NO",
     s.knock_critical_active ? "YES" : "NO",
     s.knock_baseline_learned ? "YES" : "NO",
+    s.knock_sensor_fault ? "YES" : "NO",
+    s.knock_clipping_detected ? "YES" : "NO",
+    static_cast<unsigned>(s.knock_response_mode),
+    // KNOCK line 2 (8)
     static_cast<double>(s.knock_energy),
     static_cast<double>(s.knock_baseline),
     static_cast<double>(s.knock_threshold),
     static_cast<unsigned>(s.knock_event_count),
     static_cast<unsigned>(s.knock_last_event_rpm),
     static_cast<double>(s.knock_last_event_boost_kpa),
-    s.knock_sensor_fault ? "YES" : "NO",
-    s.knock_clipping_detected ? "YES" : "NO",
     static_cast<unsigned>(s.knock_signal_clip_high_count),
     static_cast<unsigned>(s.knock_signal_clip_low_count),
-    static_cast<unsigned>(s.knock_response_mode),
+    // ANALOG line 1 (8)
     static_cast<double>(s.intake_temp), s.intake_temp_valid ? "OK" : "FAULT",
     static_cast<double>(s.engine_bay_temp), s.engine_bay_temp_valid ? "OK" : "FAULT",
     static_cast<double>(s.cabin_temp), s.cabin_temp_valid ? "OK" : "FAULT",
     static_cast<double>(s.outside_temp), s.outside_temp_valid ? "OK" : "FAULT",
+    // ANALOG line 2 (8)
     static_cast<double>(s.oil_pressure_psi), s.oil_pressure_valid ? "OK" : "FAULT",
     static_cast<double>(s.fuel_pressure_psi), s.fuel_pressure_valid ? "OK" : "FAULT",
     static_cast<double>(s.meth_pressure_psi), s.meth_pressure_valid ? "OK" : "FAULT",
     static_cast<double>(s.boost_ref_pressure_psi), s.boost_ref_pressure_valid ? "OK" : "FAULT",
-    static_cast<double>(s.tach_input_frequency_hz),
+    // TACH+GPS (7)
     static_cast<double>(s.tach_input_frequency_hz),
     static_cast<double>(s.tach_generated_frequency_hz),
     static_cast<unsigned>(s.tach_source),

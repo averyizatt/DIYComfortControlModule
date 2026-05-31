@@ -17,7 +17,7 @@ class SdManager {
   uint32_t errorCount() const { return errorCount_; }
 
   bool ensureFolder(const char* path);
-  bool appendLine(const char* path, const String& line);
+  bool appendLine(const char* path, const char* line);
 
  private:
   void setStatus(const char* s, bool isError);

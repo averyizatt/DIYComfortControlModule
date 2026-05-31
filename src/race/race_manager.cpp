@@ -347,7 +347,7 @@ void RacePerformanceManager::tick(uint32_t nowMs) {
 }
 
 String RacePerformanceManager::historyJson() const {
-  DynamicJsonDocument doc(4096);
+  JsonDocument doc;
   JsonArray arr = doc.createNestedArray("history");
   for (uint8_t i = 0; i < historyCount_; ++i) {
     const int index = (static_cast<int>(historyHead_) - 1 - i + kHistorySize) % kHistorySize;
@@ -369,7 +369,7 @@ String RacePerformanceManager::historyJson() const {
 }
 
 String RacePerformanceManager::recordsJson() const {
-  DynamicJsonDocument doc(512);
+  JsonDocument doc;
   float best060 = -1.0f;
   float bestQuarter = -1.0f;
   float bestLap = -1.0f;

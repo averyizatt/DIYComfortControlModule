@@ -76,7 +76,7 @@ bool initSpiCan() {
   }
 
   g_mcp2515.reset();
-  if (g_mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ) != MCP2515::ERROR_OK) {
+  if (g_mcp2515.setBitrate(CAN_500KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
     g_spiCanOnline = false;
     return false;
   }
@@ -138,6 +138,48 @@ void CanManager::tick() {
     dispatchFrame(frame, nowMs);
   }
 
+#if CCM_HAS_SPI_CAN
+  // ── MCP2515 error monitoring & bus-off recovery ───────────────────────────
+  // Runs every 3 s. Detects TXBO (bus-off), error-passive, and RX overflow.
+  // On bus-off the MCP2515 refuses to TX or RX until it is reset.
+  if (hwCanReady_ && g_spiCanOnline && (nowMs - lastCanErrCheckMs_) >= 3000) {
+    lastCanErrCheckMs_ = nowMs;
+    const uint8_t eflg     = g_mcp2515.getErrorFlags();
+    const bool busOff    = (eflg & 0x20) != 0;  // TXBO
+    const bool txErrPass = (eflg & 0x10) != 0;  // TXEP
+    const bool rxOvr     = (eflg & 0xC0) != 0;  // RX0OVR | RX1OVR
+    const state::VehicleState snap = state::g_vehicle_state.read();
+    Serial0.printf("[CAN] EFLG=0x%02X INT=%d rx=%lu tx=%lu%s\n",
+        eflg,
+        digitalRead(pins::kCanSpiInt),
+        static_cast<unsigned long>(snap.can_rx_count),
+        static_cast<unsigned long>(snap.can_tx_count),
+        busOff    ? " BUSOFF-REINIT" :
+        txErrPass ? " TX-ERR-PASSIVE" : "");
+    if (rxOvr) {
+      g_mcp2515.clearRXnOVRFlags();
+    }
+    if (busOff) {
+      // Full reset + reinit recovers from bus-off.
+      g_spiCanOnline = false;
+      if (initSpiCan()) {
+        Serial0.println("[CAN] MCP2515 bus-off recovery OK");
+      } else {
+        Serial0.println("[CAN] MCP2515 bus-off recovery FAILED");
+      }
+    }
+  }
+  // One-shot "silent bus" warning: TX going up but no RX after grace period.
+  if (!canRxWarnSent_ && hwCanReady_ && g_spiCanOnline &&
+      (nowMs - canStartMs_) > 10000) {
+    const state::VehicleState snap = state::g_vehicle_state.read();
+    if (snap.can_tx_count > 5 && snap.can_rx_count == 0) {
+      Serial0.println("[CAN] WARNING: TX active but RX=0 - check wiring, CANH/CANL, and 120ohm termination");
+      canRxWarnSent_ = true;
+    }
+  }
+#endif
+
 #if defined(DEMO_MODE) && (DEMO_MODE == 1)
   if (!hwCanReady_) {
     runDemoGenerator(nowMs);
@@ -145,20 +187,6 @@ void CanManager::tick() {
 #endif
 
   sendScheduledFrames(nowMs);
-
-  bool knockFaultPending = false;
-  can_protocol::CanFrame knockFault{};
-  state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-    if (!s.knock_fault_pending) return;
-    knockFault = can_protocol::packEngineKnockFault(
-        s.knock_fault_code_pending, s.knock_fault_severity_pending,
-        s.knock_fault_data0_pending, s.knock_fault_data1_pending);
-    s.knock_fault_pending = false;
-    knockFaultPending = true;
-  });
-  if (knockFaultPending) {
-    sendFrame(knockFault);
-  }
 
   updateTimeouts(nowMs);
 
@@ -529,12 +557,26 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     return;
   }
 
-  // 0x307: Knock state — update staleness tracker when received from the CAN bus
-  // (handles external knock modules; CCM's own knock monitor writes VehicleState directly).
+  // 0x307: Knock state from the external knock controller — parse all fields into VehicleState.
   if (frame.id == can_protocol::ID_ENGINE_KNOCK_STATE) {
-    state::g_vehicle_state.mutate([nowMs](state::VehicleState& s) {
-      s.last_knock_ms = nowMs;
-      s.knock_online = true;
+    can_protocol::EngineKnockState ks{};
+    if (!can_protocol::unpackEngineKnockState(frame, ks)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.knock_enabled         = (ks.status_flags & (1U << 0)) != 0;
+      s.knock_signal_valid    = (ks.status_flags & (1U << 1)) != 0;
+      s.knock_warning_active  = (ks.status_flags & (1U << 2)) != 0;
+      s.knock_critical_active = (ks.status_flags & (1U << 3)) != 0;
+      s.knock_baseline_learned = (ks.status_flags & (1U << 4)) != 0;
+      s.knock_sensor_fault    = (ks.status_flags & (1U << 5)) != 0;
+      s.knock_clipping_detected = (ks.status_flags & (1U << 6)) != 0;
+      s.knock_energy          = static_cast<float>(ks.energy);
+      s.knock_baseline        = static_cast<float>(ks.baseline);
+      s.knock_threshold       = static_cast<float>(ks.threshold);
+      s.knock_event_count     = ks.event_count;
+      s.knock_last_event_rpm  = static_cast<uint16_t>(ks.last_event_rpm_div100) * 100U;
+      s.knock_last_event_boost_kpa = ks.last_event_boost_kpa;
+      s.last_knock_ms         = nowMs;
+      s.knock_online          = true;
     });
     return;
   }
@@ -585,13 +627,6 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
     lastMethConfigTxMs_ = nowMs;
   }
 
-  if ((nowMs - lastKnockTxMs_) >= 50) {
-    can_protocol::CanFrame knock{};
-    packKnockState(snapshot, knock);
-    sendFrame(knock);
-    lastKnockTxMs_ = nowMs;
-  }
-
   if ((nowMs - lastSensorExtTxMs_) >= 250) {
     can_protocol::CanFrame sensorExt{};
     packEngineSensorExt(snapshot, sensorExt);
@@ -611,8 +646,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     s.meth_online = !state::nodeTimedOut(nowMs, s.last_meth_ms, kMethTimeoutMs);
     s.gps_stale = (nowMs - s.last_gps_ms) > kGpsStaleTimeoutMs;
 
-    // Knock online: set by knock_monitor directly via last_knock_ms; after startup grace
-    // it also tracks external 0x307 frames for future external module support.
+    // Knock online: driven entirely by 0x307 frames from the external knock module.
     if (!inStartupGrace) {
       s.knock_online = (nowMs - s.last_knock_ms) <= kKnockTimeoutMs;
     }

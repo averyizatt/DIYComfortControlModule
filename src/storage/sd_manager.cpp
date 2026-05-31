@@ -75,7 +75,7 @@ bool SdManager::ensureFolder(const char* path) {
   return true;
 }
 
-bool SdManager::appendLine(const char* path, const String& line) {
+bool SdManager::appendLine(const char* path, const char* line) {
   if (!mounted_ || !path) return false;
 
   digitalWrite(lcdCsPin_, HIGH);
@@ -88,7 +88,7 @@ bool SdManager::appendLine(const char* path, const String& line) {
     return false;
   }
 
-  const bool ok = f.println(line) > 0;
+  const bool ok = (f.println(line) > 0);
   f.close();
   digitalWrite(sdCsPin_, HIGH);
   setStatus(ok ? "write_ok" : "write_failed", !ok);

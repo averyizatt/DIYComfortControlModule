@@ -85,21 +85,68 @@ bool TwaiCanAdapter::receive(can::CanFrame& frame) {
 }
 
 bool UartGpsAdapter::begin(uint32_t baud) {
+  // Step 1: open at factory-default baud (9600) to talk to the module on first boot.
+  // Increase the RX buffer to handle 38400 baud bursts without overflow.
+  serial_.setRxBufferSize(512);
   serial_.begin(baud, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
-  // Send UBX-CFG-SBAS to enable WAAS/EGNOS/MSAS augmentation for faster fixes.
-  // Checksum covers bytes from class through end of payload.
+  delay(100);  // let GPS finish its power-up NMEA burst
+
+  // Step 2: Switch GPS UART to 38400 baud.
+  // UBX-CFG-PRT: portID=UART1, 8N1, 38400 baud, UBX+NMEA in+out.
+  // CK_A=0x93, CK_B=0x90 (Fletcher over class through last payload byte).
+  static const uint8_t kUbxSetBaud38400[] = {
+    0xB5, 0x62,              // UBX sync header
+    0x06, 0x00,              // class=CFG, id=PRT
+    0x14, 0x00,              // payload length = 20
+    0x01,                    // portID: UART1
+    0x00,                    // reserved
+    0x00, 0x00,              // txReady: disabled
+    0xD0, 0x08, 0x00, 0x00, // mode: 8 data, 1 stop, no parity
+    0x00, 0x96, 0x00, 0x00, // baudRate: 38400 (little-endian)
+    0x07, 0x00,              // inProtoMask: UBX+NMEA+RTCM
+    0x03, 0x00,              // outProtoMask: UBX+NMEA
+    0x00, 0x00,              // flags
+    0x00, 0x00,              // reserved
+    0x93, 0x90               // CK_A, CK_B
+  };
+  serial_.write(kUbxSetBaud38400, sizeof(kUbxSetBaud38400));
+  serial_.flush();
+  delay(100);  // allow GPS to switch its UART before we change host baud
+
+  // Step 3: Reinitialize host UART at 38400 to match GPS.
+  serial_.begin(38400, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
+  delay(50);
+
+  // Step 4: Set navigation update rate to 5 Hz (200 ms measurement period).
+  // UBX-CFG-RATE: measRate=200 ms, navRate=1, timeRef=GPS.
+  // CK_A=0xDE, CK_B=0x6A.
+  static const uint8_t kUbxSetRate5Hz[] = {
+    0xB5, 0x62,  // UBX sync header
+    0x06, 0x08,  // class=CFG, id=RATE
+    0x06, 0x00,  // payload length = 6
+    0xC8, 0x00,  // measRate: 200 ms (5 Hz), little-endian
+    0x01, 0x00,  // navRate: 1 solution per measurement epoch
+    0x01, 0x00,  // timeRef: GPS time
+    0xDE, 0x6A   // CK_A, CK_B
+  };
+  serial_.write(kUbxSetRate5Hz, sizeof(kUbxSetRate5Hz));
+
+  // Step 5: Enable SBAS (WAAS/EGNOS/MSAS) augmentation for faster first fix.
+  // UBX-CFG-SBAS: enable, all usage bits, 3 channels, auto-scan.
+  // CK_A=0x2F, CK_B=0xD5.
   static const uint8_t kUbxEnableSbas[] = {
-    0xB5, 0x62,                          // UBX sync
-    0x06, 0x16,                          // class=CFG, id=SBAS
-    0x08, 0x00,                          // payload length = 8
-    0x01,                                // mode: enable SBAS
-    0x07,                                // usage: range + diff corr + integrity
-    0x03,                                // maxSBAS channels
-    0x00,                                // scanmode2
-    0x00, 0x00, 0x00, 0x00,             // scanmode1 (auto-scan)
-    0x2F, 0xD5                           // CK_A, CK_B
+    0xB5, 0x62,              // UBX sync header
+    0x06, 0x16,              // class=CFG, id=SBAS
+    0x08, 0x00,              // payload length = 8
+    0x01,                    // mode: enable SBAS
+    0x07,                    // usage: range + differential + integrity
+    0x03,                    // max SBAS channels
+    0x00,                    // scanmode2
+    0x00, 0x00, 0x00, 0x00, // scanmode1: auto-scan all PRNs
+    0x2F, 0xD5               // CK_A, CK_B
   };
   serial_.write(kUbxEnableSbas, sizeof(kUbxEnableSbas));
+
   return true;
 }
 

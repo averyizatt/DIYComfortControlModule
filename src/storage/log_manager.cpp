@@ -1,75 +1,74 @@
 #include "storage/log_manager.h"
 
-#include "storage/LogFormatting.hpp"
+#include <cstring>
 
 namespace storage {
-
-namespace {
-constexpr size_t kMaxLogLineLength = 512;
-constexpr size_t kMaxQueueSize = 300;
-constexpr uint8_t kMaxWritesPerTick = 4;
-}  // namespace
 
 bool LogManager::begin(SdManager* sd) {
   sd_ = sd;
   return sd_ != nullptr;
 }
 
-void LogManager::setSessionPrefix(const String& prefix) {
-  sessionPrefix_ = prefix;
+void LogManager::setSessionPrefix(const char* prefix) {
+  snprintf(sessionPrefix_, sizeof(sessionPrefix_), "%s", prefix ? prefix : "boot");
 }
 
-void LogManager::enqueue(const char* category, const String& payload) {
-  const char* cat = category ? category : "misc";
-  String line = payload;
-  if (line.length() > kMaxLogLineLength) line = line.substring(0, kMaxLogLineLength);
-
-  String framed;
-  framed = logfmt::formatCsvLine(millis(), cat, line.c_str()).c_str();
-
-  if (queue_.size() >= kMaxQueueSize) {
-    queue_.pop_front();
+void LogManager::enqueue(const char* category, const char* payload) {
+  if (qCount_ >= kMaxQueueSize) {
+    // Drop oldest entry to make room
+    qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
+    --qCount_;
     ++droppedCount_;
   }
-  queue_.push_back(framed);
+  const char* cat = (category && *category) ? category : "misc";
+  snprintf(s_queue_[qTail_], kMaxLineLen, "%lu,%s,%s",
+           static_cast<unsigned long>(millis()), cat,
+           payload ? payload : "");
+  qTail_ = static_cast<uint8_t>((qTail_ + 1) % kMaxQueueSize);
+  ++qCount_;
+}
+
+// Extract the category field from a stored "timestamp,category,payload" line.
+// Writes into catBuf (max catBufLen bytes incl NUL). Returns catBuf.
+static const char* extractCategory(const char* entry, char* catBuf, size_t catBufLen) {
+  const char* p1 = strchr(entry, ',');
+  if (!p1) { snprintf(catBuf, catBufLen, "misc"); return catBuf; }
+  const char* p2 = strchr(p1 + 1, ',');
+  if (!p2) { snprintf(catBuf, catBufLen, "misc"); return catBuf; }
+  const size_t len = static_cast<size_t>(p2 - p1 - 1);
+  const size_t copy = (len < catBufLen - 1) ? len : catBufLen - 1;
+  memcpy(catBuf, p1 + 1, copy);
+  catBuf[copy] = '\0';
+  return catBuf;
 }
 
 void LogManager::tick(uint32_t nowMs) {
   if (!sd_ || !sd_->mounted()) return;
   if ((nowMs - lastFlushMs_) < 200) return;
   lastFlushMs_ = nowMs;
+  if (qCount_ == 0) return;
 
-  if (queue_.empty()) return;
-
-  for (uint8_t i = 0; i < kMaxWritesPerTick && !queue_.empty(); ++i) {
-    String entry = queue_.front();
-    queue_.pop_front();
-
-    const int firstComma = entry.indexOf(',');
-    const int secondComma = entry.indexOf(',', firstComma + 1);
-    String cat = "misc";
-    if (firstComma > 0 && secondComma > firstComma) {
-      cat = entry.substring(firstComma + 1, secondComma);
-    }
-
-    currentFile_ = "/logs/" + cat + "/" + sessionPrefix_ + ".csv";
-    sd_->appendLine(currentFile_.c_str(), entry);
+  for (uint8_t i = 0; i < 4 && qCount_ > 0; ++i) {
+    const char* entry = s_queue_[qHead_];
+    char catBuf[24];
+    extractCategory(entry, catBuf, sizeof(catBuf));
+    snprintf(currentFile_, sizeof(currentFile_), "/logs/%s/%s.csv", catBuf, sessionPrefix_);
+    sd_->appendLine(currentFile_, entry);
+    qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
+    --qCount_;
   }
 }
 
 void LogManager::flushCritical() {
   if (!sd_ || !sd_->mounted()) return;
-  while (!queue_.empty()) {
-    String entry = queue_.front();
-    queue_.pop_front();
-    const int firstComma = entry.indexOf(',');
-    const int secondComma = entry.indexOf(',', firstComma + 1);
-    String cat = "faults";
-    if (firstComma > 0 && secondComma > firstComma) {
-      cat = entry.substring(firstComma + 1, secondComma);
-    }
-    currentFile_ = "/logs/" + cat + "/" + sessionPrefix_ + ".csv";
-    sd_->appendLine(currentFile_.c_str(), entry);
+  while (qCount_ > 0) {
+    const char* entry = s_queue_[qHead_];
+    char catBuf[24];
+    extractCategory(entry, catBuf, sizeof(catBuf));
+    snprintf(currentFile_, sizeof(currentFile_), "/logs/%s/%s.csv", catBuf, sessionPrefix_);
+    sd_->appendLine(currentFile_, entry);
+    qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
+    --qCount_;
   }
 }
 

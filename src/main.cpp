@@ -1,8 +1,13 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_bt.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+
+#ifndef CCM_WEB_ENABLED
+#define CCM_WEB_ENABLED 0
+#endif
 
 #include <cstring>
 
@@ -10,7 +15,6 @@
 #include "hal/HardwareAdapters.hpp"
 #include "gps/GpsService.hpp"
 #include "led/led_manager.h"
-#include "knock/knock_monitor.h"
 #include "pin_map.h"
 #include "race/race_manager.h"
 #include "sensors/pressure_sensor.h"
@@ -34,11 +38,12 @@ static ccm::hal::UartGpsAdapter g_gpsHal(Serial2);
 static ccm::gps::GpsService     g_gps(g_gpsHal);
 
 led::LedManager g_led;
+#if CCM_WEB_ENABLED
 web::WebServerManager g_web;
+#endif
 storage::SdManager g_sd;
 storage::LogManager g_logs;
 race::RacePerformanceManager g_race;
-knock::KnockMonitor g_knock;
 touch::TouchManager g_touch;
 ui::AssetManager g_assets;
 ui::ScreenDashboard g_screen;
@@ -208,6 +213,7 @@ void configureAnalogSensorsFromState(const state::VehicleState& cfg) {
   g_sparePressure2Sensor.begin();
 }
 
+#if CCM_WEB_ENABLED
 void setupWifiFromSettings() {
   const auto& cfg = g_settings.data();
   if (cfg.wifi_ap_mode || cfg.wifi_ssid[0] == '\0') {
@@ -224,6 +230,7 @@ void setupWifiFromSettings() {
     state::g_vehicle_state.mutate([](state::VehicleState& s) { s.wifi_ap_mode = false; });
   }
 }
+#endif  // CCM_WEB_ENABLED
 
 void canTask(void*) {
   registerTaskWatchdog();
@@ -247,6 +254,7 @@ void ledTask(void*) {
   }
 }
 
+#if CCM_WEB_ENABLED
 void webTask(void*) {
   registerTaskWatchdog();
   while (true) {
@@ -255,6 +263,7 @@ void webTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
+#endif  // CCM_WEB_ENABLED
 
 void raceTask(void*) {
   registerTaskWatchdog();
@@ -425,6 +434,7 @@ void storageTask(void*) {
   registerTaskWatchdog();
   uint32_t lastLogMs = 0;
   uint32_t lastStorageStatusMs = 0;
+  uint16_t lastFaultFlags = 0;  // track transitions to avoid calling flushCritical() every second
   uint8_t lastKnockEventCount = 0;
 
   while (true) {
@@ -475,12 +485,16 @@ void storageTask(void*) {
                static_cast<unsigned>(s.analog_sensor_fault_flags));
       g_logs.enqueue("sensors", analogLine);
 
-      if (s.fault_flags != 0) {
+      const uint16_t curFaultFlags = s.fault_flags;
+      if (curFaultFlags != 0) {
         char faultLine[48];
-        snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", s.fault_flags);
+        snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", curFaultFlags);
         g_logs.enqueue("faults", faultLine);
-        g_logs.flushCritical();
+        // flushCritical() removed: writing up to 300 SD entries synchronously blocks
+        // storageTask for potentially many seconds. The normal tick() drain (4 writes
+        // per 200 ms) flushes the queue within ~15 s safely.
       }
+      lastFaultFlags = curFaultFlags;
     }
 
     if ((nowMs - lastStorageStatusMs) >= 1000) {
@@ -488,28 +502,29 @@ void storageTask(void*) {
       state::g_vehicle_state.mutate([&](state::VehicleState& s) {
         s.sd_mounted = g_sd.mounted();
         s.sd_size_bytes = g_sd.totalBytes();
-        s.sd_used_bytes = g_sd.usedBytes();
+        // SD.usedBytes() scans every FAT cluster — can take 10-30 seconds on large cards.
+        // Calling it every second would starve the task watchdog (6 s timeout) and cause
+        // a panic reboot. Field left as 0; total bytes is sufficient for the dash display.
+        s.sd_used_bytes = 0;
         s.sd_write_error_count = g_sd.errorCount() + g_logs.droppedCount();
         strncpy(s.last_sd_write_status, g_sd.lastStatus(), sizeof(s.last_sd_write_status) - 1);
         s.last_sd_write_status[sizeof(s.last_sd_write_status) - 1] = '\0';
         strncpy(s.current_log_file, g_logs.currentFile(), sizeof(s.current_log_file) - 1);
         s.current_log_file[sizeof(s.current_log_file) - 1] = '\0';
         s.heap_free_bytes = ESP.getFreeHeap();
+        if (s.heap_free_bytes < s.heap_min_free_bytes) {
+          s.heap_min_free_bytes = s.heap_free_bytes;
+        }
         s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());
       });
+      // Periodic heap report to UART so it's visible on the monitor
+      Serial0.printf("[HEAP] free=%lu min=%lu\n",
+        static_cast<unsigned long>(state::g_vehicle_state.read().heap_free_bytes),
+        static_cast<unsigned long>(state::g_vehicle_state.read().heap_min_free_bytes));
     }
 
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(10));
-  }
-}
-
-void knockTask(void*) {
-  registerTaskWatchdog();
-  while (true) {
-    g_knock.tick(millis());
-    feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
@@ -590,6 +605,16 @@ void setup() {
     pinMode(pins::kLcdBacklight, OUTPUT);
   }
 
+  // Release BT and WiFi heap before anything else allocates.
+  // On ESP32-S3 (BLE only) this frees the controller reservation.
+  esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
+
+#if !CCM_WEB_ENABLED
+  // Web/WiFi disabled — ensure the radio is fully off so its heap is never claimed.
+  WiFi.mode(WIFI_OFF);
+  WiFi.disconnect(true);
+#endif
+
   state::g_vehicle_state.begin();
   initTaskWatchdog();
   registerTaskWatchdog();
@@ -599,25 +624,24 @@ void setup() {
   if (pins::kLcdBacklight != 255) {
     analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
   }
+#if CCM_WEB_ENABLED
   setupWifiFromSettings();
+#endif
 
   g_can.begin(true);
-  g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO41 RX / GPIO42 TX @ 9600 baud (no-op: already begun above)
+  // GPS: starts at 9600 baud, sends UBX-CFG-PRT to switch to 38400, then UBX-CFG-RATE for 5 Hz.
+  g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO41 RX / GPIO42 TX
 
-  // The display uses HSPI (SPI3) via Arduino_ESP32SPI – no SPI.begin() needed
+  // CAN (CS=11), SD (CS=5), and LCD (CS=10) all share the FSPI (SPI2) bus on
+  // GPIO8/3/17 with separate CS pins. SPI.begin() initialises the host; the display
+  // (Arduino_GFX with FSPI) will add itself as a second device after SD.begin().
   g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
   g_imu.begin(Wire);  // MPU-6050 shares the same I2C bus
-  // SD uses FSPI (SPI2). Must explicitly init with our custom pins before
-  // SD.begin() — otherwise the library falls back to ESP32-S3 defaults (11/12/13).
   SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kSdCs);
   g_sd.begin(pins::kLcdCs, pins::kSdCs);
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
-  g_logs.setSessionPrefix(String("boot_") + String(millis()));
-  state::g_vehicle_state.mutate([](state::VehicleState& s) {
-    if (s.knock_adc_pin == 0) s.knock_adc_pin = pins::kKnockAdc;
-  });
-  g_knock.begin(&state::g_vehicle_state, &g_settings, &g_logs, &g_sd, &g_can);
+  { char pfx[32]; snprintf(pfx, sizeof(pfx), "boot_%lu", static_cast<unsigned long>(millis())); g_logs.setSessionPrefix(pfx); }
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
   g_screen.attach(&g_can, &g_race, &g_settings);
   Serial0.printf("[SETUP] heap free before screen init: %lu bytes\n",
@@ -631,14 +655,17 @@ void setup() {
   Serial0.printf("[SCREEN] begin() -> %s\n", screenOk ? "OK" : "FAILED");
 
   g_led.begin(pins::kLedData1, pins::kLedData2, pins::kLedData3, 18, 7);
+#if CCM_WEB_ENABLED
   g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
+#endif
 
   xTaskCreatePinnedToCore(canTask,     "can_task",     6144, nullptr, 3, nullptr, 0);
   xTaskCreatePinnedToCore(gpsTask,     "gps_task",     6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(ledTask, "led_task", 4096, nullptr, 2, nullptr, 1);
-  xTaskCreatePinnedToCore(webTask, "web_task", 6144, nullptr, 1, nullptr, 1);
+#if CCM_WEB_ENABLED
+  xTaskCreatePinnedToCore(webTask, "web_task", 8192, nullptr, 1, nullptr, 1);
+#endif
   xTaskCreatePinnedToCore(storageTask, "storage_task", 6144, nullptr, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(knockTask, "knock_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(analogSensorTask, "analog_sensor_task", 6144, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(raceTask, "race_task", 4096, nullptr, 1, nullptr, 1);
   xTaskCreatePinnedToCore(touchTask,   "touch_task",   5120, nullptr, 1, nullptr, 1);

@@ -31,7 +31,10 @@ TouchSample TouchManager::read() {
 
   wire_->beginTransmission(address_);
   wire_->write(0x02);
-  if (wire_->endTransmission(false) != 0) {
+  // Use endTransmission(true) to always send a STOP condition.
+  // On a NAK the bus is released cleanly; requestFrom() then issues a fresh START.
+  // FT6x36 handles STOP+START just as well as repeated-start.
+  if (wire_->endTransmission(true) != 0) {
     online_ = false;
     return s;
   }

@@ -1100,12 +1100,15 @@ void WebServerManager::sendCanStatus(AsyncWebServerRequest* request) const {
   request->send(200, "application/json", canStatusJson());
 }
 
+// Static buffer for WS live-push serialization — avoids a heap String allocation each tick.
+static char s_wsLiveBuf[1536];
+
 void WebServerManager::tick() {
   if (!stateStore_) return;
   ws_.cleanupClients();
 
   const uint32_t nowMs = millis();
-  if ((nowMs - lastWsPushMs_) < 500) return;
+  if ((nowMs - lastWsPushMs_) < 1000) return;  // 1 s — half the push rate
   lastWsPushMs_ = nowMs;
 
   stateStore_->mutate([this](state::VehicleState& s) {
@@ -1113,8 +1116,72 @@ void WebServerManager::tick() {
     s.wifi_connected = WiFi.status() == WL_CONNECTED;
   });
 
-  const String payload = stateJson();
-  ws_.textAll(payload);
+  if (ws_.count() == 0) return;
+
+  // Heap guard — skip the push if we're running critically low to avoid
+  // fragmenting what remains and triggering a std::bad_alloc / abort().
+  if (ESP.getFreeHeap() < 20000) return;
+
+  try {
+    // Build a slim "live data" document (~30 fields) instead of the full
+    // 85-field stateJson(). The browser fetches stateJson() once via HTTP GET
+    // on page-load; the WS stream only needs the fast-changing values.
+    JsonDocument doc;
+    const state::VehicleState s = stateStore_->read();
+
+    // Core vehicle
+    doc["rpm"] = s.rpm;
+    doc["vehicle_speed"] = s.speed;
+    doc["gps_fix"] = s.gps_fix;
+    doc["battery_voltage"] = s.battery_voltage;
+    doc["faults"] = s.fault_flags;
+    doc["can_node_online"] = s.can_online;
+
+    // Temperatures
+    doc["cabin_temp"] = s.cabin_temp;
+    doc["outside_temp"] = s.outside_temp;
+    doc["engine_bay_temp"] = s.engine_bay_temp;
+    doc["iat"] = s.intake_temp;
+    doc["intercooler_temp"] = s.intercooler_temp;
+
+    // Pressures
+    doc["boost_ref_pressure_psi"] = s.boost_ref_pressure_psi;
+    doc["oil_pressure_psi"] = s.oil_pressure_psi;
+    doc["fuel_pressure_psi"] = s.fuel_pressure_psi;
+    doc["meth_pressure_psi"] = s.meth_pressure_psi;
+    doc["spare_pressure_1_psi"] = s.spare_pressure_1_psi;
+    doc["spare_pressure_2_psi"] = s.spare_pressure_2_psi;
+
+    // Meth
+    doc["meth_state"] = static_cast<uint8_t>(s.meth_state);
+    doc["pump_duty"] = s.meth_pump_duty;
+    doc["tank_level"] = s.meth_tank_level;
+    doc["selected_meth_ratio"] = s.meth_selected_ratio_percent;
+
+    // Knock
+    doc["knock_energy"] = s.knock_energy;
+    doc["knock_warning_active"] = s.knock_warning_active;
+    doc["knock_critical_active"] = s.knock_critical_active;
+    doc["knock_signal_valid"] = s.knock_signal_valid;
+    doc["knock_event_count"] = s.knock_event_count;
+
+    // Race / lap
+    doc["race_running"] = s.race_running;
+    doc["race_elapsed_ms"] = s.race_elapsed_ms;
+    doc["race_quality_percent"] = s.race_quality_percent;
+
+    // Taillights
+    doc["taillight_state_left"] = s.taillight_left_state;
+    doc["taillight_state_right"] = s.taillight_right_state;
+
+    // Serialize directly into static buffer — no heap String allocation.
+    const size_t len = serializeJson(doc, s_wsLiveBuf, sizeof(s_wsLiveBuf));
+    if (len > 0 && len < sizeof(s_wsLiveBuf)) {
+      ws_.textAll(s_wsLiveBuf);
+    }
+  } catch (...) {
+    // std::bad_alloc or other heap failure — skip this push, try again next tick
+  }
 }
 
 }  // namespace web
