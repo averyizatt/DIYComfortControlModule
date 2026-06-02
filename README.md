@@ -182,6 +182,7 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 |---|---|
 | `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` |
 | `esp32s3_devkit_release` | Default production-oriented build |
+| `esp32s3_devkit_release_pioarduino` | Release build pinned to PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) for LVGL performance comparison |
 | `esp32s3_devkit_demo` | Release-style build with `DEMO_MODE=1` for simulated CAN data |
 
 The default environment is `esp32s3_devkit_release`.
@@ -313,6 +314,9 @@ pio run -e esp32s3_devkit_debug
 # Default release
 pio run -e esp32s3_devkit_release
 
+# PioArduino release (Arduino core 3.3.8 comparison build)
+pio run -e esp32s3_devkit_release_pioarduino
+
 # Demo / simulated CAN
 pio run -e esp32s3_devkit_demo
 ```
@@ -321,6 +325,9 @@ pio run -e esp32s3_devkit_demo
 
 ```bash
 pio run -e esp32s3_devkit_release --target upload
+
+# Or upload the PioArduino comparison build
+pio run -e esp32s3_devkit_release_pioarduino --target upload
 ```
 
 ### Serial monitor
@@ -328,6 +335,22 @@ pio run -e esp32s3_devkit_release --target upload
 ```bash
 pio device monitor --baud 115200
 ```
+
+### LVGL performance comparison
+
+To compare stock PlatformIO Arduino vs PioArduino on the same hardware, flash these two release environments and exercise the same screens on each build:
+
+- `esp32s3_devkit_release`
+- `esp32s3_devkit_release_pioarduino`
+
+When comparing, keep the hardware, SPI wiring, display, and test flow the same and look for:
+
+- dashboard page transition smoothness
+- touch response latency
+- GPS and dashboard redraw smoothness during live updates
+- visible tearing during large redraws
+
+The PioArduino environment isolates the Arduino core/toolchain change only. If performance is still limited, the next bottlenecks to trim are the synchronous SPI display flush path in `src/ui/screen_dashboard.cpp` and the heavy LVGL feature set in `include/lv_conf.h`.
 
 ## Validation
 
