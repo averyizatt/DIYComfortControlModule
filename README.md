@@ -180,11 +180,13 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 
 | Environment | Purpose |
 |---|---|
-| `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` |
-| `esp32s3_devkit_release` | Default production-oriented build |
-| `esp32s3_devkit_demo` | Release-style build with `DEMO_MODE=1` for simulated CAN data |
+| `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
+| `esp32s3_devkit_release` | Default production-oriented build on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
+| `esp32s3_devkit_release_stock` | Stock PlatformIO `espressif32@6.7.0` release build kept for fallback/performance comparison |
+| `esp32s3_devkit_release_pioarduino` | Compatibility alias for `esp32s3_devkit_release` for existing scripts or local tooling that still reference the old name |
+| `esp32s3_devkit_demo` | Release-style build with `DEMO_MODE=1` on PioArduino `55.03.38-1` |
 
-The default environment is `esp32s3_devkit_release`.
+The default environment is `esp32s3_devkit_release`, and it now uses the updated Arduino core via PioArduino.
 
 ## Automotive Analog Sensors (Thermistors + Pressure)
 
@@ -313,6 +315,9 @@ pio run -e esp32s3_devkit_debug
 # Default release
 pio run -e esp32s3_devkit_release
 
+# Stock PlatformIO fallback / comparison build
+pio run -e esp32s3_devkit_release_stock
+
 # Demo / simulated CAN
 pio run -e esp32s3_devkit_demo
 ```
@@ -321,6 +326,9 @@ pio run -e esp32s3_devkit_demo
 
 ```bash
 pio run -e esp32s3_devkit_release --target upload
+
+# Or upload the stock PlatformIO fallback/comparison build
+pio run -e esp32s3_devkit_release_stock --target upload
 ```
 
 ### Serial monitor
@@ -328,6 +336,22 @@ pio run -e esp32s3_devkit_release --target upload
 ```bash
 pio device monitor --baud 115200
 ```
+
+### LVGL performance comparison
+
+To compare the updated Arduino core against the previous stock PlatformIO build on the same hardware, flash these two release environments and exercise the same screens on each build:
+
+- `esp32s3_devkit_release`
+- `esp32s3_devkit_release_stock`
+
+When comparing, keep the hardware, SPI wiring, display, and test flow the same and look for:
+
+- dashboard page transition smoothness
+- touch response latency
+- GPS and dashboard redraw smoothness during live updates
+- visible tearing during large redraws
+
+The default environments now use the updated Arduino core through PioArduino. If performance is still limited after the comparison, inspect the current LVGL rendering path and enabled UI features to identify the next bottlenecks.
 
 ## Validation
 
