@@ -881,6 +881,7 @@ void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
   "Diagnostics initializing...", &lv_font_montserrat_14);
   lv_label_set_long_mode(diagLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(diagLabel_, kWidth - 8);
+  lv_label_set_recolor(diagLabel_, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,126 +1406,132 @@ void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
 
 void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
   if (!diagLabel_) return;
-  // Compute seconds-ago values from uptime and last-seen timestamps
+
   const uint32_t now = s.uptime_ms;
   auto msAgo = [now](uint32_t ts) -> uint32_t {
     return (ts == 0 || now < ts) ? 9999UL : (now - ts) / 1000UL;
   };
 
-  // Decode reset reason into a short string
   const char* resetStr;
   switch (s.reset_reason) {
-    case 1:  resetStr = "POR";  break;
-    case 3:  resetStr = "SW";   break;
-    case 5:  resetStr = "WDT";  break;
-    case 7:  resetStr = "SLP";  break;
-    case 12: resetStr = "BOR";  break;
-    case 14: resetStr = "EXT";  break;
-    default: resetStr = "UNK";  break;
+    case 1:  resetStr = "POR"; break;
+    case 3:  resetStr = "SW";  break;
+    case 5:  resetStr = "WDT"; break;
+    case 7:  resetStr = "SLP"; break;
+    case 12: resetStr = "BOR"; break;
+    case 14: resetStr = "EXT"; break;
+    default: resetStr = "UNK"; break;
   }
 
-  // Format string has exactly one spec per arg — previous version had 14
-  // orphaned args (no matching spec) causing snprintf to pass integers to
-  // %s handlers, which dereferenced them as pointers → ESP32 panic/reboot.
-  constexpr size_t kDiagBufSize = 820;
-  char buf[kDiagBufSize];
-  snprintf(buf, sizeof(buf),
-    // SYS: 8 specs
-    "SYS: Heap %luB(min %luB) Die %dC Up %lus Rst %s BO:%u WD:%u Fl:%u\n"
-    // NET: 4 specs
-    "NET: WiFi %s Cli %u Touch %s FPS %.1f\n"
-    // CAN: 7 specs
-    "CAN: RX %lu TX %lu CRC %lu LastRX 0x%03X %lus LastTX 0x%03X %lus\n"
-    // SD: 6 specs
-    "SD: %s %llu/%llu MB Err %lu Log %s St %s\n"
-    // METH: 10 specs
-    "METH: St %u Duty %u%% Tnk %s On %s Flow %u Ratio %u%% Arm %s Tst %s Rej %u CD %u\n"
-    // KNOCK line 1: 8 specs
-    "KNOCK: En %s Sig %s Warn %s Crit %s Lrn %s Flt %s Clip %s Mode %u\n"
-    // KNOCK line 2: 8 specs
-    "KNOCK: E %.1f B %.1f T %.1f Ev %u RPM %u Kpa %.0f Hi %u Lo %u\n"
-    // ANALOG line 1: 8 specs
-    "ANALOG: IAT %.1f(%s) Bay %.1f(%s) Cab %.1f(%s) Amb %.1f(%s)\n"
-    // ANALOG line 2: 8 specs
-    "ANALOG: Oil %.1f(%s) Fuel %.1f(%s) Meth %.1f(%s) Bst %.1f(%s)\n"
-    // TACH+GPS: 7 specs  (tach_input + tach_generated — duplicate removed)
-    "TACH in %.1f gen %.1f Hz Src %u GPS %s type%u sats%u alt%d m",
-    // SYS (8)
-    static_cast<unsigned long>(s.heap_free_bytes),
-    static_cast<unsigned long>(s.heap_min_free_bytes),
-    static_cast<int>(s.esp_die_temp_c),
-    static_cast<unsigned long>(s.uptime_ms / 1000UL),
-    resetStr,
-    static_cast<unsigned>(s.brownout_reset_count),
-    static_cast<unsigned>(s.watchdog_reset_count),
-    static_cast<unsigned>(s.fault_flags),
-    // NET (4)
-    s.wifi_ap_mode ? "AP" : (s.wifi_connected ? "STA" : "OFF"),
-    static_cast<unsigned>(s.web_connected_clients),
-    s.touch_online ? "OK" : "OFFLINE",
-    static_cast<double>(s.ui_fps),
-    // CAN (7)
-    static_cast<unsigned long>(s.can_rx_count),
-    static_cast<unsigned long>(s.can_tx_count),
-    static_cast<unsigned long>(s.can_bad_checksum_count),
-    static_cast<unsigned>(s.can_last_rx_id),
-    static_cast<unsigned long>(msAgo(s.can_last_rx_ms)),
-    static_cast<unsigned>(s.can_last_tx_id),
-    static_cast<unsigned long>(msAgo(s.can_last_tx_ms)),
-    // SD (6)
-    s.sd_mounted ? "YES" : "NO",
-    static_cast<unsigned long long>(s.sd_used_bytes  / 1048576ULL),
-    static_cast<unsigned long long>(s.sd_size_bytes  / 1048576ULL),
-    static_cast<unsigned long>(s.sd_write_error_count),
-    s.current_log_file[0] ? s.current_log_file : "none",
-    s.last_sd_write_status[0] ? s.last_sd_write_status : "--",
-    // METH (10)
-    static_cast<unsigned>(s.meth_state),
-    static_cast<unsigned>(s.meth_pump_duty),
-    (s.meth_tank_level == 0) ? "EMPTY" : "OK",
-    s.meth_online ? "YES" : "NO",
-    static_cast<unsigned>(s.meth_flow_status),
-    static_cast<unsigned>(s.meth_selected_ratio_percent),
-    s.meth_desired_armed ? "YES" : "NO",
-    s.manual_test_running ? "YES" : "NO",
-    static_cast<unsigned>(s.meth_manual_test_reject_reason),
-    static_cast<unsigned>(s.meth_manual_test_cooldown_ms_remaining),
-    // KNOCK line 1 (8)
-    s.knock_enabled ? "YES" : "NO",
-    s.knock_signal_valid ? "YES" : "NO",
-    s.knock_warning_active ? "YES" : "NO",
-    s.knock_critical_active ? "YES" : "NO",
-    s.knock_baseline_learned ? "YES" : "NO",
-    s.knock_sensor_fault ? "YES" : "NO",
-    s.knock_clipping_detected ? "YES" : "NO",
-    static_cast<unsigned>(s.knock_response_mode),
-    // KNOCK line 2 (8)
-    static_cast<double>(s.knock_energy),
-    static_cast<double>(s.knock_baseline),
-    static_cast<double>(s.knock_threshold),
-    static_cast<unsigned>(s.knock_event_count),
-    static_cast<unsigned>(s.knock_last_event_rpm),
-    static_cast<double>(s.knock_last_event_boost_kpa),
-    static_cast<unsigned>(s.knock_signal_clip_high_count),
-    static_cast<unsigned>(s.knock_signal_clip_low_count),
-    // ANALOG line 1 (8)
-    static_cast<double>(s.intake_temp), s.intake_temp_valid ? "OK" : "FAULT",
-    static_cast<double>(s.engine_bay_temp), s.engine_bay_temp_valid ? "OK" : "FAULT",
-    static_cast<double>(s.cabin_temp), s.cabin_temp_valid ? "OK" : "FAULT",
-    static_cast<double>(s.outside_temp), s.outside_temp_valid ? "OK" : "FAULT",
-    // ANALOG line 2 (8)
-    static_cast<double>(s.oil_pressure_psi), s.oil_pressure_valid ? "OK" : "FAULT",
-    static_cast<double>(s.fuel_pressure_psi), s.fuel_pressure_valid ? "OK" : "FAULT",
-    static_cast<double>(s.meth_pressure_psi), s.meth_pressure_valid ? "OK" : "FAULT",
-    static_cast<double>(s.boost_ref_pressure_psi), s.boost_ref_pressure_valid ? "OK" : "FAULT",
-    // TACH+GPS (7)
-    static_cast<double>(s.tach_input_frequency_hz),
-    static_cast<double>(s.tach_generated_frequency_hz),
-    static_cast<unsigned>(s.tach_source),
-    s.gps_fix ? "YES" : "NO",
-    static_cast<unsigned>(s.gps_fix_type),
-    static_cast<unsigned>(s.gps_satellites),
-    static_cast<int>(s.gps_altitude_m));
+  // Color helpers
+  auto col = [](bool ok) -> const char* {
+    return ok ? "#00C853" : "#FF3B30";
+  };
+
+  // GPS: green=fix, yellow=connected/no-fix, red=stale
+  const bool gpsActive = msAgo(s.last_gps_ms) < 5;
+  const char* gpsCol = s.gps_fix ? "#00C853" : (gpsActive ? "#FFD600" : "#FF3B30");
+  char gpsStat[12];
+  if (s.gps_fix)      snprintf(gpsStat, sizeof(gpsStat), "FIX %usat", s.gps_satellites);
+  else if (gpsActive) snprintf(gpsStat, sizeof(gpsStat), "NO FIX");
+  else                snprintf(gpsStat, sizeof(gpsStat), "OFFLINE");
+
+  // CAN: green=rx active, yellow=online but silent rx, red=offline
+  const bool canRxActive = s.can_rx_count > 0 && msAgo(s.can_last_rx_ms) < 10;
+  const char* canCol = s.can_online ? (canRxActive ? "#00C853" : "#FFD600") : "#FF3B30";
+  const char* canStat = s.can_online ? (canRxActive ? "RX OK" : "TX ONLY") : "OFFLINE";
+
+  // Heap min watermark — suppress garbage initial value
+  const uint32_t heapMin = (s.heap_min_free_bytes == 0xFFFFFFFFUL)
+      ? s.heap_free_bytes : s.heap_min_free_bytes;
+
+  constexpr size_t kBuf = 1024;
+  char buf[kBuf];
+  int n = 0;
+
+  // ── Status grid  (2 columns, 3 rows) ─────────────────────────────────────
+  // Format: LABEL  #COLOR STATUS #  |  LABEL  #COLOR STATUS #
+  n += snprintf(buf + n, kBuf - n,
+      " CAN   %s %-8s#  |  GPS    %s %-9s#\n",
+      canCol, canStat,
+      gpsCol, gpsStat);
+
+  n += snprintf(buf + n, kBuf - n,
+      " METH  %s %-8s#  |  TAILS  %s %-9s#\n",
+      col(s.meth_online), s.meth_online ? "ONLINE" : "OFFLINE",
+      col(s.taillight_online), s.taillight_online ? "ONLINE" : "OFFLINE");
+
+  n += snprintf(buf + n, kBuf - n,
+      " SD    %s %-8s#  |  TOUCH  %s %-9s#\n",
+      col(s.sd_mounted), s.sd_mounted ? "MOUNTED" : "NO CARD",
+      col(s.touch_online), s.touch_online ? "OK" : "OFFLINE");
+
+  n += snprintf(buf + n, kBuf - n, "\n");
+
+  // ── System ───────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "SYS   Heap %luK(min %luK)  Die %dC  Up %lus  Rst %s  Flt:%u\n",
+      static_cast<unsigned long>(s.heap_free_bytes / 1024),
+      static_cast<unsigned long>(heapMin / 1024),
+      static_cast<int>(s.esp_die_temp_c),
+      static_cast<unsigned long>(s.uptime_ms / 1000UL),
+      resetStr,
+      static_cast<unsigned>(s.fault_flags));
+
+  // ── CAN bus ───────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "CAN   RX %lu  TX %lu  CRC %lu  LastRX 0x%03X %lus ago\n",
+      static_cast<unsigned long>(s.can_rx_count),
+      static_cast<unsigned long>(s.can_tx_count),
+      static_cast<unsigned long>(s.can_bad_checksum_count),
+      static_cast<unsigned>(s.can_last_rx_id),
+      static_cast<unsigned long>(msAgo(s.can_last_rx_ms)));
+
+  // ── Water-meth ────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "METH  Duty %u%%  Flow %s  Tank %s  Ratio %u%%  St %s\n",
+      static_cast<unsigned>(s.meth_pump_duty),
+      methFlowName(s.meth_flow_status),
+      (s.meth_tank_level == 0) ? "EMPTY" : "OK",
+      static_cast<unsigned>(s.meth_selected_ratio_percent),
+      methStateName(s.meth_state));
+
+  // ── Taillights ───────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "TAILS L:%s  R:%s  Bri:%u  Mode:%s  Die:%dC\n",
+      s.taillight_left_state  ? "ON" : "OFF",
+      s.taillight_right_state ? "ON" : "OFF",
+      static_cast<unsigned>(s.taillight_brightness),
+      tailModeName(s.taillight_mode_commanded),
+      static_cast<int>(s.taillight_die_temp_c));
+
+  // ── GPS ──────────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "GPS   Sats:%u  Alt:%dm  Lat:%.4f  Lon:%.4f\n",
+      static_cast<unsigned>(s.gps_satellites),
+      static_cast<int>(s.gps_altitude_m),
+      s.gps_latitude,
+      s.gps_longitude);
+
+  // ── Knock ─────────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "KNOCK E:%.1f  B:%.1f  T:%.1f  Ev:%u  Sig:%s  Mode:%u\n",
+      static_cast<double>(s.knock_energy),
+      static_cast<double>(s.knock_baseline),
+      static_cast<double>(s.knock_threshold),
+      static_cast<unsigned>(s.knock_event_count),
+      s.knock_signal_valid ? "OK" : "FAULT",
+      static_cast<unsigned>(s.knock_response_mode));
+
+  // ── Sensors ───────────────────────────────────────────────────────────────
+  n += snprintf(buf + n, kBuf - n,
+      "SENS  IAT:%.0f  Bay:%.0f  Oil:%.0fpsi  Boost:%.0fpsi  FPS:%.1f",
+      static_cast<double>(s.intake_temp),
+      static_cast<double>(s.engine_bay_temp),
+      static_cast<double>(s.oil_pressure_psi),
+      static_cast<double>(s.boost_ref_pressure_psi),
+      static_cast<double>(s.ui_fps));
+
   lv_label_set_text(diagLabel_, buf);
 }
 
