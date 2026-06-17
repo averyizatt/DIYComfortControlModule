@@ -42,9 +42,7 @@ bool ThermistorSensor::begin() {
   }
 
   pinMode(config_.adc_pin, INPUT);
-#if defined(ADC_11db)
   analogSetPinAttenuation(config_.adc_pin, ADC_11db);
-#endif
   analogReadResolution(12);
   initialized_ = true;
   return true;
@@ -54,10 +52,9 @@ float ThermistorSensor::computeAverageVoltage() const {
   const uint8_t samples = config_.oversample_count == 0 ? 1 : config_.oversample_count;
   uint32_t acc = 0;
   for (uint8_t i = 0; i < samples; ++i) {
-    acc += static_cast<uint32_t>(analogRead(config_.adc_pin));
+    acc += analogReadMilliVolts(config_.adc_pin);
   }
-  const float avg = static_cast<float>(acc) / static_cast<float>(samples);
-  return (avg / static_cast<float>(config_.adc_max_count)) * config_.adc_vref;
+  return (static_cast<float>(acc) / static_cast<float>(samples)) / 1000.0f;
 }
 
 float ThermistorSensor::steinhartHartTempC(float resistance_ohms) const {

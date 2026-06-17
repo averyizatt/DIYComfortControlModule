@@ -1,5 +1,7 @@
 #include "web/web_server.h"
 
+#if CCM_WEB_ENABLED
+
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
@@ -813,6 +815,10 @@ String WebServerManager::stateJson() const {
   doc["rpm"] = s.rpm;
   doc["vehicle_speed"] = s.speed;
   doc["gps_fix"] = s.gps_fix;
+  doc["gps_satellites"] = s.gps_satellites;
+  doc["gps_satellites_in_view"] = s.gps_satellites_in_view;
+  doc["gps_fix_quality"] = s.gps_fix_quality;
+  doc["gps_fix_mode"] = s.gps_fix_mode;
   doc["battery_voltage"] = s.battery_voltage;
   doc["cabin_temp"] = s.cabin_temp;
   doc["outside_temp"] = s.outside_temp;
@@ -1037,6 +1043,10 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["reset_reason"] = s.reset_reason;
   doc["wifi_connected"] = s.wifi_connected;
   doc["gps_raw_fix"] = s.gps_fix;
+  doc["gps_satellites"] = s.gps_satellites;
+  doc["gps_satellites_in_view"] = s.gps_satellites_in_view;
+  doc["gps_fix_quality"] = s.gps_fix_quality;
+  doc["gps_fix_mode"] = s.gps_fix_mode;
   doc["tach_input_frequency_hz"] = s.tach_input_frequency_hz;
   doc["tach_generated_frequency_hz"] = s.tach_generated_frequency_hz;
   doc["sd_mounted"] = s.sd_mounted;
@@ -1185,3 +1195,5 @@ void WebServerManager::tick() {
 }
 
 }  // namespace web
+
+#endif  // CCM_WEB_ENABLED

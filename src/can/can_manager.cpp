@@ -2,6 +2,7 @@
 #include "pin_map.h"
 
 #include "can/CanFrameBuilders.hpp"
+#include "hal/SharedSpiBus.hpp"
 #include "meth/MethSafetyLogic.hpp"
 #include "state/StateHelpers.hpp"
 
@@ -35,11 +36,15 @@ namespace {
 constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
 constexpr uint32_t kKnockTimeoutMs = 500;
-constexpr uint32_t kGpsStaleTimeoutMs = 1000;
+constexpr uint32_t kGpsStaleTimeoutMs = 5000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
 // Cooldown to prevent rapid repeated manual pump tests from UI/API retries.
 constexpr uint32_t kManualTestCooldownMs = 3000;
 constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
+constexpr uint16_t kFaultTaillight = 0x0001;
+constexpr uint16_t kFaultMeth = 0x0010;
+constexpr uint16_t kFaultModuleOffline = 0x0080;
+constexpr uint16_t kFaultKnockCritical = 0x0400;
 
 namespace taillight_animation {
 constexpr uint8_t SEQUENTIAL_ID = 1;
@@ -64,7 +69,10 @@ MCP2515 g_mcp2515(pins::kCanSpiCs);
 bool g_spiCanOnline = false;
 
 bool initSpiCan() {
-  SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, pins::kCanSpiCs);
+  hal::SharedSpiBusLock spiLock;
+  // The shared SPI bus is initialized once in setup(). Re-running SPI.begin()
+  // here can disturb Arduino-ESP32 3.x peripheral ownership after the display
+  // has attached to the same bus.
   pinMode(pins::kCanSpiInt, INPUT_PULLUP);
 
   if (pins::kCanSpiRst != 255) {
@@ -144,7 +152,11 @@ void CanManager::tick() {
   // On bus-off the MCP2515 refuses to TX or RX until it is reset.
   if (hwCanReady_ && g_spiCanOnline && (nowMs - lastCanErrCheckMs_) >= 3000) {
     lastCanErrCheckMs_ = nowMs;
-    const uint8_t eflg     = g_mcp2515.getErrorFlags();
+    uint8_t eflg = 0;
+    {
+      hal::SharedSpiBusLock spiLock;
+      eflg = g_mcp2515.getErrorFlags();
+    }
     const bool busOff    = (eflg & 0x20) != 0;  // TXBO
     const bool txErrPass = (eflg & 0x10) != 0;  // TXEP
     const bool rxOvr     = (eflg & 0xC0) != 0;  // RX0OVR | RX1OVR
@@ -157,6 +169,7 @@ void CanManager::tick() {
         busOff    ? " BUSOFF-REINIT" :
         txErrPass ? " TX-ERR-PASSIVE" : "");
     if (rxOvr) {
+      hal::SharedSpiBusLock spiLock;
       g_mcp2515.clearRXnOVRFlags();
     }
     if (busOff) {
@@ -164,8 +177,10 @@ void CanManager::tick() {
       g_spiCanOnline = false;
       if (initSpiCan()) {
         Serial0.println("[CAN] MCP2515 bus-off recovery OK");
+        state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = true; });
       } else {
         Serial0.println("[CAN] MCP2515 bus-off recovery FAILED");
+        state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = false; });
       }
     }
   }
@@ -185,6 +200,12 @@ void CanManager::tick() {
     runDemoGenerator(nowMs);
   }
 #endif
+
+  // Runtime bench test mode — spoofs RPM, speed, and module statuses for
+  // bench validation without needing DEMO_MODE=1 or live CAN / GPS hardware.
+  if (state::g_vehicle_state.read().bench_test_mode) {
+    runDemoGenerator(nowMs);
+  }
 
   sendScheduledFrames(nowMs);
 
@@ -275,7 +296,13 @@ bool CanManager::sendMethArm(bool armed) {
       s.manual_test_running = false;
     });
   }
-  return sendFrame(can_protocol::packMethArm(armed));
+  const bool sent = sendFrame(can_protocol::packMethArm(armed));
+  if (sent && armed) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.meth_desired_armed = true;
+    });
+  }
+  return sent;
 }
 
 bool CanManager::sendMethManualTest(uint8_t duty) {
@@ -290,6 +317,14 @@ bool CanManager::sendMethManualTest(uint8_t duty) {
     return false;
   }
 
+  const bool sent = sendFrame(can_protocol::packMethManualTest(duty));
+  if (!sent) {
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::OFFLINE;
+    });
+    return false;
+  }
+
   manualTestStartMs_ = nowMs;
   state::g_vehicle_state.mutate([duty](state::VehicleState& s) {
     s.meth_state = state::MethState::TEST;
@@ -297,7 +332,7 @@ bool CanManager::sendMethManualTest(uint8_t duty) {
     s.manual_test_running = true;
     s.meth_manual_test_reject_reason = meth_manual_test_reject_reason::NONE;
   });
-  return sendFrame(can_protocol::packMethManualTest(duty));
+  return true;
 }
 
 bool CanManager::sendMethStopManualTest() {
@@ -317,9 +352,15 @@ bool CanManager::sendMethClearFaults() {
 }
 
 bool CanManager::sendMethConfigBroadcast() {
-  state::g_vehicle_state.mutate([&](state::VehicleState& live) { live.meth_config_version++; });
   state::VehicleState s = state::g_vehicle_state.read();
-  return sendFrame(packMethConfigState(s));
+  s.meth_config_version++;
+  const bool sent = sendFrame(packMethConfigState(s));
+  if (sent) {
+    state::g_vehicle_state.mutate([&](state::VehicleState& live) {
+      live.meth_config_version = s.meth_config_version;
+    });
+  }
+  return sent;
 }
 
 bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
@@ -333,6 +374,7 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       tx.data[i] = frame.data[i];
     }
+    hal::SharedSpiBusLock spiLock;
     sent = g_mcp2515.sendMessage(&tx) == MCP2515::ERROR_OK;
   }
 #endif
@@ -348,11 +390,13 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
       tx.data[i] = frame.data[i];
     }
     sent = twai_transmit(&tx, 0) == ESP_OK;
-  } else {
+  }
+#endif
+
+#if defined(DEMO_MODE) && (DEMO_MODE == 1)
+  if (!sent && !hwCanReady_) {
     sent = true;
   }
-#else
-  sent = true;
 #endif
 
   if (sent) {
@@ -369,6 +413,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
 #if CCM_HAS_SPI_CAN
   if (hwCanReady_ && g_spiCanOnline) {
     struct can_frame rx{};
+    hal::SharedSpiBusLock spiLock;
     if (g_mcp2515.readMessage(&rx) != MCP2515::ERROR_OK) {
       return false;
     }
@@ -381,6 +426,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
       s.can_rx_count++;
       s.can_last_rx_id = frame.id;
       s.can_last_rx_ms = millis();
+      s.can_online = true;
     });
     return true;
   }
@@ -401,6 +447,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
       s.can_rx_count++;
       s.can_last_rx_id = frame.id;
       s.can_last_rx_ms = millis();
+      s.can_online = true;
     });
     return true;
   }
@@ -432,7 +479,10 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     if (!can_protocol::unpackTaillightFault(frame, msg)) return;
 
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-      s.fault_flags |= 0x0001;
+      s.fault_flags |= kFaultTaillight;
+      s.last_taillight_ms = nowMs;
+      s.taillight_online = true;
+      s.can_online = true;
       if (msg.severity >= static_cast<uint8_t>(can_protocol::FaultSeverity::CRITICAL)) {
         s.master_state = static_cast<uint8_t>(can_protocol::MasterState::FAULT);
       }
@@ -472,7 +522,10 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     if (!can_protocol::unpackEngineMethFault(frame, msg)) return;
 
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-      s.fault_flags |= 0x0010;
+      s.fault_flags |= kFaultMeth;
+      s.last_meth_ms = nowMs;
+      s.meth_online = true;
+      s.can_online = true;
       if (msg.severity >= static_cast<uint8_t>(can_protocol::FaultSeverity::CRITICAL)) {
         s.master_state = static_cast<uint8_t>(can_protocol::MasterState::FAULT);
         s.meth_state = state::MethState::FAULT;
@@ -533,6 +586,11 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     can_protocol::MethConfigRequest req{};
     if (!can_protocol::unpackMethConfigRequest(frame, req)) return;
     (void)req;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.last_meth_ms = nowMs;
+      s.meth_online = true;
+      s.can_online = true;
+    });
     lastMethConfigTxMs_ = 0;  // Force immediate rebroadcast on next scheduler tick.
     return;
   }
@@ -545,6 +603,9 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       if (ack.active_ratio_percent <= 100 || ack.active_ratio_percent == 255) {
         s.meth_selected_ratio_percent = ack.active_ratio_percent;
       }
+      s.last_meth_ms = nowMs;
+      s.meth_online = true;
+      s.can_online = true;
       if (ack.status == 0) {
         s.meth_online = true;
       } else if (ack.status == 3) {
@@ -577,6 +638,7 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       s.knock_last_event_boost_kpa = ks.last_event_boost_kpa;
       s.last_knock_ms         = nowMs;
       s.knock_online          = true;
+      s.can_online            = true;
     });
     return;
   }
@@ -586,12 +648,15 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     can_protocol::EngineKnockFault msg{};
     if (!can_protocol::unpackEngineKnockFault(frame, msg)) return;
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.last_knock_ms = nowMs;
+      s.knock_online = true;
+      s.can_online = true;
       const bool isSensorFault = (msg.code == can_protocol::knock_fault_code::SENSOR_DISCONNECTED ||
                                   msg.code == can_protocol::knock_fault_code::ADC_FAULT);
       if (isSensorFault) s.knock_sensor_fault = true;
       if (msg.severity >= static_cast<uint8_t>(can_protocol::FaultSeverity::CRITICAL)) {
         s.knock_critical_active = true;
-        s.fault_flags |= 0x0400;
+        s.fault_flags |= kFaultKnockCritical;
       }
     });
     return;
@@ -652,7 +717,9 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     }
 
     if (!inStartupGrace && (!s.taillight_online || !s.meth_online)) {
-      s.fault_flags |= 0x0080;
+      s.fault_flags |= kFaultModuleOffline;
+    } else {
+      s.fault_flags &= static_cast<uint16_t>(~kFaultModuleOffline);
     }
 
     // Fail-safe local behavior: if meth module offline, force OFF and zero duty.
@@ -684,8 +751,11 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
 
     s.speed = 45.0f + 20.0f * (0.5f + 0.5f * sinf(t * 0.35f));
     s.gps_satellites = static_cast<uint8_t>(8 + (static_cast<int>(t) % 5));
+    s.gps_satellites_in_view = static_cast<uint8_t>(s.gps_satellites + 2U);
     s.gps_fix = true;
-    s.gps_fix_type = 2;
+    s.gps_fix_quality = 1;
+    s.gps_fix_mode = 3;
+    s.gps_fix_type = 1;
     s.last_gps_ms = nowMs;
     s.gps_altitude_m = 128;
     s.gps_latitude = 40.7608 + 0.0002 * sinf(t * 0.05f);

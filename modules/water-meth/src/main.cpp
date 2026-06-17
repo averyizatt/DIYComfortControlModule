@@ -557,6 +557,10 @@ void dispatchCanFrame(uint16_t id, uint8_t dlc, const uint8_t *data, uint32_t no
       sendConfigAck(cfg.version, 1, 4, lastConfigRatioPercent);
       return;
     }
+    if (!validateMethConfigChecksum(cfg)) {
+      sendConfigAck(cfg.version, 1, 3, lastConfigRatioPercent);
+      return;
+    }
 
     lastConfigVersion = cfg.version;
     if (cfg.ratio_percent <= 100 && cfg.ratio_percent != lastConfigRatioPercent) {

@@ -118,6 +118,9 @@ struct VehicleState {
 
   bool gps_fix = false;
   uint8_t gps_satellites = 0;
+  uint8_t gps_satellites_in_view = 0;
+  uint8_t gps_fix_quality = 0;
+  uint8_t gps_fix_mode = 0;
   bool can_online = false;
   uint32_t can_rx_count = 0;
   uint32_t can_tx_count = 0;
@@ -160,6 +163,7 @@ struct VehicleState {
   uint16_t watchdog_reset_count = 0;
   bool manual_test_running = false;
   uint8_t meth_manual_test_reject_reason = 0;
+  bool bench_test_mode = false;
   uint16_t meth_manual_test_cooldown_ms_remaining = 0;
 
   bool led_channel_1_enabled = true;

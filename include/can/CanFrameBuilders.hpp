@@ -37,7 +37,7 @@ inline void packGpsState(const state::VehicleState& s, can_protocol::CanFrame& o
   out.data[4] = s.gps_satellites;
   out.data[5] = s.gps_fix_type;
   out.data[6] = s.gps_status_flags;
-  out.data[7] = 0;
+  out.data[7] = s.gps_satellites_in_view;
 }
 
 inline void packKnockState(const state::VehicleState& s, can_protocol::CanFrame& out) {

@@ -20,7 +20,8 @@ class SystemState {
   SystemFault getFaults() const;
 
  private:
-  mutable SemaphoreHandle_t mutex_;
+  mutable StaticSemaphore_t mutexStorage_{};
+  mutable SemaphoreHandle_t mutex_ = nullptr;
   DashboardData dashboard_{};
   SystemFault faults_ = SystemFault::None;
 };

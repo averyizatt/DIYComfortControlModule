@@ -2,29 +2,34 @@
 
 #include <cstring>
 
+#include "hal/SharedSpiBus.hpp"
+
 namespace storage {
 
 bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   lcdCsPin_ = lcdCsPin;
   sdCsPin_ = sdCsPin;
 
-  // SPI bus is already initialised by the caller (SPI.begin in main.cpp).
-  // Just ensure all CS pins are deasserted before the SD init transaction.
+  // The display driver starts the shared SPI instance during screen init.
+  // Keep both chip-selects deasserted before the SD init transaction.
   pinMode(lcdCsPin_, OUTPUT);
   pinMode(sdCsPin_, OUTPUT);
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, HIGH);
 
-  // SD.begin() manages CS internally; it needs CS HIGH at call time so the
-  // card can complete the 74-clock power-up sequence before selection.
-  mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
-  if (!mounted_) {
-    delay(50);
-    mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
-  }
-  if (!mounted_) {
-    delay(50);
-    mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
+  {
+    hal::SharedSpiBusLock spiLock;
+    // SD.begin() manages CS internally; start slow on the shared SPI bus.
+    // Some cards/modules fail their power-up sequence when probed at 20 MHz.
+    mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
+    if (!mounted_) {
+      delay(50);
+      mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
+    }
+    if (!mounted_) {
+      delay(50);
+      mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
+    }
   }
   Serial0.printf("[SD] mount %s (cs=%u)\n", mounted_ ? "OK" : "FAILED (no card?)", static_cast<unsigned>(sdCsPin_));
 
@@ -78,6 +83,7 @@ bool SdManager::ensureFolder(const char* path) {
 bool SdManager::appendLine(const char* path, const char* line) {
   if (!mounted_ || !path) return false;
 
+  hal::SharedSpiBusLock spiLock;
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, LOW);
 

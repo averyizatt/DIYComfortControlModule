@@ -76,9 +76,7 @@ bool KnockMonitor::begin(state::VehicleStateStore* stateStore, settings::Setting
 void KnockMonitor::configureAdc() {
   pinMode(cfg_.adc_pin, INPUT);
   analogReadResolution(12);
-#if defined(ADC_11db)
   analogSetPinAttenuation(cfg_.adc_pin, ADC_11db);
-#endif
   adcConfigured_ = true;
 }
 

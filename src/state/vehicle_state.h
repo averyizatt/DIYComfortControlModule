@@ -17,7 +17,8 @@ class VehicleStateStore {
   }
 
   void begin() {
-    mutex_ = xSemaphoreCreateMutex();
+    if (mutex_ != nullptr) return;
+    mutex_ = xSemaphoreCreateMutexStatic(&mutexStorage_);
   }
 
   VehicleState read() const {
@@ -48,6 +49,7 @@ class VehicleStateStore {
   }
 
  private:
+  mutable StaticSemaphore_t mutexStorage_{};
   mutable SemaphoreHandle_t mutex_ = nullptr;
   VehicleState state_{};
 };

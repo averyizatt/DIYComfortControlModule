@@ -45,6 +45,15 @@ struct GpsData {
   double longitude = 0.0;
   float altitudeM = 0.0f;
   uint32_t satellites = 0;
+  uint32_t satellitesInView = 0;
+  uint8_t fixQuality = 0;
+  uint8_t fixMode = 0;
+  uint32_t baud = 0;
+  uint32_t charsProcessed = 0;
+  uint32_t passedChecksum = 0;
+  uint32_t failedChecksum = 0;
+  uint32_t sentencesWithFix = 0;
+  uint32_t lastRxMs = 0;
   uint32_t lastFixMs = 0;
 };
 

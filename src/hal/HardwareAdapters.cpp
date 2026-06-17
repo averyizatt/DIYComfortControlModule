@@ -1,5 +1,8 @@
 #include "hal/HardwareAdapters.hpp"
 
+#include <cstdlib>
+
+#include <esp_arduino_version.h>
 #include <esp32-hal-ledc.h>
 #include <Wire.h>
 
@@ -13,6 +16,44 @@
 #include "config/SystemConfig.hpp"
 
 namespace ccm::hal {
+
+namespace {
+constexpr uint32_t kTachPwmInitialHz = 100;
+constexpr uint8_t kTachPwmResolutionBits = 8;
+
+constexpr uint32_t kGpsNoRxProbeMs = 3000;
+constexpr uint32_t kGpsNoGoodSentenceProbeMs = 5000;
+constexpr uint32_t kGpsProbeBauds[] = {9600, 38400, 57600, 115200, 4800};
+constexpr const char* kGpsGgaTalkers[] = {"GPGGA", "GNGGA"};
+constexpr const char* kGpsGsvTalkers[] = {"GPGSV", "GNGSV", "GLGSV", "GAGSV", "GBGSV", "BDGSV"};
+constexpr const char* kGpsGsaTalkers[] = {"GPGSA", "GNGSA", "GLGSA", "GAGSA", "GBGSA", "BDGSA"};
+
+bool parseUnsignedField(const char* value, uint32_t& out) {
+  if (!value || value[0] == '\0') {
+    return false;
+  }
+
+  char* end = nullptr;
+  const unsigned long parsed = std::strtoul(value, &end, 10);
+  if (end == value) {
+    return false;
+  }
+
+  out = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+void updateCustomField(TinyGPSCustom& field, uint32_t& target) {
+  if (!field.isUpdated()) {
+    return;
+  }
+
+  uint32_t parsed = 0;
+  if (parseUnsignedField(field.value(), parsed)) {
+    target = parsed;
+  }
+}
+}  // namespace
 
 bool TwaiCanAdapter::begin(uint32_t bitrate) {
   bitrate_ = bitrate;
@@ -84,54 +125,68 @@ bool TwaiCanAdapter::receive(can::CanFrame& frame) {
 #endif
 }
 
-bool UartGpsAdapter::begin(uint32_t baud) {
-  // Step 1: open at factory-default baud (9600) to talk to the module on first boot.
-  // Increase the RX buffer to handle 38400 baud bursts without overflow.
+void UartGpsAdapter::openSerial(uint32_t baud) {
+  serial_.end();
   serial_.setRxBufferSize(512);
   serial_.begin(baud, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
-  delay(100);  // let GPS finish its power-up NMEA burst
+  while (serial_.available() > 0) {
+    (void)serial_.read();
+  }
 
-  // Step 2: Switch GPS UART to 38400 baud.
-  // UBX-CFG-PRT: portID=UART1, 8N1, 38400 baud, UBX+NMEA in+out.
-  // CK_A=0x93, CK_B=0x90 (Fletcher over class through last payload byte).
-  static const uint8_t kUbxSetBaud38400[] = {
-    0xB5, 0x62,              // UBX sync header
-    0x06, 0x00,              // class=CFG, id=PRT
-    0x14, 0x00,              // payload length = 20
-    0x01,                    // portID: UART1
-    0x00,                    // reserved
-    0x00, 0x00,              // txReady: disabled
-    0xD0, 0x08, 0x00, 0x00, // mode: 8 data, 1 stop, no parity
-    0x00, 0x96, 0x00, 0x00, // baudRate: 38400 (little-endian)
-    0x07, 0x00,              // inProtoMask: UBX+NMEA+RTCM
-    0x03, 0x00,              // outProtoMask: UBX+NMEA
-    0x00, 0x00,              // flags
-    0x00, 0x00,              // reserved
-    0x93, 0x90               // CK_A, CK_B
-  };
-  serial_.write(kUbxSetBaud38400, sizeof(kUbxSetBaud38400));
-  serial_.flush();
-  delay(100);  // allow GPS to switch its UART before we change host baud
+  parser_ = TinyGPSPlus();
+  attachCustomNmeaFields();
+  latest_ = {};
+  latest_.baud = baud;
+  currentBaud_ = baud;
+  lastBaudOpenMs_ = millis();
+  lastGoodSentenceMs_ = 0;
+  lastPassedChecksum_ = 0;
+  ubxTuningSent_ = false;
+  seenGgaFixQuality_ = false;
+  seenGsaFixMode_ = false;
+  Serial0.printf("[GPS] UART baud=%lu RX=%u TX=%u\n",
+                 static_cast<unsigned long>(baud),
+                 static_cast<unsigned>(config::kGpsRxPin),
+                 static_cast<unsigned>(config::kGpsTxPin));
+}
 
-  // Step 3: Reinitialize host UART at 38400 to match GPS.
-  serial_.begin(38400, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
-  delay(50);
+void UartGpsAdapter::attachCustomNmeaFields() {
+  for (uint8_t i = 0; i < 2; ++i) {
+    ggaFixQuality_[i].begin(parser_, kGpsGgaTalkers[i], 6);
+  }
+  for (uint8_t i = 0; i < 6; ++i) {
+    gsvSatsInView_[i].begin(parser_, kGpsGsvTalkers[i], 3);
+    gsaFixMode_[i].begin(parser_, kGpsGsaTalkers[i], 2);
+  }
+}
 
-  // Step 4: Set navigation update rate to 5 Hz (200 ms measurement period).
-  // UBX-CFG-RATE: measRate=200 ms, navRate=1, timeRef=GPS.
-  // CK_A=0xDE, CK_B=0x6A.
-  static const uint8_t kUbxSetRate5Hz[] = {
-    0xB5, 0x62,  // UBX sync header
-    0x06, 0x08,  // class=CFG, id=RATE
-    0x06, 0x00,  // payload length = 6
-    0xC8, 0x00,  // measRate: 200 ms (5 Hz), little-endian
-    0x01, 0x00,  // navRate: 1 solution per measurement epoch
-    0x01, 0x00,  // timeRef: GPS time
-    0xDE, 0x6A   // CK_A, CK_B
-  };
-  serial_.write(kUbxSetRate5Hz, sizeof(kUbxSetRate5Hz));
+bool UartGpsAdapter::begin(uint32_t baud) {
+  openSerial(baud);
+  return true;
+}
 
-  // Step 5: Enable SBAS (WAAS/EGNOS/MSAS) augmentation for faster first fix.
+void UartGpsAdapter::sendOptionalUbxTuning() {
+  if (ubxTuningSent_) {
+    return;
+  }
+
+  if (currentBaud_ >= 38400U) {
+    // Set navigation update rate to 5 Hz (200 ms measurement period).
+    // UBX-CFG-RATE: measRate=200 ms, navRate=1, timeRef=GPS.
+    // CK_A=0xDE, CK_B=0x6A.
+    static const uint8_t kUbxSetRate5Hz[] = {
+      0xB5, 0x62,  // UBX sync header
+      0x06, 0x08,  // class=CFG, id=RATE
+      0x06, 0x00,  // payload length = 6
+      0xC8, 0x00,  // measRate: 200 ms (5 Hz), little-endian
+      0x01, 0x00,  // navRate: 1 solution per measurement epoch
+      0x01, 0x00,  // timeRef: GPS time
+      0xDE, 0x6A   // CK_A, CK_B
+    };
+    serial_.write(kUbxSetRate5Hz, sizeof(kUbxSetRate5Hz));
+  }
+
+  // Enable SBAS (WAAS/EGNOS/MSAS) augmentation for faster first fix.
   // UBX-CFG-SBAS: enable, all usage bits, 3 channels, auto-scan.
   // CK_A=0x2F, CK_B=0xD5.
   static const uint8_t kUbxEnableSbas[] = {
@@ -146,24 +201,87 @@ bool UartGpsAdapter::begin(uint32_t baud) {
     0x2F, 0xD5               // CK_A, CK_B
   };
   serial_.write(kUbxEnableSbas, sizeof(kUbxEnableSbas));
+  serial_.flush();
 
-  return true;
+  ubxTuningSent_ = true;
+  Serial0.printf("[GPS] NMEA detected at %lu baud; sent optional UBX tuning%s\n",
+                 static_cast<unsigned long>(currentBaud_),
+                 currentBaud_ >= 38400U ? " + 5Hz rate" : "");
+}
+
+void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
+  const bool noRx = latest_.lastRxMs == 0 && (nowMs - lastBaudOpenMs_) >= kGpsNoRxProbeMs;
+  const bool noGoodSentence = latest_.lastRxMs != 0 && lastGoodSentenceMs_ == 0 &&
+                              (nowMs - lastBaudOpenMs_) >= kGpsNoGoodSentenceProbeMs;
+  if (!noRx && !noGoodSentence) {
+    return;
+  }
+
+  const uint8_t probeCount = sizeof(kGpsProbeBauds) / sizeof(kGpsProbeBauds[0]);
+  for (uint8_t tries = 0; tries < probeCount; ++tries) {
+    baudProbeIndex_ = static_cast<uint8_t>((baudProbeIndex_ + 1U) % probeCount);
+    const uint32_t nextBaud = kGpsProbeBauds[baudProbeIndex_];
+    if (nextBaud != currentBaud_) {
+      Serial0.printf("[GPS] no valid NMEA at %lu baud; probing %lu baud\n",
+                     static_cast<unsigned long>(currentBaud_),
+                     static_cast<unsigned long>(nextBaud));
+      openSerial(nextBaud);
+      return;
+    }
+  }
 }
 
 void UartGpsAdapter::poll() {
+  const uint32_t nowMs = millis();
+  bool sawByte = false;
   while (serial_.available() > 0) {
+    sawByte = true;
     parser_.encode(static_cast<char>(serial_.read()));
   }
 
-  latest_.validFix = parser_.location.isValid();
+  if (sawByte) {
+    latest_.lastRxMs = nowMs;
+  }
+
   latest_.speedKph = parser_.speed.kmph();
   latest_.latitude = parser_.location.lat();
   latest_.longitude = parser_.location.lng();
   latest_.altitudeM = parser_.altitude.meters();
   latest_.satellites = parser_.satellites.value();
-  if (latest_.validFix) {
-    latest_.lastFixMs = millis();
+  for (uint8_t i = 0; i < 2; ++i) {
+    uint32_t parsed = 0;
+    if (ggaFixQuality_[i].isUpdated() && parseUnsignedField(ggaFixQuality_[i].value(), parsed)) {
+      latest_.fixQuality = static_cast<uint8_t>(parsed > 255U ? 255U : parsed);
+      seenGgaFixQuality_ = true;
+    }
   }
+  for (uint8_t i = 0; i < 6; ++i) {
+    updateCustomField(gsvSatsInView_[i], latest_.satellitesInView);
+    uint32_t parsed = 0;
+    if (gsaFixMode_[i].isUpdated() && parseUnsignedField(gsaFixMode_[i].value(), parsed)) {
+      latest_.fixMode = static_cast<uint8_t>(parsed > 255U ? 255U : parsed);
+      seenGsaFixMode_ = true;
+    }
+  }
+  latest_.baud = currentBaud_;
+  latest_.charsProcessed = parser_.charsProcessed();
+  latest_.passedChecksum = parser_.passedChecksum();
+  latest_.failedChecksum = parser_.failedChecksum();
+  latest_.sentencesWithFix = parser_.sentencesWithFix();
+  const bool hasCurrentNmeaFix = seenGgaFixQuality_
+      ? (latest_.fixQuality > 0U)
+      : (seenGsaFixMode_ && latest_.fixMode >= 2U);
+  latest_.validFix = parser_.location.isValid() && hasCurrentNmeaFix;
+  if (latest_.passedChecksum != lastPassedChecksum_) {
+    lastPassedChecksum_ = latest_.passedChecksum;
+    lastGoodSentenceMs_ = nowMs;
+    sendOptionalUbxTuning();
+  }
+  if (latest_.validFix) {
+    latest_.lastFixMs = nowMs;
+  }
+
+  maybeAutoBaud(nowMs);
 }
 
 bool GpioButtonAdapter::begin() {
@@ -205,9 +323,9 @@ bool LedcTachAdapter::begin(uint8_t pin, uint8_t channel) {
   pin_ = pin;
   channel_ = channel;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-  initialized_ = ledcAttachChannel(pin_, 100, 8, channel_);
+  initialized_ = ledcAttachChannel(pin_, kTachPwmInitialHz, kTachPwmResolutionBits, channel_);
 #else
-  ledcSetup(channel_, 100, 8);
+  ledcSetup(channel_, kTachPwmInitialHz, kTachPwmResolutionBits);
   ledcAttachPin(pin_, channel_);
   initialized_ = true;
 #endif
@@ -215,10 +333,19 @@ bool LedcTachAdapter::begin(uint8_t pin, uint8_t channel) {
 }
 
 void LedcTachAdapter::setFrequencyHz(uint32_t hz, uint8_t duty) {
-  if (!initialized_ || hz == 0) return;
+  if (!initialized_) return;
+  if (hz == 0) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-  ledcWriteTone(pin_, hz);
-  ledcWrite(pin_, duty);
+    ledcWrite(pin_, 0);
+#else
+    ledcWrite(channel_, 0);
+#endif
+    return;
+  }
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  if (ledcChangeFrequency(pin_, hz, kTachPwmResolutionBits) != 0) {
+    ledcWrite(pin_, duty);
+  }
 #else
   ledcWriteTone(channel_, hz);
   ledcWrite(channel_, duty);
@@ -228,9 +355,7 @@ void LedcTachAdapter::setFrequencyHz(uint32_t hz, uint8_t duty) {
 bool BoardSensorAdapter::begin() {
   pinMode(config::kBatterySensePin, INPUT);
   analogReadResolution(12);
-#if defined(ADC_11db)
   analogSetPinAttenuation(config::kBatterySensePin, ADC_11db);
-#endif
 
   if (config::kGyroAddrSelPin != 255) {
     pinMode(config::kGyroAddrSelPin, OUTPUT);
@@ -261,8 +386,9 @@ core::EnvironmentData BoardSensorAdapter::readEnvironment() {
 
 core::PowerData BoardSensorAdapter::readPower() {
   core::PowerData p;
-  const uint16_t raw = analogRead(config::kBatterySensePin);
-  const float adcVolts = (static_cast<float>(raw) / config::kAdcMaxCount) * config::kAdcRefVoltage;
+  // analogReadMilliVolts uses the IDF ADC calibration (two-point/curve eFuse)
+  // for accurate voltage — no manual raw/4095*3.3 approximation needed.
+  const float adcVolts = analogReadMilliVolts(config::kBatterySensePin) / 1000.0f;
   const float dividerScale = (config::kBatteryDividerTopOhms + config::kBatteryDividerBottomOhms) / config::kBatteryDividerBottomOhms;
   p.batteryV = adcVolts * dividerScale;
   p.undervoltage = p.batteryV < config::kUndervoltageThreshold;

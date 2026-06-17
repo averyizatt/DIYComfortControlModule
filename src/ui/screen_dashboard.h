@@ -94,6 +94,7 @@ class ScreenDashboard {
   static void onKnockClearEventsClicked(lv_event_t* e);
   static void onKnockSimulateClicked(lv_event_t* e);
   static void onLedMasterSwitchChanged(lv_event_t* e);
+  static void onBenchTestClicked(lv_event_t* e);
 
   // ---- Dependencies ---------------------------------------------------
   canbus::CanManager*           canMgr_      = nullptr;
@@ -104,6 +105,26 @@ class ScreenDashboard {
   uint32_t actionFeedbackUntilMs_ = 0;
   char     actionFeedback_[48]    = {};
   uint8_t  activePage_            = 0;
+  uint32_t lastHeaderUpdateMs_    = 0;
+  uint32_t lastPageUpdateMs_      = 0;
+#if !LV_TICK_CUSTOM
+  uint32_t lastLvTickMs_          = 0;
+#endif
+  char     hdrBatText_[12]        = {};
+  char     rpmText_[12]           = {};
+  char     spdText_[12]           = {};
+  char     boostText_[24]         = {};
+  char     dashEnvText_[40]       = {};
+  char     dashStatusText_[64]    = {};
+  char     dashRaceText_[40]      = {};
+  char     gLiveText_[16]         = {};
+  char     gPeakText_[16]         = {};
+  int32_t  dashRpmArcLast_        = -999999;
+  int32_t  dashSpdArcLast_        = -999999;
+  int32_t  dashBoostBarLast_      = -999999;
+  int32_t  dashLatBarLast_        = -999999;
+  int32_t  methDutyMeterLast_     = -999999;
+  int32_t  gpsSatMeterLast_       = -999999;
 
   touch::TouchSample lastTouch_ = {};
   portMUX_TYPE        touchMux_  = portMUX_INITIALIZER_UNLOCKED;  // guards lastTouch_ (touchTask writes, screenTask reads)
@@ -195,7 +216,8 @@ class ScreenDashboard {
   lv_obj_t* tempsTable_ = nullptr;
 
   // -- DIAG page --
-  lv_obj_t* diagLabel_ = nullptr;
+  lv_obj_t* diagLabel_     = nullptr;
+  lv_obj_t* benchTestBtn_  = nullptr;
 
   // -- KNOCK page --
   lv_obj_t* knockStateLabel_       = nullptr;

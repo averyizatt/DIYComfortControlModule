@@ -46,9 +46,25 @@ class UartGpsAdapter : public GpsHal {
   core::GpsData latest() const override { return latest_; }
 
  private:
+  void openSerial(uint32_t baud);
+  void attachCustomNmeaFields();
+  void maybeAutoBaud(uint32_t nowMs);
+  void sendOptionalUbxTuning();
+
   HardwareSerial& serial_;
   TinyGPSPlus parser_;
+  TinyGPSCustom ggaFixQuality_[2];
+  TinyGPSCustom gsvSatsInView_[6];
+  TinyGPSCustom gsaFixMode_[6];
   core::GpsData latest_{};
+  uint32_t currentBaud_ = 0;
+  uint32_t lastBaudOpenMs_ = 0;
+  uint32_t lastGoodSentenceMs_ = 0;
+  uint32_t lastPassedChecksum_ = 0;
+  uint8_t baudProbeIndex_ = 0;
+  bool seenGgaFixQuality_ = false;
+  bool seenGsaFixMode_ = false;
+  bool ubxTuningSent_ = false;
 };
 
 class GpioButtonAdapter : public ButtonHal {

@@ -347,29 +347,35 @@ void RacePerformanceManager::tick(uint32_t nowMs) {
 }
 
 String RacePerformanceManager::historyJson() const {
-  JsonDocument doc;
-  JsonArray arr = doc.createNestedArray("history");
+  String out;
+  out.reserve(1024);
+  out += "{\"history\":[";
   for (uint8_t i = 0; i < historyCount_; ++i) {
+    if (i > 0) out += ',';
     const int index = (static_cast<int>(historyHead_) - 1 - i + kHistorySize) % kHistorySize;
     const HistoryEntry& e = history_[index];
-    JsonObject item = arr.createNestedObject();
-    item["ts_ms"] = e.timestampMs;
-    item["mode"] = e.mode;
-    item["zero_to_sixty_s"] = e.zeroToSixtyS;
-    item["quarter_et_s"] = e.quarterEtS;
-    item["quarter_trap_mph"] = e.quarterTrapMph;
-    item["best_lap_s"] = e.bestLapS;
-    item["lap_count"] = e.laps;
-    item["quality"] = e.quality;
-    item["validation_flags"] = e.validationFlags;
+    char item[256];
+    snprintf(item, sizeof(item),
+             "{\"ts_ms\":%lu,\"mode\":%u,\"zero_to_sixty_s\":%.3f,"
+             "\"quarter_et_s\":%.3f,\"quarter_trap_mph\":%.3f,"
+             "\"best_lap_s\":%.3f,\"lap_count\":%u,\"quality\":%u,"
+             "\"validation_flags\":%u}",
+             static_cast<unsigned long>(e.timestampMs),
+             static_cast<unsigned>(e.mode),
+             static_cast<double>(e.zeroToSixtyS),
+             static_cast<double>(e.quarterEtS),
+             static_cast<double>(e.quarterTrapMph),
+             static_cast<double>(e.bestLapS),
+             static_cast<unsigned>(e.laps),
+             static_cast<unsigned>(e.quality),
+             static_cast<unsigned>(e.validationFlags));
+    out += item;
   }
-  String out;
-  serializeJson(doc, out);
+  out += "]}";
   return out;
 }
 
 String RacePerformanceManager::recordsJson() const {
-  JsonDocument doc;
   float best060 = -1.0f;
   float bestQuarter = -1.0f;
   float bestLap = -1.0f;
@@ -379,12 +385,17 @@ String RacePerformanceManager::recordsJson() const {
     if (e.quarterEtS >= 0.0f && (bestQuarter < 0.0f || e.quarterEtS < bestQuarter)) bestQuarter = e.quarterEtS;
     if (e.bestLapS >= 0.0f && (bestLap < 0.0f || e.bestLapS < bestLap)) bestLap = e.bestLapS;
   }
-  doc["best_0_60_s"] = best060;
-  doc["best_quarter_et_s"] = bestQuarter;
-  doc["best_lap_s"] = bestLap;
-  doc["history_count"] = historyCount_;
   String out;
-  serializeJson(doc, out);
+  out.reserve(160);
+  char buf[192];
+  snprintf(buf, sizeof(buf),
+           "{\"best_0_60_s\":%.3f,\"best_quarter_et_s\":%.3f,"
+           "\"best_lap_s\":%.3f,\"history_count\":%u}",
+           static_cast<double>(best060),
+           static_cast<double>(bestQuarter),
+           static_cast<double>(bestLap),
+           static_cast<unsigned>(historyCount_));
+  out = buf;
   return out;
 }
 

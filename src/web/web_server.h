@@ -1,8 +1,14 @@
 #pragma once
 
 #include <Arduino.h>
+#ifndef CCM_WEB_ENABLED
+#define CCM_WEB_ENABLED 0
+#endif
+
+#if CCM_WEB_ENABLED
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#endif
 
 #include "can/can_manager.h"
 #include "race/race_manager.h"
@@ -11,6 +17,7 @@
 
 namespace web {
 
+#if CCM_WEB_ENABLED
 class WebServerManager {
  public:
   bool begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr, canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr);
@@ -34,5 +41,12 @@ class WebServerManager {
   race::RacePerformanceManager* raceMgr_ = nullptr;
   uint32_t lastWsPushMs_ = 0;
 };
+#else
+class WebServerManager {
+ public:
+  bool begin(state::VehicleStateStore*, settings::SettingsManager*, canbus::CanManager*, race::RacePerformanceManager*) { return false; }
+  void tick() {}
+};
+#endif
 
 }  // namespace web

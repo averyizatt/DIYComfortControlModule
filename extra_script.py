@@ -28,3 +28,49 @@ arduinojson_src = os.path.join(
 # Add unconditionally — directory exists by the time the compiler runs even if the
 # library manager hasn't installed it yet when this script is first evaluated.
 env.Append(CPPPATH=[arduinojson_src])
+
+# Patch GFX Library for Arduino: spiFrequencyToClockDiv() gained a spi_t* first
+# parameter in newer Arduino ESP32 framework (pioarduino 55.03.38+). The parameter
+# is unused on non-P4 targets so nullptr is safe where _spi is not yet available.
+def _patch_file(path, old, new):
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if old in content:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content.replace(old, new))
+
+_gfx_databus = os.path.join(
+    env["PROJECT_LIBDEPS_DIR"], env["PIOENV"],
+    "GFX Library for Arduino", "src", "databus"
+)
+# _on_apb_change: local spi_t* _spi is already in scope
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "spiFrequencyToClockDiv(old_apb /",
+    "spiFrequencyToClockDiv(_spi, old_apb /",
+)
+# begin(): _spi member not yet initialised at this point; nullptr is safe
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "_div = spiFrequencyToClockDiv(_speed);",
+    "_div = spiFrequencyToClockDiv(nullptr, _speed);",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
+    "_div = spiFrequencyToClockDiv(_speed);",
+    "_div = spiFrequencyToClockDiv(nullptr, _speed);",
+)
+# pioarduino + newer toolchains can treat narrowing in designated initializers
+# as an error for this file. Clamp/cast _speed for pclk_hz field.
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32LCD8.cpp"),
+    ".pclk_hz = _speed,",
+    ".pclk_hz = static_cast<uint32_t>(_speed > 0 ? _speed : 0),",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32LCD8.cpp"),
+    "      .pclk_hz = _speed,",
+    "      .pclk_hz = static_cast<uint32_t>(_speed > 0 ? _speed : 0),",
+)

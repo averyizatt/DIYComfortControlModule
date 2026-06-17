@@ -3,7 +3,7 @@
 namespace ccm::core {
 
 SystemState::SystemState() {
-  mutex_ = xSemaphoreCreateMutex();
+  mutex_ = xSemaphoreCreateMutexStatic(&mutexStorage_);
 }
 
 SystemState::~SystemState() {
