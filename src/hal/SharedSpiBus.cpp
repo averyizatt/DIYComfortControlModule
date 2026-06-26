@@ -18,6 +18,14 @@
 #define CCM_SPI_RELEASE_GUARD_US 20
 #endif
 
+#ifndef CCM_SPI_LCD_ACQUIRE_GUARD_US
+#define CCM_SPI_LCD_ACQUIRE_GUARD_US 300
+#endif
+
+#ifndef CCM_SPI_NONLCD_AFTER_LCD_GUARD_US
+#define CCM_SPI_NONLCD_AFTER_LCD_GUARD_US 500
+#endif
+
 namespace hal {
 namespace {
 
@@ -29,6 +37,9 @@ volatile bool s_spiLocked = false;
 const char* s_spiOwner = nullptr;
 uint32_t s_spiSeq = 0;
 uint32_t s_spiLockDepth = 0;
+bool s_lastReleaseKnown = false;
+bool s_lastReleaseWasLcd = false;
+const char* s_lastReleaseOwner = nullptr;
 
 void writeCsHigh(uint8_t pin) {
   if (pin == 255U) return;
@@ -85,6 +96,26 @@ void applyReleaseGuard(const char* owner) {
   }
 }
 
+void applyAcquireGuard(const char* owner) {
+  if (!s_lastReleaseKnown) {
+    return;
+  }
+
+  const bool acquiringLcd = ownerIsLcd(owner);
+  uint32_t guardUs = 0;
+  if (acquiringLcd && !s_lastReleaseWasLcd) {
+    guardUs = static_cast<uint32_t>(CCM_SPI_LCD_ACQUIRE_GUARD_US);
+  } else if (!acquiringLcd && s_lastReleaseWasLcd) {
+    guardUs = static_cast<uint32_t>(CCM_SPI_NONLCD_AFTER_LCD_GUARD_US);
+  }
+
+  if (guardUs > 0U) {
+    deassertSharedChipSelects();
+    delayMicroseconds(guardUs);
+    deassertSharedChipSelects();
+  }
+}
+
 SemaphoreHandle_t spiMutex() {
   if (s_spiMutex != nullptr) {
     return s_spiMutex;
@@ -130,6 +161,7 @@ SharedSpiBusLock::SharedSpiBusLock(const char* owner) : owner_(owner ? owner : "
     const bool outerLock = (s_spiLockDepth == 0);
     ++s_spiLockDepth;
     if (outerLock) {
+      applyAcquireGuard(owner_);
       s_spiLocked = true;
       s_spiOwner = owner_;
       ++s_spiSeq;
@@ -169,7 +201,12 @@ SharedSpiBusLock::~SharedSpiBusLock() {
       --s_spiLockDepth;
     }
     if (finalLock) {
-      applyReleaseGuard(s_spiOwner);
+      const char* releasedOwner = s_spiOwner;
+      const bool releasedWasLcd = ownerIsLcd(releasedOwner);
+      applyReleaseGuard(releasedOwner);
+      s_lastReleaseOwner = releasedOwner;
+      s_lastReleaseWasLcd = releasedWasLcd;
+      s_lastReleaseKnown = true;
       s_spiOwner = nullptr;
       s_spiLocked = false;
       s_spiLockDepth = 0;

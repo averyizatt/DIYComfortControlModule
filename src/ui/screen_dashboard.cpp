@@ -152,6 +152,10 @@ constexpr uint16_t kDisplayHeight = 320;
 #define CCM_DISPLAY_18BIT_CHUNK_TRANSACTION 1
 #endif
 
+#ifndef CCM_DISPLAY_18BIT_HOLD_CS_PER_FLUSH
+#define CCM_DISPLAY_18BIT_HOLD_CS_PER_FLUSH 1
+#endif
+
 #ifndef CCM_DISPLAY_CRITICAL_SPI_BURSTS
 #define CCM_DISPLAY_CRITICAL_SPI_BURSTS 1
 #endif
@@ -208,6 +212,7 @@ constexpr uint16_t kDisplayDiagFlushSample =
     (CCM_DISPLAY_DIAG_FLUSH_SAMPLE < 1) ? 1 : CCM_DISPLAY_DIAG_FLUSH_SAMPLE;
 constexpr bool kFullRepaintOnPageSwitch = CCM_DISPLAY_FULL_REPAINT_ON_PAGE_SWITCH != 0;
 constexpr bool kDisplay18BitChunkTransaction = CCM_DISPLAY_18BIT_CHUNK_TRANSACTION != 0;
+constexpr bool kDisplay18BitHoldCsPerFlush = CCM_DISPLAY_18BIT_HOLD_CS_PER_FLUSH != 0;
 constexpr bool kDisplayCriticalSpiBursts = CCM_DISPLAY_CRITICAL_SPI_BURSTS != 0;
 constexpr bool kPageStressTest = CCM_DISPLAY_PAGE_STRESS_TEST != 0;
 constexpr uint32_t kPageStressPeriodMs =
@@ -834,8 +839,12 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
         s_gfx->endWrite();
 #else
         hal::SharedSpiBusLock spiLock("LCD:flush");
-        if (!kDisplay18BitChunkTransaction) {
+        const bool holdCsForChunkedFlush =
+            kDisplay18BitChunkTransaction && kDisplay18BitHoldCsPerFlush;
+        if (!kDisplay18BitChunkTransaction || holdCsForChunkedFlush) {
           s_gfx->startWrite();
+        }
+        if (!kDisplay18BitChunkTransaction) {
           s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
                                  static_cast<int16_t>(y1),
                                  static_cast<uint16_t>(w),
@@ -864,16 +873,18 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
             }
           }
 
-          const bool criticalChunk =
+          const bool criticalAddressAndData =
               kDisplayCriticalSpiBursts && kDisplay18BitChunkTransaction;
           const bool criticalDataOnly =
               kDisplayCriticalSpiBursts && !kDisplay18BitChunkTransaction;
 
-          if (criticalChunk) {
+          if (criticalAddressAndData) {
             noInterrupts();
           }
           if (kDisplay18BitChunkTransaction) {
-            s_gfx->startWrite();
+            if (!holdCsForChunkedFlush) {
+              s_gfx->startWrite();
+            }
             s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
                                    static_cast<int16_t>(y1 + rowBase),
                                    static_cast<uint16_t>(w),
@@ -890,9 +901,11 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
             interrupts();
           }
           if (kDisplay18BitChunkTransaction) {
-            s_gfx->endWrite();
+            if (!holdCsForChunkedFlush) {
+              s_gfx->endWrite();
+            }
           }
-          if (criticalChunk) {
+          if (criticalAddressAndData) {
             interrupts();
           }
           if (kStripeGapUs > 0) {
@@ -901,7 +914,7 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
           ++s_flushWriteCalls;
           rowBase += rowsThis;
         }
-        if (!kDisplay18BitChunkTransaction) {
+        if (!kDisplay18BitChunkTransaction || holdCsForChunkedFlush) {
           s_gfx->endWrite();
         }
 #endif
@@ -1007,7 +1020,7 @@ void logScreenStats(uint32_t nowMs, uint32_t handlerMs, float fps) {
       "fullw=%lu clip=%lu skip=%lu avg_us=%lu max_us=%lu "
       "heap=%lu min=%lu max_block=%lu dma_free=%lu dma_big=%lu psram=%lu/%lu "
       "lv_free=%lu lv_big=%lu lv_frag=%u%% lv_used=%u%% backend=%s pixel=%ubit spi=%luHz "
-      "display_dma=%u rows=%u/%u dirty=%u/%u chunk_tx=%u crit=%u settle=%uus gap=%uus full_refresh=%u\n",
+      "display_dma=%u rows=%u/%u dirty=%u/%u chunk_tx=%u hold_cs=%u crit=%u settle=%uus gap=%uus full_refresh=%u\n",
       static_cast<double>(fps),
       static_cast<unsigned long>(s_frameCount),
       static_cast<unsigned long>(s_lvHandlerMaxMs),
@@ -1056,6 +1069,7 @@ void logScreenStats(uint32_t nowMs, uint32_t handlerMs, float fps) {
       static_cast<unsigned>(kFullWidthDirtyBands ? 1 : 0),
       static_cast<unsigned>(kDirtyBandRows),
       static_cast<unsigned>(kDisplay18BitChunkTransaction ? 1 : 0),
+      static_cast<unsigned>(kDisplay18BitHoldCsPerFlush ? 1 : 0),
       static_cast<unsigned>(kDisplayCriticalSpiBursts ? 1 : 0),
       static_cast<unsigned>(kCommandSettleUs),
       static_cast<unsigned>(kStripeGapUs),
