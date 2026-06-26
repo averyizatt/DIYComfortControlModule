@@ -8,9 +8,37 @@
 #include <SPI.h>
 #include <esp_heap_caps.h>
 
+#ifndef CCM_DISPLAY_BACKEND_ARDUINO_GFX
+#define CCM_DISPLAY_BACKEND_ARDUINO_GFX 1
+#endif
+
+#ifndef CCM_DISPLAY_BACKEND_LOVYAN_GFX
+#define CCM_DISPLAY_BACKEND_LOVYAN_GFX 2
+#endif
+
+#ifndef CCM_DISPLAY_BACKEND
+#define CCM_DISPLAY_BACKEND CCM_DISPLAY_BACKEND_LOVYAN_GFX
+#endif
+
+#if CCM_DISPLAY_BACKEND == CCM_DISPLAY_BACKEND_LOVYAN_GFX
+#define LGFX_USE_V1
+#if __has_include(<LovyanGFX.hpp>)
+#include <LovyanGFX.hpp>
+#define CCM_HAS_LOVYAN_GFX 1
+#else
+#error "CCM_DISPLAY_BACKEND_LOVYAN_GFX selected, but LovyanGFX is not installed"
+#endif
+#else
+#define CCM_HAS_LOVYAN_GFX 0
+#endif
+
+#if CCM_DISPLAY_BACKEND == CCM_DISPLAY_BACKEND_ARDUINO_GFX
 #if __has_include(<Arduino_GFX_Library.h>)
 #include <Arduino_GFX_Library.h>
 #define CCM_HAS_ARDUINO_GFX 1
+#else
+#error "CCM_DISPLAY_BACKEND_ARDUINO_GFX selected, but GFX Library for Arduino is not installed"
+#endif
 #else
 #define CCM_HAS_ARDUINO_GFX 0
 #endif
@@ -25,58 +53,183 @@ namespace ui {
 // Static module-level storage
 // ---------------------------------------------------------------------------
 
-#if CCM_HAS_ARDUINO_GFX
-static Arduino_DataBus* s_bus = nullptr;
-static Arduino_ILI9488_18bit* s_gfx = nullptr;
-#endif
-
 constexpr uint16_t kDisplayWidth = 480;
 constexpr uint16_t kDisplayHeight = 320;
 
 #ifndef CCM_DISPLAY_SPI_HZ
-#define CCM_DISPLAY_SPI_HZ 24000000UL
+#define CCM_DISPLAY_SPI_HZ 8000000UL
 #endif
 
 #ifndef CCM_DISPLAY_USE_GFX_DMA
 #define CCM_DISPLAY_USE_GFX_DMA 0
 #endif
 
+#ifndef CCM_DISPLAY_USE_LGFX_DMA
+#define CCM_DISPLAY_USE_LGFX_DMA 0
+#endif
+
+#ifndef CCM_DISPLAY_PIXEL_MODE
+#define CCM_DISPLAY_PIXEL_MODE 16
+#endif
+
+#if (CCM_DISPLAY_PIXEL_MODE != 16) && (CCM_DISPLAY_PIXEL_MODE != 18)
+#error "CCM_DISPLAY_PIXEL_MODE must be 16 or 18"
+#endif
+
 #ifndef CCM_LVGL_DRAW_BUFFER_ROWS
-#define CCM_LVGL_DRAW_BUFFER_ROWS 20
+#define CCM_LVGL_DRAW_BUFFER_ROWS 8
 #endif
 
 #ifndef CCM_LVGL_FLUSH_CHUNK_ROWS
-#define CCM_LVGL_FLUSH_CHUNK_ROWS 10
+#define CCM_LVGL_FLUSH_CHUNK_ROWS 1
 #endif
 
-// LVGL draw buffers: two full-width slices, explicitly internal/DMA-capable.
-// The active shared-SPI bus still writes synchronously, but DMA-capable buffers
-// let the optional GFX DMA bus stream directly when enabled for display-only SPI.
-constexpr uint16_t kDrawBufferRows = CCM_LVGL_DRAW_BUFFER_ROWS;
-constexpr uint16_t kFlushChunkRows = CCM_LVGL_FLUSH_CHUNK_ROWS;
+#ifndef CCM_LGFX_FLUSH_CHUNK_ROWS
+#define CCM_LGFX_FLUSH_CHUNK_ROWS 8
+#endif
+
+#ifndef CCM_DISPLAY_DIAG_BOOT
+#define CCM_DISPLAY_DIAG_BOOT 0
+#endif
+
+#ifndef CCM_DISPLAY_COMMAND_SETTLE_US
+#define CCM_DISPLAY_COMMAND_SETTLE_US 1
+#endif
+
+#ifndef CCM_DISPLAY_STRIPE_GAP_US
+#define CCM_DISPLAY_STRIPE_GAP_US 2
+#endif
+
+#ifndef CCM_LVGL_FULL_REFRESH
+#define CCM_LVGL_FULL_REFRESH 0
+#endif
+
+#ifndef CCM_LVGL_FULL_WIDTH_DIRTY_BANDS
+#define CCM_LVGL_FULL_WIDTH_DIRTY_BANDS 1
+#endif
+
+#ifndef CCM_LVGL_DIRTY_BAND_ROWS
+#define CCM_LVGL_DIRTY_BAND_ROWS 8
+#endif
+
+#ifndef CCM_ILI9488_INVCTR
+#define CCM_ILI9488_INVCTR 0x00
+#endif
+
+#ifndef CCM_UI_HEADER_UPDATE_MS
+#define CCM_UI_HEADER_UPDATE_MS 250
+#endif
+
+#ifndef CCM_UI_DASH_UPDATE_MS
+#define CCM_UI_DASH_UPDATE_MS 33
+#endif
+
+#ifndef CCM_UI_LIVE_UPDATE_MS
+#define CCM_UI_LIVE_UPDATE_MS 100
+#endif
+
+#ifndef CCM_UI_HEAVY_UPDATE_MS
+#define CCM_UI_HEAVY_UPDATE_MS 250
+#endif
+
+#ifndef CCM_UI_SCREEN_STATS_MS
+#define CCM_UI_SCREEN_STATS_MS 5000
+#endif
+
+#ifndef CCM_DISPLAY_DIAG_VERBOSE
+#define CCM_DISPLAY_DIAG_VERBOSE 0
+#endif
+
+#ifndef CCM_DISPLAY_DIAG_FLUSH_SAMPLE
+#define CCM_DISPLAY_DIAG_FLUSH_SAMPLE 32
+#endif
+
+#ifndef CCM_DISPLAY_FULL_REPAINT_ON_PAGE_SWITCH
+#define CCM_DISPLAY_FULL_REPAINT_ON_PAGE_SWITCH 1
+#endif
+
+#ifndef CCM_DISPLAY_18BIT_CHUNK_TRANSACTION
+#define CCM_DISPLAY_18BIT_CHUNK_TRANSACTION 1
+#endif
+
+#ifndef CCM_DISPLAY_CRITICAL_SPI_BURSTS
+#define CCM_DISPLAY_CRITICAL_SPI_BURSTS 1
+#endif
+
+#ifndef CCM_DISPLAY_PAGE_STRESS_TEST
+#define CCM_DISPLAY_PAGE_STRESS_TEST 0
+#endif
+
+#ifndef CCM_DISPLAY_PAGE_STRESS_MS
+#define CCM_DISPLAY_PAGE_STRESS_MS 1500
+#endif
+
+// Stability-first defaults: bounded draw and flush strips prevent a single
+// noisy SPI burst from corrupting a large continuous ILI9488 transfer.
+constexpr uint16_t kDrawBufferRows =
+    (CCM_LVGL_DRAW_BUFFER_ROWS < 2) ? 2 : CCM_LVGL_DRAW_BUFFER_ROWS;
+constexpr uint16_t kFlushChunkRows =
+    (CCM_LVGL_FLUSH_CHUNK_ROWS < 1) ? 1 : CCM_LVGL_FLUSH_CHUNK_ROWS;
+constexpr uint16_t kCommandSettleUs = CCM_DISPLAY_COMMAND_SETTLE_US;
+constexpr uint16_t kStripeGapUs = CCM_DISPLAY_STRIPE_GAP_US;
+constexpr bool kLvglFullRefresh = CCM_LVGL_FULL_REFRESH != 0;
+constexpr bool kFullWidthDirtyBands = CCM_LVGL_FULL_WIDTH_DIRTY_BANDS != 0;
+constexpr uint16_t kDirtyBandRows =
+    (CCM_LVGL_DIRTY_BAND_ROWS < 1) ? 1 : CCM_LVGL_DIRTY_BAND_ROWS;
 constexpr size_t kDrawBufferPixels = static_cast<size_t>(kDisplayWidth) * kDrawBufferRows;
 constexpr size_t kDrawBufferBytes = kDrawBufferPixels * sizeof(lv_color_t);
 constexpr size_t kFlushChunkBytes = static_cast<size_t>(kDisplayWidth) * kFlushChunkRows * 3U;
 static lv_color_t* s_buf1 = nullptr;
 static lv_color_t* s_buf2 = nullptr;
+#if CCM_HAS_ARDUINO_GFX && (CCM_DISPLAY_PIXEL_MODE == 18)
 static uint8_t* s_flushChunks[2] = {};
 static uint8_t s_nextFlushChunk = 0;
+#endif
 
 // Context structs for callbacks that need both self-pointer and a small value.
 // Static storage – one ScreenDashboard instance only, set during buildXxxPage().
 struct NavCtx     { ScreenDashboard* self; uint8_t page; };
 struct LedModeCtx { ScreenDashboard* self; state::LedMode mode; };
+struct SdFileRowCtx { ScreenDashboard* self; uint8_t row; };
 
 static NavCtx     s_navCtxs[8];
 static LedModeCtx s_ledModeCtxs[5];
+static SdFileRowCtx s_sdFileRowCtxs[5];
 
 constexpr uint32_t kDisplaySpiHz = CCM_DISPLAY_SPI_HZ;
 constexpr bool kDisplayUseGfxDma = CCM_DISPLAY_USE_GFX_DMA != 0;
-constexpr uint32_t kHeaderUpdatePeriodMs = 250;
-constexpr uint32_t kDashUpdatePeriodMs = 33;
-constexpr uint32_t kLivePageUpdatePeriodMs = 100;
-constexpr uint32_t kHeavyPageUpdatePeriodMs = 250;
-constexpr uint32_t kScreenStatsPeriodMs = 5000;
+constexpr bool kDisplayUseLgfxDma = CCM_DISPLAY_USE_LGFX_DMA != 0;
+constexpr uint8_t kDisplayPixelMode = CCM_DISPLAY_PIXEL_MODE;
+constexpr uint16_t kLovyanFlushChunkRows =
+    (CCM_LGFX_FLUSH_CHUNK_ROWS < 1) ? 1 : CCM_LGFX_FLUSH_CHUNK_ROWS;
+constexpr bool kDisplayDiagBoot = CCM_DISPLAY_DIAG_BOOT != 0;
+constexpr bool kDisplayDiagVerbose = CCM_DISPLAY_DIAG_VERBOSE != 0;
+constexpr uint16_t kDisplayDiagFlushSample =
+    (CCM_DISPLAY_DIAG_FLUSH_SAMPLE < 1) ? 1 : CCM_DISPLAY_DIAG_FLUSH_SAMPLE;
+constexpr bool kFullRepaintOnPageSwitch = CCM_DISPLAY_FULL_REPAINT_ON_PAGE_SWITCH != 0;
+constexpr bool kDisplay18BitChunkTransaction = CCM_DISPLAY_18BIT_CHUNK_TRANSACTION != 0;
+constexpr bool kDisplayCriticalSpiBursts = CCM_DISPLAY_CRITICAL_SPI_BURSTS != 0;
+constexpr bool kPageStressTest = CCM_DISPLAY_PAGE_STRESS_TEST != 0;
+constexpr uint32_t kPageStressPeriodMs =
+    (CCM_DISPLAY_PAGE_STRESS_MS < 250) ? 250U : static_cast<uint32_t>(CCM_DISPLAY_PAGE_STRESS_MS);
+constexpr const char* kDisplayBackendName =
+#if CCM_DISPLAY_BACKEND == CCM_DISPLAY_BACKEND_LOVYAN_GFX
+    "LovyanGFX";
+#elif CCM_DISPLAY_BACKEND == CCM_DISPLAY_BACKEND_ARDUINO_GFX
+    "Arduino_GFX";
+#else
+    "Unknown";
+#endif
+constexpr uint32_t kHeaderUpdatePeriodMs = CCM_UI_HEADER_UPDATE_MS;
+constexpr uint32_t kDashUpdatePeriodMs = CCM_UI_DASH_UPDATE_MS;
+constexpr uint32_t kLivePageUpdatePeriodMs = CCM_UI_LIVE_UPDATE_MS;
+constexpr uint32_t kHeavyPageUpdatePeriodMs = CCM_UI_HEAVY_UPDATE_MS;
+constexpr uint32_t kScreenStatsPeriodMs = CCM_UI_SCREEN_STATS_MS;
+constexpr uint8_t kIli9488Caset = 0x2A;
+constexpr uint8_t kIli9488Paset = 0x2B;
+constexpr uint8_t kIli9488Ramwr = 0x2C;
+constexpr uint8_t kIli9488Invctr = 0xB4;
+constexpr uint8_t kIli9488InvctrValue = static_cast<uint8_t>(CCM_ILI9488_INVCTR);
 constexpr const char* kStatusColorOn  = "#00C853";
 constexpr const char* kStatusColorOff = "#FF3B30";
 constexpr float kGpsLowSpeedThresholdMph = 12.0f;
@@ -87,12 +240,91 @@ constexpr uint32_t kMethSensorStaleMs    = 1000;
 
 uint32_t s_flushCount = 0;
 uint32_t s_flushPixels = 0;
+uint32_t s_flushBytes = 0;
 uint32_t s_flushMaxAreaPixels = 0;
 uint32_t s_flushFullWidthBands = 0;
 uint32_t s_flushWriteCalls = 0;
+uint32_t s_flushMaxUs = 0;
+uint32_t s_flushTotalUs = 0;
+uint32_t s_flushClipped = 0;
+uint32_t s_flushSkipped = 0;
+uint32_t s_flushSeq = 0;
+uint16_t s_flushMinX = kDisplayWidth;
+uint16_t s_flushMinY = kDisplayHeight;
+uint16_t s_flushMaxX = 0;
+uint16_t s_flushMaxY = 0;
+uint32_t s_frameCount = 0;
+uint32_t s_frameFlushCurrent = 0;
+uint32_t s_frameFlushMax = 0;
+uint32_t s_frameFlushLast = 0;
+uint32_t s_frameFlushSum = 0;
 uint32_t s_statsLastMs = 0;
 uint32_t s_lvHandlerMaxMs = 0;
 uint32_t s_lvHandlerSlowCount = 0;
+
+uint32_t lvglFreeBytes() {
+  lv_mem_monitor_t mon{};
+  lv_mem_monitor(&mon);
+  return mon.free_size;
+}
+
+#if CCM_HAS_LOVYAN_GFX
+class CabinLgfxDisplay : public lgfx::LGFX_Device {
+ public:
+  CabinLgfxDisplay(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
+                   uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso) {
+    {
+      auto cfg = bus_.config();
+#if defined(SPI2_HOST)
+      cfg.spi_host = SPI2_HOST;
+#endif
+      cfg.spi_mode = 0;
+      cfg.freq_write = kDisplaySpiHz;
+      cfg.freq_read = 8000000;
+      cfg.spi_3wire = false;
+      cfg.use_lock = true;
+      cfg.dma_channel = kDisplayUseLgfxDma ? SPI_DMA_CH_AUTO : 0;
+      cfg.pin_sclk = spiSck;
+      cfg.pin_mosi = spiMosi;
+      cfg.pin_miso = spiMiso;
+      cfg.pin_dc = lcdDc;
+      bus_.config(cfg);
+      panel_.setBus(&bus_);
+    }
+
+    {
+      auto cfg = panel_.config();
+      cfg.pin_cs = lcdCs;
+      cfg.pin_rst = lcdRst;
+      cfg.pin_busy = -1;
+      cfg.panel_width = 320;
+      cfg.panel_height = 480;
+      cfg.offset_x = 0;
+      cfg.offset_y = 0;
+      cfg.offset_rotation = 0;
+      cfg.readable = false;
+      cfg.invert = false;
+      cfg.rgb_order = false;
+      cfg.dlen_16bit = false;
+      cfg.bus_shared = true;
+      panel_.config(cfg);
+    }
+
+    setPanel(&panel_);
+  }
+
+ private:
+  lgfx::Bus_SPI bus_;
+  lgfx::Panel_ILI9488 panel_;
+};
+
+static CabinLgfxDisplay* s_lgfx = nullptr;
+#endif
+
+#if CCM_HAS_ARDUINO_GFX
+static Arduino_DataBus* s_bus = nullptr;
+static Arduino_TFT* s_gfx = nullptr;
+#endif
 
 void* allocDmaBuffer(size_t bytes, const char* name) {
   void* ptr = heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
@@ -121,39 +353,130 @@ void releaseDisplayBuffers() {
     heap_caps_free(s_buf2);
     s_buf2 = nullptr;
   }
+#if CCM_HAS_ARDUINO_GFX && (CCM_DISPLAY_PIXEL_MODE == 18)
   for (uint8_t i = 0; i < 2; ++i) {
     if (s_flushChunks[i]) {
       heap_caps_free(s_flushChunks[i]);
       s_flushChunks[i] = nullptr;
     }
   }
+#endif
 }
 
 bool ensureDisplayBuffers() {
-  if (s_buf1 && s_buf2 && s_flushChunks[0] && s_flushChunks[1]) {
+  if (s_buf1 && s_buf2
+#if CCM_HAS_ARDUINO_GFX && (CCM_DISPLAY_PIXEL_MODE == 18)
+      && s_flushChunks[0] && s_flushChunks[1]
+#endif
+  ) {
     return true;
   }
 
   releaseDisplayBuffers();
   s_buf1 = static_cast<lv_color_t*>(allocDmaBuffer(kDrawBufferBytes, "lvgl_draw_a"));
   s_buf2 = static_cast<lv_color_t*>(allocDmaBuffer(kDrawBufferBytes, "lvgl_draw_b"));
+#if CCM_HAS_ARDUINO_GFX && (CCM_DISPLAY_PIXEL_MODE == 18)
   s_flushChunks[0] = static_cast<uint8_t*>(allocDmaBuffer(kFlushChunkBytes, "flush_rgb888_a"));
   s_flushChunks[1] = static_cast<uint8_t*>(allocDmaBuffer(kFlushChunkBytes, "flush_rgb888_b"));
+#endif
 
-  if (!s_buf1 || !s_buf2 || !s_flushChunks[0] || !s_flushChunks[1]) {
+  if (!s_buf1 || !s_buf2
+#if CCM_HAS_ARDUINO_GFX && (CCM_DISPLAY_PIXEL_MODE == 18)
+      || !s_flushChunks[0] || !s_flushChunks[1]
+#endif
+  ) {
     releaseDisplayBuffers();
     return false;
   }
 
-  Serial0.printf("[SCREEN] DMA buffers draw=%lux%u rows (%luB each) flush=%u rows (%luB x2) dma_free=%lu dma_big=%lu\n",
+  Serial0.printf("[SCREEN] buffers draw=%lux%u rows (%luB each) flush=%u rows (%luB x2) dma_free=%lu dma_big=%lu\n",
                  static_cast<unsigned long>(kDisplayWidth),
                  static_cast<unsigned>(kDrawBufferRows),
                  static_cast<unsigned long>(kDrawBufferBytes),
+#if CCM_HAS_ARDUINO_GFX
+#if CCM_DISPLAY_PIXEL_MODE == 18
                  static_cast<unsigned>(kFlushChunkRows),
                  static_cast<unsigned long>(kFlushChunkBytes),
+#else
+                 static_cast<unsigned>(kFlushChunkRows),
+                 static_cast<unsigned long>(0),
+#endif
+#else
+                 static_cast<unsigned>(kLovyanFlushChunkRows),
+                 static_cast<unsigned long>(0),
+#endif
                  static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
                  static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
   return true;
+}
+
+uint16_t rgb888To565(uint32_t rgb) {
+  const uint8_t r = static_cast<uint8_t>((rgb >> 16) & 0xFFU);
+  const uint8_t g = static_cast<uint8_t>((rgb >> 8) & 0xFFU);
+  const uint8_t b = static_cast<uint8_t>(rgb & 0xFFU);
+  return static_cast<uint16_t>(((r & 0xF8U) << 8) |
+                               ((g & 0xFCU) << 3) |
+                               (b >> 3));
+}
+
+void displayFillScreen(uint32_t rgb) {
+  hal::SharedSpiBusLock spiLock("LCD:fill");
+#if CCM_HAS_LOVYAN_GFX
+  if (s_lgfx) {
+    s_lgfx->fillScreen(rgb);
+  }
+#elif CCM_HAS_ARDUINO_GFX
+  if (s_gfx) {
+    s_gfx->fillScreen(rgb888To565(rgb));
+  }
+#else
+  (void)rgb;
+#endif
+}
+
+void displayFillRect(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgb) {
+  hal::SharedSpiBusLock spiLock("LCD:rect");
+#if CCM_HAS_LOVYAN_GFX
+  if (s_lgfx) {
+    s_lgfx->fillRect(x, y, w, h, rgb);
+  }
+#elif CCM_HAS_ARDUINO_GFX
+  if (s_gfx) {
+    s_gfx->fillRect(x, y, w, h, rgb888To565(rgb));
+  }
+#else
+  (void)x; (void)y; (void)w; (void)h; (void)rgb;
+#endif
+}
+
+void runDisplayDiagnostic() {
+  if (!kDisplayDiagBoot) {
+    return;
+  }
+
+  Serial0.println("[SCREEN] boot diagnostic start");
+  const uint32_t fills[] = {
+      0x000000U, 0xFF0000U, 0x00FF00U, 0x0000FFU, 0xFFFFFFU, 0x000000U};
+  for (uint32_t color : fills) {
+    displayFillScreen(color);
+    delay(120);
+  }
+
+  const uint32_t bars[] = {
+      0xFF0000U, 0xFFFF00U, 0x00FF00U, 0x00FFFFU, 0x0000FFU, 0xFF00FFU};
+  const int32_t barW = kDisplayWidth / static_cast<int32_t>(sizeof(bars) / sizeof(bars[0]));
+  for (uint8_t i = 0; i < sizeof(bars) / sizeof(bars[0]); ++i) {
+    displayFillRect(static_cast<int32_t>(i) * barW, 0, barW, kDisplayHeight, bars[i]);
+  }
+  delay(250);
+
+  displayFillScreen(0x000000U);
+  for (int32_t y = kDisplayHeight - 32; y < kDisplayHeight; y += 2) {
+    displayFillRect(0, y, kDisplayWidth, 1, (y & 2) ? 0xFFFFFFU : 0x00FFFFU);
+  }
+  delay(400);
+  displayFillScreen(0x000000U);
+  Serial0.println("[SCREEN] boot diagnostic OK");
 }
 
 const char* methFlowName(uint8_t flow) {
@@ -263,6 +586,17 @@ void setNavButtonBg(lv_obj_t* btn, lv_color_t color) {
   setBgColor(btn, color, mainSelector(LV_STATE_PRESSED));
   setBgColor(btn, color, mainSelector(LV_STATE_FOCUSED));
   setBgColor(btn, color, mainSelector(LV_STATE_FOCUS_KEY));
+  setBgColor(btn, color, mainSelector(LV_STATE_CHECKED));
+}
+
+void flattenNavButtonState(lv_obj_t* btn, lv_state_t state) {
+  if (!btn) return;
+  const lv_style_selector_t selector = mainSelector(state);
+  lv_obj_set_style_radius(btn, 0, selector);
+  lv_obj_set_style_border_width(btn, 0, selector);
+  lv_obj_set_style_shadow_width(btn, 0, selector);
+  lv_obj_set_style_outline_width(btn, 0, selector);
+  lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, selector);
 }
 
 void styleChip(lv_obj_t* obj) {
@@ -285,6 +619,16 @@ void styleActionButton(lv_obj_t* obj) {
   lv_obj_set_style_border_color(obj, lv_color_hex(0x35557a), LV_PART_MAIN);
   lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(obj, lv_color_hex(0x050c16), LV_PART_MAIN);
+}
+
+void styleOpaqueRedrawSurface(lv_obj_t* obj, lv_color_t color = lv_color_hex(0x0f1724)) {
+  if (!obj) return;
+  setBgColor(obj, color, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(obj, 0, LV_PART_MAIN);
 }
 
 void animSetOpa(void* obj, int32_t v) {
@@ -320,12 +664,16 @@ const char* methStateName(state::MethState st) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colors) {
-#if CCM_HAS_ARDUINO_GFX
-  // Drive the ILI9488 in native 18-bit SPI mode. Convert LVGL RGB565 into
-  // RGB888 and stream the whole invalidated rectangle through one address
-  // window. Keeping CS/DC asserted across the rectangle removes hundreds of
-  // tiny row transactions from full-screen redraws.
-  if (s_gfx && s_bus && area && colors) {
+  const uint32_t flushStartUs = micros();
+  const int32_t reqX1 = area ? area->x1 : 0;
+  const int32_t reqY1 = area ? area->y1 : 0;
+  const int32_t reqX2 = area ? area->x2 : -1;
+  const int32_t reqY2 = area ? area->y2 : -1;
+  bool transferred = false;
+  uint32_t transferBytes = 0;
+  uint32_t transferPixels = 0;
+#if CCM_HAS_LOVYAN_GFX
+  if (s_lgfx && area && colors) {
     const int32_t srcW = area->x2 - area->x1 + 1;
     int32_t x1 = area->x1;
     int32_t y1 = area->y1;
@@ -333,6 +681,7 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
     int32_t y2 = area->y2;
 
     if (srcW > 0 && x1 < kDisplayWidth && y1 < kDisplayHeight && x2 >= 0 && y2 >= 0) {
+      const bool clipped = x1 < 0 || y1 < 0 || x2 >= kDisplayWidth || y2 >= kDisplayHeight;
       if (x1 < 0) x1 = 0;
       if (y1 < 0) y1 = 0;
       if (x2 >= kDisplayWidth) x2 = kDisplayWidth - 1;
@@ -343,7 +692,19 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
       if (w > 0 && h > 0 && w <= kDisplayWidth) {
         const uint32_t areaPixels = static_cast<uint32_t>(w * h);
         ++s_flushCount;
+        ++s_frameFlushCurrent;
         s_flushPixels += areaPixels;
+        s_flushBytes += areaPixels * 2U;
+        transferPixels = areaPixels;
+        transferBytes = areaPixels * 2U;
+        transferred = true;
+        if (clipped) {
+          ++s_flushClipped;
+        }
+        if (x1 < s_flushMinX) s_flushMinX = static_cast<uint16_t>(x1);
+        if (y1 < s_flushMinY) s_flushMinY = static_cast<uint16_t>(y1);
+        if (x2 > s_flushMaxX) s_flushMaxX = static_cast<uint16_t>(x2);
+        if (y2 > s_flushMaxY) s_flushMaxY = static_cast<uint16_t>(y2);
         if (areaPixels > s_flushMaxAreaPixels) {
           s_flushMaxAreaPixels = areaPixels;
         }
@@ -355,13 +716,134 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
                                   ((y1 - area->y1) * srcW) +
                                   (x1 - area->x1);
 
-        hal::SharedSpiBusLock spiLock;
-        s_gfx->startWrite();
-        s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
-                               static_cast<int16_t>(y1),
-                               static_cast<uint16_t>(w),
-                               static_cast<uint16_t>(h));
+        hal::SharedSpiBusLock spiLock("LCD:flush");
+        s_lgfx->startWrite();
+        int32_t rowBase = 0;
+        while (rowBase < h) {
+          const bool contiguousRows = (w == srcW);
+          const int32_t maxRowsThis = contiguousRows
+              ? static_cast<int32_t>(kLovyanFlushChunkRows)
+              : 1;
+          const int32_t rowsThis = ((h - rowBase) > maxRowsThis)
+              ? maxRowsThis
+              : (h - rowBase);
+          const auto* pixels =
+              reinterpret_cast<const lgfx::rgb565_t*>(srcBase + rowBase * srcW);
+          const int32_t pixelCount = w * rowsThis;
 
+          s_lgfx->setAddrWindow(x1, y1 + rowBase, w, rowsThis);
+          if (kCommandSettleUs > 0) {
+            delayMicroseconds(kCommandSettleUs);
+          }
+          if (kDisplayUseLgfxDma) {
+            s_lgfx->writePixelsDMA(pixels, pixelCount);
+            s_lgfx->waitDMA();
+          } else {
+            s_lgfx->writePixels(pixels, pixelCount);
+          }
+          if (kStripeGapUs > 0) {
+            delayMicroseconds(kStripeGapUs);
+          }
+          ++s_flushWriteCalls;
+          rowBase += rowsThis;
+        }
+        s_lgfx->endWrite();
+      }
+    }
+  }
+#elif CCM_HAS_ARDUINO_GFX
+  // Drive the ILI9488 in native 18-bit SPI mode. Convert LVGL RGB565 into
+  // RGB888 and send small address-windowed chunks. It is slower than one large
+  // RAMWR burst, but far more tolerant of a shared, hand-wired SPI display.
+  if (s_gfx && s_bus && area && colors) {
+    const int32_t srcW = area->x2 - area->x1 + 1;
+    int32_t x1 = area->x1;
+    int32_t y1 = area->y1;
+    int32_t x2 = area->x2;
+    int32_t y2 = area->y2;
+
+    if (srcW > 0 && x1 < kDisplayWidth && y1 < kDisplayHeight && x2 >= 0 && y2 >= 0) {
+      const bool clipped = x1 < 0 || y1 < 0 || x2 >= kDisplayWidth || y2 >= kDisplayHeight;
+      if (x1 < 0) x1 = 0;
+      if (y1 < 0) y1 = 0;
+      if (x2 >= kDisplayWidth) x2 = kDisplayWidth - 1;
+      if (y2 >= kDisplayHeight) y2 = kDisplayHeight - 1;
+
+      const int32_t w = x2 - x1 + 1;
+      const int32_t h = y2 - y1 + 1;
+      if (w > 0 && h > 0 && w <= kDisplayWidth) {
+        const uint32_t areaPixels = static_cast<uint32_t>(w * h);
+        ++s_flushCount;
+        ++s_frameFlushCurrent;
+        s_flushPixels += areaPixels;
+        transferPixels = areaPixels;
+#if CCM_DISPLAY_PIXEL_MODE == 16
+        transferBytes = areaPixels * 2U;
+#else
+        transferBytes = areaPixels * 3U;
+#endif
+        s_flushBytes += transferBytes;
+        transferred = true;
+        if (clipped) {
+          ++s_flushClipped;
+        }
+        if (x1 < s_flushMinX) s_flushMinX = static_cast<uint16_t>(x1);
+        if (y1 < s_flushMinY) s_flushMinY = static_cast<uint16_t>(y1);
+        if (x2 > s_flushMaxX) s_flushMaxX = static_cast<uint16_t>(x2);
+        if (y2 > s_flushMaxY) s_flushMaxY = static_cast<uint16_t>(y2);
+        if (areaPixels > s_flushMaxAreaPixels) {
+          s_flushMaxAreaPixels = areaPixels;
+        }
+        if (w == kDisplayWidth) {
+          ++s_flushFullWidthBands;
+        }
+
+        const uint16_t* srcBase = reinterpret_cast<const uint16_t*>(colors) +
+                                  ((y1 - area->y1) * srcW) +
+                                  (x1 - area->x1);
+
+#if CCM_DISPLAY_PIXEL_MODE == 16
+        hal::SharedSpiBusLock spiLock("LCD:flush");
+        s_gfx->startWrite();
+        int32_t rowBase = 0;
+        while (rowBase < h) {
+          const bool contiguousRows = (w == srcW);
+          const int32_t maxRowsThis = contiguousRows
+              ? static_cast<int32_t>(kFlushChunkRows)
+              : 1;
+          const int32_t rowsThis = ((h - rowBase) > maxRowsThis)
+              ? maxRowsThis
+              : (h - rowBase);
+          uint16_t* const pixels = const_cast<uint16_t*>(srcBase + rowBase * srcW);
+          const int32_t pixelCount = w * rowsThis;
+
+          s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
+                                 static_cast<int16_t>(y1 + rowBase),
+                                 static_cast<uint16_t>(w),
+                                 static_cast<uint16_t>(rowsThis));
+          if (kCommandSettleUs > 0) {
+            delayMicroseconds(kCommandSettleUs);
+          }
+          s_gfx->writePixels(pixels, static_cast<uint32_t>(pixelCount));
+          if (kStripeGapUs > 0) {
+            delayMicroseconds(kStripeGapUs);
+          }
+          ++s_flushWriteCalls;
+          rowBase += rowsThis;
+        }
+        s_gfx->endWrite();
+#else
+        hal::SharedSpiBusLock spiLock("LCD:flush");
+        if (!kDisplay18BitChunkTransaction) {
+          s_gfx->startWrite();
+          s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
+                                 static_cast<int16_t>(y1),
+                                 static_cast<uint16_t>(w),
+                                 static_cast<uint16_t>(h));
+          if (kCommandSettleUs > 0) {
+            delayMicroseconds(kCommandSettleUs);
+          }
+        }
         int32_t rowBase = 0;
         while (rowBase < h) {
           const int32_t rowsThis = ((h - rowBase) > kFlushChunkRows)
@@ -381,11 +863,48 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
               *dst++ = static_cast<uint8_t>((px & 0x001FU) << 3);
             }
           }
+
+          const bool criticalChunk =
+              kDisplayCriticalSpiBursts && kDisplay18BitChunkTransaction;
+          const bool criticalDataOnly =
+              kDisplayCriticalSpiBursts && !kDisplay18BitChunkTransaction;
+
+          if (criticalChunk) {
+            noInterrupts();
+          }
+          if (kDisplay18BitChunkTransaction) {
+            s_gfx->startWrite();
+            s_gfx->writeAddrWindow(static_cast<int16_t>(x1),
+                                   static_cast<int16_t>(y1 + rowBase),
+                                   static_cast<uint16_t>(w),
+                                   static_cast<uint16_t>(rowsThis));
+            if (kCommandSettleUs > 0) {
+              delayMicroseconds(kCommandSettleUs);
+            }
+          }
+          if (criticalDataOnly) {
+            noInterrupts();
+          }
           s_bus->writeBytes(chunk, static_cast<uint32_t>(dst - chunk));
+          if (criticalDataOnly) {
+            interrupts();
+          }
+          if (kDisplay18BitChunkTransaction) {
+            s_gfx->endWrite();
+          }
+          if (criticalChunk) {
+            interrupts();
+          }
+          if (kStripeGapUs > 0) {
+            delayMicroseconds(kStripeGapUs);
+          }
           ++s_flushWriteCalls;
           rowBase += rowsThis;
         }
-        s_gfx->endWrite();
+        if (!kDisplay18BitChunkTransaction) {
+          s_gfx->endWrite();
+        }
+#endif
       }
     }
   }
@@ -393,7 +912,55 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
   (void)area;
   (void)colors;
 #endif
+  if (!transferred) {
+    ++s_flushSkipped;
+  }
+  const uint32_t flushUs = micros() - flushStartUs;
+  s_flushTotalUs += flushUs;
+  if (flushUs > s_flushMaxUs) {
+    s_flushMaxUs = flushUs;
+  }
+  ++s_flushSeq;
+  if (kDisplayDiagVerbose &&
+      (s_flushSeq <= 8U || (s_flushSeq % kDisplayDiagFlushSample) == 0U)) {
+    Serial0.printf("[SCREEN:FLUSH] #%lu req=(%ld,%ld)-(%ld,%ld) px=%lu bytes=%lu us=%lu ok=%u\n",
+                   static_cast<unsigned long>(s_flushSeq),
+                   static_cast<long>(reqX1),
+                   static_cast<long>(reqY1),
+                   static_cast<long>(reqX2),
+                   static_cast<long>(reqY2),
+                   static_cast<unsigned long>(transferPixels),
+                   static_cast<unsigned long>(transferBytes),
+                   static_cast<unsigned long>(flushUs),
+                   transferred ? 1U : 0U);
+  }
   lv_disp_flush_ready(drv);
+}
+
+void ScreenDashboard::lvglRounderCb(lv_disp_drv_t* /*drv*/, lv_area_t* area) {
+  if (!area) {
+    return;
+  }
+
+  if (kFullWidthDirtyBands) {
+    area->x1 = 0;
+    area->x2 = static_cast<lv_coord_t>(kDisplayWidth - 1U);
+  }
+
+  if (kDirtyBandRows > 1U) {
+    int32_t y1 = area->y1;
+    int32_t y2 = area->y2;
+    if (y1 < 0) y1 = 0;
+    if (y2 < 0) y2 = 0;
+    y1 = (y1 / static_cast<int32_t>(kDirtyBandRows)) *
+         static_cast<int32_t>(kDirtyBandRows);
+    y2 = (((y2 + static_cast<int32_t>(kDirtyBandRows)) /
+           static_cast<int32_t>(kDirtyBandRows)) *
+          static_cast<int32_t>(kDirtyBandRows)) - 1;
+    if (y2 >= kDisplayHeight) y2 = kDisplayHeight - 1;
+    area->y1 = static_cast<lv_coord_t>(y1);
+    area->y2 = static_cast<lv_coord_t>(y2);
+  }
 }
 
 void logScreenStats(uint32_t nowMs, uint32_t handlerMs, float fps) {
@@ -420,23 +987,49 @@ void logScreenStats(uint32_t nowMs, uint32_t handlerMs, float fps) {
   const uint32_t pxPerSec = elapsedMs == 0
       ? 0
       : static_cast<uint32_t>((static_cast<uint64_t>(s_flushPixels) * 1000ULL) / elapsedMs);
+  const uint32_t bytesPerSec = elapsedMs == 0
+      ? 0
+      : static_cast<uint32_t>((static_cast<uint64_t>(s_flushBytes) * 1000ULL) / elapsedMs);
+  const uint32_t avgFlushUs = s_flushCount == 0
+      ? 0
+      : static_cast<uint32_t>(s_flushTotalUs / s_flushCount);
+  const uint32_t avgFlushesPerFrameX10 = s_frameCount == 0
+      ? 0
+      : static_cast<uint32_t>((static_cast<uint64_t>(s_frameFlushSum) * 10ULL) / s_frameCount);
   const uint32_t psramTotal = ESP.getPsramSize();
   const uint32_t psramFree = psramTotal == 0 ? 0 : ESP.getFreePsram();
   const uint32_t dmaFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
   const uint32_t dmaBig = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
 
   Serial0.printf(
-      "[SCREEN] fps=%.1f handler_max=%lums slow=%lu flush=%lu writes=%lu px/s=%lu max_area=%lu fullw=%lu "
+      "[SCREEN] fps=%.1f frames=%lu handler_max=%lums slow=%lu flush=%lu writes=%lu "
+      "flush/frame=%lu.%lu last=%lu max=%lu px/s=%lu B/s=%lu max_area=%lu bounds=(%u,%u)-(%u,%u) "
+      "fullw=%lu clip=%lu skip=%lu avg_us=%lu max_us=%lu "
       "heap=%lu min=%lu max_block=%lu dma_free=%lu dma_big=%lu psram=%lu/%lu "
-      "lv_free=%lu lv_big=%lu lv_frag=%u%% lv_used=%u%% rows=%u/%u dma_bus=%u\n",
+      "lv_free=%lu lv_big=%lu lv_frag=%u%% lv_used=%u%% backend=%s pixel=%ubit spi=%luHz "
+      "display_dma=%u rows=%u/%u dirty=%u/%u chunk_tx=%u crit=%u settle=%uus gap=%uus full_refresh=%u\n",
       static_cast<double>(fps),
+      static_cast<unsigned long>(s_frameCount),
       static_cast<unsigned long>(s_lvHandlerMaxMs),
       static_cast<unsigned long>(s_lvHandlerSlowCount),
       static_cast<unsigned long>(s_flushCount),
       static_cast<unsigned long>(s_flushWriteCalls),
+      static_cast<unsigned long>(avgFlushesPerFrameX10 / 10U),
+      static_cast<unsigned long>(avgFlushesPerFrameX10 % 10U),
+      static_cast<unsigned long>(s_frameFlushLast),
+      static_cast<unsigned long>(s_frameFlushMax),
       static_cast<unsigned long>(pxPerSec),
+      static_cast<unsigned long>(bytesPerSec),
       static_cast<unsigned long>(s_flushMaxAreaPixels),
+      static_cast<unsigned>(s_flushMinX == kDisplayWidth ? 0 : s_flushMinX),
+      static_cast<unsigned>(s_flushMinY == kDisplayHeight ? 0 : s_flushMinY),
+      static_cast<unsigned>(s_flushMaxX),
+      static_cast<unsigned>(s_flushMaxY),
       static_cast<unsigned long>(s_flushFullWidthBands),
+      static_cast<unsigned long>(s_flushClipped),
+      static_cast<unsigned long>(s_flushSkipped),
+      static_cast<unsigned long>(avgFlushUs),
+      static_cast<unsigned long>(s_flushMaxUs),
       static_cast<unsigned long>(ESP.getFreeHeap()),
       static_cast<unsigned long>(ESP.getMinFreeHeap()),
       static_cast<unsigned long>(ESP.getMaxAllocHeap()),
@@ -448,16 +1041,45 @@ void logScreenStats(uint32_t nowMs, uint32_t handlerMs, float fps) {
       static_cast<unsigned long>(lvMon.free_biggest_size),
       static_cast<unsigned>(lvMon.frag_pct),
       static_cast<unsigned>(lvMon.used_pct),
+      kDisplayBackendName,
+      static_cast<unsigned>(kDisplayPixelMode),
+      static_cast<unsigned long>(kDisplaySpiHz),
+      static_cast<unsigned>((kDisplayUseLgfxDma || kDisplayUseGfxDma) ? 1 : 0),
       static_cast<unsigned>(kDrawBufferRows),
-      static_cast<unsigned>(kFlushChunkRows),
-      static_cast<unsigned>(kDisplayUseGfxDma ? 1 : 0));
+      static_cast<unsigned>(
+#if CCM_HAS_LOVYAN_GFX
+          kLovyanFlushChunkRows
+#else
+          kFlushChunkRows
+#endif
+      ),
+      static_cast<unsigned>(kFullWidthDirtyBands ? 1 : 0),
+      static_cast<unsigned>(kDirtyBandRows),
+      static_cast<unsigned>(kDisplay18BitChunkTransaction ? 1 : 0),
+      static_cast<unsigned>(kDisplayCriticalSpiBursts ? 1 : 0),
+      static_cast<unsigned>(kCommandSettleUs),
+      static_cast<unsigned>(kStripeGapUs),
+      static_cast<unsigned>(kLvglFullRefresh ? 1 : 0));
 
   s_statsLastMs = nowMs;
   s_flushCount = 0;
   s_flushPixels = 0;
+  s_flushBytes = 0;
   s_flushMaxAreaPixels = 0;
   s_flushFullWidthBands = 0;
   s_flushWriteCalls = 0;
+  s_flushMaxUs = 0;
+  s_flushTotalUs = 0;
+  s_flushClipped = 0;
+  s_flushSkipped = 0;
+  s_flushMinX = kDisplayWidth;
+  s_flushMinY = kDisplayHeight;
+  s_flushMaxX = 0;
+  s_flushMaxY = 0;
+  s_frameCount = 0;
+  s_frameFlushMax = 0;
+  s_frameFlushLast = 0;
+  s_frameFlushSum = 0;
   s_lvHandlerMaxMs = 0;
   s_lvHandlerSlowCount = 0;
 }
@@ -483,15 +1105,54 @@ void ScreenDashboard::lvglTouchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::attach(canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr,
-                              settings::SettingsManager* settingsMgr) {
+                              settings::SettingsManager* settingsMgr, storage::SdManager* sdMgr) {
   canMgr_      = canMgr;
   raceMgr_     = raceMgr;
   settingsMgr_ = settingsMgr;
+  sdMgr_       = sdMgr;
 }
 
 bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
                              uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso) {
-#if CCM_HAS_ARDUINO_GFX
+#if CCM_HAS_LOVYAN_GFX
+  Serial0.printf("[SCREEN] backend=%s spi=%luHz dma=%u chunk_rows=%u\n",
+                 kDisplayBackendName,
+                 static_cast<unsigned long>(kDisplaySpiHz),
+                 static_cast<unsigned>(kDisplayUseLgfxDma ? 1 : 0),
+                 static_cast<unsigned>(kLovyanFlushChunkRows));
+  Serial0.println("[SCREEN] creating LovyanGFX ILI9488 driver");
+  s_lgfx = new (std::nothrow) CabinLgfxDisplay(lcdCs, lcdRst, lcdDc, spiSck, spiMosi, spiMiso);
+  if (!s_lgfx) {
+    Serial0.println("[SCREEN] LovyanGFX allocation FAILED");
+    return false;
+  }
+
+  {
+    hal::SharedSpiBusLock spiLock("LCD:init");
+    if (!s_lgfx->init()) {
+      Serial0.println("[SCREEN] LovyanGFX init FAILED");
+      return false;
+    }
+    s_lgfx->setRotation(1);
+    s_lgfx->setColorDepth(16);
+    s_lgfx->setSwapBytes(false);
+    s_lgfx->startWrite();
+    s_lgfx->writeCommand(kIli9488Invctr);
+    s_lgfx->writeData(kIli9488InvctrValue);
+    s_lgfx->endWrite();
+    Serial0.printf("[SCREEN] LovyanGFX init OK size=%dx%d depth=%u\n",
+                   s_lgfx->width(),
+                   s_lgfx->height(),
+                   static_cast<unsigned>(static_cast<int>(s_lgfx->getColorDepth()) &
+                                         static_cast<int>(lgfx::color_depth_t::bit_mask)));
+    Serial0.printf("[SCREEN] ILI9488 INVCTR=0x%02X\n",
+                   static_cast<unsigned>(kIli9488InvctrValue));
+    runDisplayDiagnostic();
+    Serial0.println("[SCREEN] clear start");
+    s_lgfx->fillScreen(0x000000U);
+    Serial0.println("[SCREEN] clear OK");
+  }
+#elif CCM_HAS_ARDUINO_GFX
 #if CCM_DISPLAY_USE_GFX_DMA
   // Dedicated ESP-IDF DMA bus path. Only enable this when LCD is allowed to own
   // the SPI host; the normal build keeps shared Arduino SPI for LCD/CAN/SD.
@@ -512,17 +1173,22 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
     return false;
   }
 #endif
-  // Chip confirmed ILI9488 (mislabeled as ST7796S on this Hosyond module).
   // rotation=1: 90° CW landscape (480×320).
+#if CCM_DISPLAY_PIXEL_MODE == 16
+  Serial0.println("[SCREEN] creating ILI9488 16-bit driver");
+  s_gfx = new Arduino_ILI9488(s_bus, lcdRst, 1 /*rotation 90°CW*/, false /*ips*/);
+#else
   Serial0.println("[SCREEN] creating ILI9488 18-bit driver");
   s_gfx = new Arduino_ILI9488_18bit(s_bus, lcdRst, 1 /*rotation 90°CW*/, false /*ips*/);
+#endif
   if (!s_gfx) {
     Serial0.println("[SCREEN] ILI9488 allocation FAILED");
     return false;
   }
-  Serial0.printf("[SCREEN] GFX begin @ %lu Hz bus=%s\n",
+  Serial0.printf("[SCREEN] GFX begin @ %lu Hz bus=%s pixel=%ubit\n",
                  static_cast<unsigned long>(kDisplaySpiHz),
-                 kDisplayUseGfxDma ? "ESP32SPIDMA" : "HWSPI");
+                 kDisplayUseGfxDma ? "ESP32SPIDMA" : "HWSPI",
+                 static_cast<unsigned>(kDisplayPixelMode));
   if (!s_gfx || !s_gfx->begin(kDisplaySpiHz)) {
     Serial0.println("[SCREEN] GFX begin FAILED");
     return false;
@@ -552,7 +1218,9 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
   dispDrv.hor_res     = static_cast<lv_coord_t>(kWidth);
   dispDrv.ver_res     = static_cast<lv_coord_t>(kHeight);
   dispDrv.flush_cb    = lvglFlushCb;
+  dispDrv.rounder_cb  = lvglRounderCb;
   dispDrv.draw_buf    = &drawBuf;
+  dispDrv.full_refresh = kLvglFullRefresh ? 1 : 0;
   lv_disp_t* disp = lv_disp_drv_register(&dispDrv);
   if (!disp) {
     Serial0.println("[SCREEN] LVGL display registration FAILED");
@@ -585,6 +1253,21 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
 
   buildUi();
   online_ = true;
+  {
+    const uint32_t nowMs = millis();
+    const state::VehicleState initialState = state::g_vehicle_state.read();
+    updateHeader(initialState, nowMs);
+    updateDashPage(initialState);
+    lv_obj_invalidate(lv_scr_act());
+    Serial0.println("[SCREEN] first frame flush start");
+    {
+      hal::SharedSpiBusLock spiLock("LCD:frame");
+      lv_refr_now(disp);
+    }
+    Serial0.println("[SCREEN] first frame flush OK");
+    lastHeaderUpdateMs_ = nowMs;
+    lastPageUpdateMs_ = nowMs;
+  }
   return true;
 }
 
@@ -603,6 +1286,19 @@ void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
   }
 #endif
 
+  if (kPageStressTest &&
+      (lastStressPageSwitchMs_ == 0 ||
+       static_cast<uint32_t>(nowMs - lastStressPageSwitchMs_) >= kPageStressPeriodMs)) {
+    lastStressPageSwitchMs_ = nowMs;
+    const uint8_t nextPage = static_cast<uint8_t>((activePage_ + 1U) % kPageCount);
+    Serial0.printf("[SCREEN:STRESS] auto page %u->%u period=%lums flush_seq=%lu\n",
+                   static_cast<unsigned>(activePage_),
+                   static_cast<unsigned>(nextPage),
+                   static_cast<unsigned long>(kPageStressPeriodMs),
+                   static_cast<unsigned long>(s_flushSeq));
+    showPage(nextPage);
+  }
+
   const bool feedbackActive = actionFeedback_[0] != '\0';
   if (lastHeaderUpdateMs_ == 0 ||
       (nowMs - lastHeaderUpdateMs_) >= kHeaderUpdatePeriodMs ||
@@ -618,26 +1314,29 @@ void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
     pageUpdatePeriodMs = kHeavyPageUpdatePeriodMs;
   }
 
-  if (lastPageUpdateMs_ == 0 || (nowMs - lastPageUpdateMs_) >= pageUpdatePeriodMs) {
-    // Only update the currently-visible page. Calling lv_label_set_text on
-    // hidden objects still marks them dirty in LVGL's internal region tracker.
-    switch (activePage_) {
-      case 0: updateDashPage(s);          break;
-      case 1: updateMethPage(s, nowMs);   break;
-      case 2: updateTailPage(s);          break;
-      case 3: updateLedsPage(s);          break;
-      case 4: updateGpsPage(s);           break;
-      case 5: updateTempsPage(s);         break;
-      case 6: updateDiagPage(s);          break;
-      case 7: updateKnockPage(s, nowMs);  break;
-      default: break;
-    }
+  if (pageSwitchPending_) {
+    updateActivePage(s, nowMs);
+    forceContentRepaint();
+    pageSwitchPending_ = false;
+    lastPageUpdateMs_ = nowMs;
+  } else if (lastPageUpdateMs_ == 0 || (nowMs - lastPageUpdateMs_) >= pageUpdatePeriodMs) {
+    updateActivePage(s, nowMs);
     lastPageUpdateMs_ = nowMs;
   }
 
+  s_frameFlushCurrent = 0;
   const uint32_t handlerStartMs = millis();
-  lv_task_handler();
+  {
+    hal::SharedSpiBusLock spiLock("LCD:frame");
+    lv_task_handler();
+  }
   const uint32_t handlerEndMs = millis();
+  s_frameFlushLast = s_frameFlushCurrent;
+  s_frameFlushSum += s_frameFlushCurrent;
+  if (s_frameFlushCurrent > s_frameFlushMax) {
+    s_frameFlushMax = s_frameFlushCurrent;
+  }
+  ++s_frameCount;
   logScreenStats(handlerEndMs, handlerEndMs - handlerStartMs, s.ui_fps);
 }
 
@@ -691,6 +1390,17 @@ static lv_obj_t* makeBtn(lv_obj_t* parent, const char* text,
 // Returns the label child of a button (first child).
 static lv_obj_t* btnLabel(lv_obj_t* btn) {
   return lv_obj_get_child(btn, 0);
+}
+
+void formatFileSize(uint32_t bytes, char* out, size_t outLen) {
+  if (!out || outLen == 0) return;
+  if (bytes >= 1024UL * 1024UL) {
+    snprintf(out, outLen, "%luM", static_cast<unsigned long>(bytes / (1024UL * 1024UL)));
+  } else if (bytes >= 1024UL) {
+    snprintf(out, outLen, "%luK", static_cast<unsigned long>(bytes / 1024UL));
+  } else {
+    snprintf(out, outLen, "%luB", static_cast<unsigned long>(bytes));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -760,9 +1470,11 @@ void ScreenDashboard::buildHeader(lv_obj_t* scr) {
 void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
   // Container for all page panels (transparent pass-through)
   lv_obj_t* cont = lv_obj_create(scr);
+  contentArea_ = cont;
   lv_obj_set_pos(cont, 0, kHdrH);
   lv_obj_set_size(cont, kWidth, kContentH);
-  lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, LV_PART_MAIN);
+  setBgColor(cont, lv_color_hex(0x0f1724), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(cont, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(cont, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN);
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
@@ -777,8 +1489,7 @@ void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
     lv_obj_set_style_border_width(pg, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(pg, 4, LV_PART_MAIN);
     lv_obj_add_flag(pg, LV_OBJ_FLAG_HIDDEN);
-    // In landscape, all pages except DASH (0) get vertical scroll.
-    if (i == 0) lv_obj_clear_flag(pg, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(pg, LV_OBJ_FLAG_SCROLLABLE);
     pages_[i] = pg;
   }
 
@@ -841,21 +1552,11 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
     lv_obj_t* btn = lv_btn_create(bar);
     lv_obj_set_pos(btn, bx, 0);
     lv_obj_set_size(btn, bw, kNavH);
-    lv_obj_set_style_radius(btn, 0, mainSelector());
-    lv_obj_set_style_radius(btn, 0, mainSelector(LV_STATE_PRESSED));
-    lv_obj_set_style_radius(btn, 0, mainSelector(LV_STATE_FOCUSED));
-    lv_obj_set_style_border_width(btn, 0, mainSelector());
-    lv_obj_set_style_border_width(btn, 0, mainSelector(LV_STATE_PRESSED));
-    lv_obj_set_style_border_width(btn, 0, mainSelector(LV_STATE_FOCUSED));
-    lv_obj_set_style_shadow_width(btn, 0, mainSelector());
-    lv_obj_set_style_shadow_width(btn, 0, mainSelector(LV_STATE_PRESSED));
-    lv_obj_set_style_shadow_width(btn, 0, mainSelector(LV_STATE_FOCUSED));
-    lv_obj_set_style_outline_width(btn, 0, mainSelector());
-    lv_obj_set_style_outline_width(btn, 0, mainSelector(LV_STATE_PRESSED));
-    lv_obj_set_style_outline_width(btn, 0, mainSelector(LV_STATE_FOCUSED));
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, mainSelector());
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, mainSelector(LV_STATE_PRESSED));
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, mainSelector(LV_STATE_FOCUSED));
+    flattenNavButtonState(btn, LV_STATE_DEFAULT);
+    flattenNavButtonState(btn, LV_STATE_PRESSED);
+    flattenNavButtonState(btn, LV_STATE_FOCUSED);
+    flattenNavButtonState(btn, LV_STATE_FOCUS_KEY);
+    flattenNavButtonState(btn, LV_STATE_CHECKED);
     setNavButtonBg(btn, lv_color_hex(0x1a2540));
     lv_obj_add_event_cb(btn, onNavClicked, LV_EVENT_CLICKED, &s_navCtxs[i]);
     navBtns_[i] = btn;
@@ -878,6 +1579,17 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
     lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
     lv_obj_align(txt, LV_ALIGN_CENTER, 0, +14);
   }
+
+  bottomEdgeGuard_ = lv_obj_create(scr);
+  lv_obj_set_pos(bottomEdgeGuard_, 0, static_cast<lv_coord_t>(kHeight - 1U));
+  lv_obj_set_size(bottomEdgeGuard_, kWidth, 1);
+  setBgColor(bottomEdgeGuard_, lv_color_hex(0x0d1520), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(bottomEdgeGuard_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(bottomEdgeGuard_, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(bottomEdgeGuard_, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(bottomEdgeGuard_, 0, LV_PART_MAIN);
+  lv_obj_clear_flag(bottomEdgeGuard_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_move_foreground(bottomEdgeGuard_);
 }
 
 // ---------------------------------------------------------------------------
@@ -889,9 +1601,26 @@ void ScreenDashboard::showPage(uint8_t idx) {
   static const char* const kNames[8] = {
     "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG", "KNOCK"
   };
+
+  if (idx == activePage_ && pages_[idx] && !lv_obj_has_flag(pages_[idx], LV_OBJ_FLAG_HIDDEN)) {
+    return;
+  }
+
+  const uint8_t oldPage = activePage_;
+  Serial0.printf("[SCREEN:PAGE] %u->%u heap=%lu max_block=%lu dma_free=%lu dma_big=%lu lv_free=%lu\n",
+                 static_cast<unsigned>(oldPage),
+                 static_cast<unsigned>(idx),
+                 static_cast<unsigned long>(ESP.getFreeHeap()),
+                 static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+                 static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                 static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
+                 static_cast<unsigned long>(lvglFreeBytes()));
+
   for (uint8_t i = 0; i < kPageCount; i++) {
     if (i == idx) {
       setObjHidden(pages_[i], false);
+      lv_obj_scroll_to_y(pages_[i], 0, LV_ANIM_OFF);
+      lv_obj_move_foreground(pages_[i]);
       animatePageEnter(pages_[i]);
       if (navBtns_[i]) {
         lv_obj_clear_state(navBtns_[i], LV_STATE_PRESSED | LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY | LV_STATE_CHECKED);
@@ -906,9 +1635,21 @@ void ScreenDashboard::showPage(uint8_t idx) {
     }
   }
   activePage_ = idx;
+  pageSwitchPending_ = true;
   lastHeaderUpdateMs_ = 0;
   lastPageUpdateMs_ = 0;
   if (hdrTitleLabel_) setLabelText(hdrTitleLabel_, kNames[idx]);
+  if (idx == 6) {
+    refreshSdBrowser(millis(), true);
+  }
+  forceContentRepaint();
+  Serial0.printf("[SCREEN:PAGE] active=%u heap=%lu max_block=%lu dma_free=%lu dma_big=%lu lv_free=%lu\n",
+                 static_cast<unsigned>(activePage_),
+                 static_cast<unsigned long>(ESP.getFreeHeap()),
+                 static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+                 static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                 static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
+                 static_cast<unsigned long>(lvglFreeBytes()));
 }
 
 // ---------------------------------------------------------------------------
@@ -945,12 +1686,12 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
     return arc;
   };
 
-  constexpr lv_coord_t arcSz = 152;
-  constexpr lv_coord_t arcY  = 34;
+  constexpr lv_coord_t arcSz = 220;
+  constexpr lv_coord_t arcY  = 6;
   constexpr lv_coord_t leftX = 6;
-  constexpr lv_coord_t cx    = 164;
-  constexpr lv_coord_t cw    = 152;
-  constexpr lv_coord_t rightX = 320;
+  constexpr lv_coord_t cx    = 244;
+  constexpr lv_coord_t cw    = 228;
+  constexpr lv_coord_t rightX = 6;
 
   // ---- LEFT: RPM arc ----
   rpmArc_ = makeArc(parent, leftX, arcY, arcSz, 8000);
@@ -969,6 +1710,11 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   setTextColor(rpmUnit, lv_color_hex(0x7090a0), 0);
   lv_obj_set_style_text_font(rpmUnit, &lv_font_montserrat_14, 0);
   lv_obj_set_pos(rpmUnit, leftX, arcY + 82);
+  setObjHidden(rpmArc_, true);
+  setObjHidden(rpmValLabel_, true);
+  setObjHidden(rpmUnit, true);
+  rpmArc_ = nullptr;
+  rpmValLabel_ = nullptr;
 
   // ---- RIGHT: Speed arc ----
   spdArc_ = makeArc(parent, rightX, arcY, arcSz, 160);
@@ -976,17 +1722,17 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   spdValLabel_ = lv_label_create(parent);
   setLabelTextStatic(spdValLabel_, spdText_, sizeof(spdText_), "0");
   lv_obj_set_width(spdValLabel_, arcSz);
-  lv_obj_set_style_text_font(spdValLabel_, &lv_font_montserrat_24, 0);
+  lv_obj_set_style_text_font(spdValLabel_, &lv_font_montserrat_48, 0);
   lv_obj_set_style_text_align(spdValLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_pos(spdValLabel_, rightX, arcY + 50);
+  lv_obj_set_pos(spdValLabel_, rightX, arcY + 66);
 
   lv_obj_t* spdUnit = lv_label_create(parent);
-  setLabelText(spdUnit, "mph");
+  setLabelText(spdUnit, "MPH");
   lv_obj_set_width(spdUnit, arcSz);
   lv_obj_set_style_text_align(spdUnit, LV_TEXT_ALIGN_CENTER, 0);
   setTextColor(spdUnit, lv_color_hex(0x7090a0), 0);
-  lv_obj_set_style_text_font(spdUnit, &lv_font_montserrat_14, 0);
-  lv_obj_set_pos(spdUnit, rightX, arcY + 82);
+  lv_obj_set_style_text_font(spdUnit, &lv_font_montserrat_20, 0);
+  lv_obj_set_pos(spdUnit, rightX, arcY + 128);
 
   // ---- RIGHT: G-force widgets (below speed arc, y=130..196) ----
   gLiveLabel_ = lv_label_create(parent);
@@ -1014,32 +1760,46 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_bar_set_value(gLatBar_, 0, LV_ANIM_OFF);
   setBgColor(gLatBar_, lv_color_hex(0x1a2540), LV_PART_MAIN);
   setBgColor(gLatBar_, lv_palette_main(LV_PALETTE_CYAN), LV_PART_INDICATOR);
+  setObjHidden(gLiveLabel_, true);
+  setObjHidden(gPeakLabel_, true);
+  setObjHidden(gLatBar_, true);
+  gLiveLabel_ = nullptr;
+  gPeakLabel_ = nullptr;
+  gLatBar_ = nullptr;
 
   // Boost bar
   boostBar_ = lv_bar_create(parent);
-  lv_obj_set_pos(boostBar_, cx, 6);
-  lv_obj_set_size(boostBar_, cw, 14);
-  lv_bar_set_range(boostBar_, -10, 250);
+  lv_obj_set_pos(boostBar_, cx, 76);
+  lv_obj_set_size(boostBar_, cw, 18);
+  lv_bar_set_range(boostBar_, 0, 40);
   lv_bar_set_value(boostBar_, 0, LV_ANIM_OFF);
   setBgColor(boostBar_, lv_color_hex(0x1a2540), LV_PART_MAIN);
   setBgColor(boostBar_, lv_palette_main(LV_PALETTE_CYAN), LV_PART_INDICATOR);
 
-  boostValLabel_ = makeLabel(parent, cx, 24, cw, "", &lv_font_montserrat_14);
-  setLabelTextStatic(boostValLabel_, boostText_, sizeof(boostText_), "BOOST 0");
-  lv_label_set_long_mode(boostValLabel_, LV_LABEL_LONG_CLIP);
+  boostValLabel_ = makeLabel(parent, cx, 8, cw, "", &lv_font_montserrat_24);
+  setLabelTextStatic(boostValLabel_, boostText_, sizeof(boostText_), "BOOST\n0.0 PSI");
+  lv_obj_set_height(boostValLabel_, 64);
+  lv_obj_set_style_text_align(boostValLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(boostValLabel_, LV_LABEL_LONG_WRAP);
 
-  dashEnvLabel_ = makeLabel(parent, cx, 48, cw, "", &lv_font_montserrat_14);
-  setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), "0.0V GPS0");
+  dashEnvLabel_ = makeLabel(parent, cx, 174, cw, "", &lv_font_montserrat_18);
+  setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), "DUTY 0%  TANK 0%");
+  lv_obj_set_height(dashEnvLabel_, 28);
+  lv_obj_set_style_text_align(dashEnvLabel_, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(dashEnvLabel_, LV_LABEL_LONG_CLIP);
 
-  dashStatusLabel_ = makeLabel(parent, cx, 72, cw, "", &lv_font_montserrat_12);
-  setLabelTextStatic(dashStatusLabel_, dashStatusText_, sizeof(dashStatusText_), "T M K");
-  lv_label_set_long_mode(dashStatusLabel_, LV_LABEL_LONG_CLIP);
+  dashStatusLabel_ = makeLabel(parent, cx, 108, cw, "", &lv_font_montserrat_24);
+  setLabelTextStatic(dashStatusLabel_, dashStatusText_, sizeof(dashStatusText_), "METH\nOFFLINE");
+  lv_obj_set_height(dashStatusLabel_, 62);
+  lv_obj_set_style_text_align(dashStatusLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(dashStatusLabel_, LV_LABEL_LONG_WRAP);
   lv_label_set_recolor(dashStatusLabel_, true);
 
-  dashRaceLabel_ = makeLabel(parent, cx, 96, cw, "", &lv_font_montserrat_12);
-  setLabelTextStatic(dashRaceLabel_, dashRaceText_, sizeof(dashRaceText_), "60 --  1/4 --");
-  lv_label_set_long_mode(dashRaceLabel_, LV_LABEL_LONG_CLIP);
+  dashRaceLabel_ = makeLabel(parent, cx, 208, cw, "", &lv_font_montserrat_14);
+  setLabelTextStatic(dashRaceLabel_, dashRaceText_, sizeof(dashRaceText_), "12.5V  GPS 0/0  IAT 0C");
+  lv_obj_set_height(dashRaceLabel_, 22);
+  lv_obj_set_style_text_align(dashRaceLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(dashRaceLabel_, LV_LABEL_LONG_DOT);
 
   // Race control buttons – 2×2 grid inside centre strip
   constexpr lv_coord_t bgap = 6;
@@ -1058,6 +1818,14 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   styleActionButton(raceLapBtn_);
   styleActionButton(raceStopBtn_);
   styleActionButton(raceResetBtn_);
+  setObjHidden(raceAccelBtn_, true);
+  setObjHidden(raceLapBtn_, true);
+  setObjHidden(raceStopBtn_, true);
+  setObjHidden(raceResetBtn_, true);
+  raceAccelBtn_ = nullptr;
+  raceLapBtn_ = nullptr;
+  raceStopBtn_ = nullptr;
+  raceResetBtn_ = nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -1143,7 +1911,8 @@ void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
   lv_obj_set_size(tailModePanel_, 472, 92);
   lv_obj_set_style_pad_all(tailModePanel_, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(tailModePanel_, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(tailModePanel_, LV_OPA_TRANSP, LV_PART_MAIN);
+  setBgColor(tailModePanel_, lv_color_hex(0x0f1724), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(tailModePanel_, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(tailModePanel_, LV_OBJ_FLAG_SCROLLABLE);
 
   constexpr lv_coord_t tailBtnW = 112;
@@ -1164,7 +1933,8 @@ void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
   lv_obj_set_size(tailShowPanel_, 472, 166);
   lv_obj_set_style_pad_all(tailShowPanel_, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(tailShowPanel_, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(tailShowPanel_, LV_OPA_TRANSP, LV_PART_MAIN);
+  setBgColor(tailShowPanel_, lv_color_hex(0x0f1724), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(tailShowPanel_, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(tailShowPanel_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(tailShowPanel_, LV_OBJ_FLAG_HIDDEN);
 
@@ -1208,10 +1978,17 @@ void ScreenDashboard::buildLedsPage(lv_obj_t* parent) {
       "1:OFF  2:OFF  3:OFF", &lv_font_montserrat_18);
 
   static const char* const kModeNames[5] = { "OFF", "STATIC", "BREATHE", "RAINBOW", "RPM" };
+  static const state::LedMode kModeValues[5] = {
+    state::LedMode::OFF,
+    state::LedMode::STATIC_COLOR,
+    state::LedMode::BREATHING,
+    state::LedMode::RAINBOW,
+    state::LedMode::RPM_GAUGE,
+  };
   constexpr lv_coord_t btnW = 89, btnH = 46;
   constexpr lv_coord_t startX = 0, gapX = 6;
   for (uint8_t i = 0; i < 5; i++) {
-    s_ledModeCtxs[i] = {this, static_cast<state::LedMode>(i)};
+    s_ledModeCtxs[i] = {this, kModeValues[i]};
     const lv_coord_t bx = static_cast<lv_coord_t>(startX + i * (btnW + gapX));
     ledModeBtns_[i] = makeBtn(parent, kModeNames[i], bx, 82, btnW, btnH, onLedModeClicked, &s_ledModeCtxs[i]);
     lv_obj_set_style_text_font(btnLabel(ledModeBtns_[i]), &lv_font_montserrat_14, 0);
@@ -1257,6 +2034,8 @@ void ScreenDashboard::buildGpsPage(lv_obj_t* parent) {
   lv_obj_set_style_text_align(gpsInfoLabel_, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(gpsInfoLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_pos(gpsInfoLabel_, 0, 74);
+  lv_obj_set_height(gpsInfoLabel_, 86);
+  styleOpaqueRedrawSurface(gpsInfoLabel_);
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,13 +2067,50 @@ void ScreenDashboard::buildTempsPage(lv_obj_t* parent) {
 void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
   diagLabel_ = makeLabel(parent, 0, 0, kWidth - 8,
   "Diagnostics initializing...", &lv_font_montserrat_14);
-  lv_label_set_long_mode(diagLabel_, LV_LABEL_LONG_WRAP);
+  lv_label_set_long_mode(diagLabel_, LV_LABEL_LONG_CLIP);
   lv_obj_set_width(diagLabel_, kWidth - 8);
+  lv_obj_set_height(diagLabel_, 92);
   lv_label_set_recolor(diagLabel_, true);
+  styleOpaqueRedrawSurface(diagLabel_);
 
   // Bench test mode toggle — bottom-right of DIAG page
-  benchTestBtn_ = makeBtn(parent, "BENCH: OFF", 330, 195, 142, 32,
+  benchTestBtn_ = makeBtn(parent, "BENCH: OFF", 342, 58, 130, 28,
                           onBenchTestClicked, this);
+  buildSdBrowser(parent);
+}
+
+void ScreenDashboard::buildSdBrowser(lv_obj_t* parent) {
+  sdPathLabel_ = makeLabel(parent, 0, 98, 296, "SD: not mounted", &lv_font_montserrat_12);
+  lv_label_set_long_mode(sdPathLabel_, LV_LABEL_LONG_DOT);
+
+  sdUpBtn_ = makeBtn(parent, "UP", 300, 96, 38, 26, onSdUpClicked, this);
+  sdPrevBtn_ = makeBtn(parent, "PREV", 340, 96, 42, 26, onSdPrevClicked, this);
+  sdNextBtn_ = makeBtn(parent, "NEXT", 384, 96, 42, 26, onSdNextClicked, this);
+  sdTestBtn_ = makeBtn(parent, "TEST", 428, 96, 44, 26, onSdTestClicked, this);
+
+  for (uint8_t i = 0; i < kSdFileRowCount; ++i) {
+    s_sdFileRowCtxs[i] = {this, i};
+    lv_obj_t* row = lv_btn_create(parent);
+    lv_obj_set_pos(row, 0, static_cast<lv_coord_t>(126 + i * 20));
+    lv_obj_set_size(row, 472, 18);
+    lv_obj_set_style_radius(row, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(row, lv_color_hex(0x101826), LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(row, lv_color_hex(0x26364d), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 2, LV_PART_MAIN);
+    lv_obj_add_event_cb(row, onSdFileRowClicked, LV_EVENT_CLICKED, &s_sdFileRowCtxs[i]);
+
+    lv_obj_t* label = lv_label_create(row);
+    lv_obj_set_width(label, 456);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 4, 0);
+    setLabelText(label, "--");
+
+    sdFileRows_[i] = row;
+    sdFileRowLabels_[i] = label;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,7 +2157,11 @@ void ScreenDashboard::buildKnockPage(lv_obj_t* parent) {
   lv_chart_set_point_count(knockGraphChart_, 32);
   lv_chart_set_div_line_count(knockGraphChart_, 4, 6);
   setBgColor(knockGraphChart_, lv_color_hex(0x101826), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(knockGraphChart_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(knockGraphChart_, 0, LV_PART_MAIN);
   lv_obj_set_style_border_color(knockGraphChart_, lv_color_hex(0x2b3d57), LV_PART_MAIN);
+  lv_obj_set_style_border_width(knockGraphChart_, 1, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(knockGraphChart_, 0, LV_PART_MAIN);
   lv_obj_set_style_line_width(knockGraphChart_, 1, LV_PART_ITEMS);
 
   knockGraphEnergySeries_ = lv_chart_add_series(knockGraphChart_, lv_palette_main(LV_PALETTE_RED),
@@ -1508,32 +2328,54 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   snprintf(buf, sizeof(buf), "%.0f", static_cast<double>(spdMph));
   setLabelTextStatic(spdValLabel_, spdText_, sizeof(spdText_), buf);
 
-  // ---- Centre strip ----
+  // ---- Boost and water-meth status ----
+  const float boostPsi = s.boost_kpa * 0.145038f;
   const int16_t boostClamped = static_cast<int16_t>(
-      (s.boost_kpa > 250.0f) ? 250 : (s.boost_kpa < -10.0f) ? -10 : static_cast<int16_t>(s.boost_kpa));
+      (boostPsi > 40.0f) ? 40 : (boostPsi < 0.0f) ? 0 : static_cast<int16_t>(boostPsi));
   setBarValue(boostBar_, dashBoostBarLast_, boostClamped);
-  snprintf(buf, sizeof(buf), "BOOST %.0f", static_cast<double>(s.boost_kpa));
+  lv_color_t boostColor;
+  if (boostPsi >= 20.0f)       boostColor = lv_palette_main(LV_PALETTE_RED);
+  else if (boostPsi >= 10.0f)  boostColor = lv_palette_main(LV_PALETTE_ORANGE);
+  else                         boostColor = lv_palette_main(LV_PALETTE_CYAN);
+  setBgColor(boostBar_, boostColor, LV_PART_INDICATOR);
+  snprintf(buf, sizeof(buf), "BOOST\n%.1f PSI", static_cast<double>(boostPsi));
   setLabelTextStatic(boostValLabel_, boostText_, sizeof(boostText_), buf);
 
-  snprintf(buf, sizeof(buf), "%.1fV " LV_SYMBOL_GPS "%u/%u IAT%.0f",
+  snprintf(buf, sizeof(buf), "DUTY %u%%  TANK %u%%",
+           static_cast<unsigned>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty),
+           static_cast<unsigned>(s.meth_tank_level));
+  setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), buf);
+
+  const bool methActive = (s.meth_state == state::MethState::SPRAYING) || s.manual_test_running;
+  const char* methColor = kStatusColorOff;
+  const char* methText = "OFFLINE";
+  lv_color_t methBg = lv_color_hex(0x3a1d25);
+  if (methActive) {
+    methColor = "#FF9500";
+    methText = "ACTIVE";
+    methBg = lv_color_hex(0x5c2f00);
+  } else if (!s.meth_online) {
+    methColor = kStatusColorOff;
+    methText = "OFFLINE";
+    methBg = lv_color_hex(0x3a1d25);
+  } else if (s.meth_desired_armed || s.meth_state == state::MethState::ARMED) {
+    methColor = "#00AEEF";
+    methText = "ARMED";
+    methBg = lv_color_hex(0x113653);
+  } else {
+    methColor = "#8AA0C8";
+    methText = "OFF";
+    methBg = lv_color_hex(0x1a2538);
+  }
+  snprintf(buf, sizeof(buf), "METH\n%s%s#", methColor, methText);
+  setBgColor(dashStatusLabel_, methBg, LV_PART_MAIN);
+  setLabelTextStatic(dashStatusLabel_, dashStatusText_, sizeof(dashStatusText_), buf);
+
+  snprintf(buf, sizeof(buf), "%.1fV  GPS %u/%u  IAT %.0fC",
            static_cast<double>(s.battery_voltage),
            static_cast<unsigned>(s.gps_satellites),
            static_cast<unsigned>(s.gps_satellites_in_view),
            static_cast<double>(s.intake_temp));
-  setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), buf);
-
-  const bool noKnockActive = !s.knock_warning_active && !s.knock_critical_active;
-  // Knock status intentionally inverts the normal color semantics:
-  // green = no knock warning/critical, red = warning/critical active.
-  snprintf(buf, sizeof(buf), "%sT# %sM# %sK#",
-            s.taillight_online ? kStatusColorOn : kStatusColorOff,
-            s.meth_online ? kStatusColorOn : kStatusColorOff,
-            noKnockActive ? kStatusColorOn : kStatusColorOff);
-  setLabelTextStatic(dashStatusLabel_, dashStatusText_, sizeof(dashStatusText_), buf);
-
-  snprintf(buf, sizeof(buf), "60 %.2f  1/4 %.2f",
-           static_cast<double>(s.race_0_60_s),
-           static_cast<double>(s.race_quarter_mile_et_s));
   setLabelTextStatic(dashRaceLabel_, dashRaceText_, sizeof(dashRaceText_), buf);
 
   // ---- G-force widgets ----
@@ -1711,9 +2553,9 @@ void ScreenDashboard::updateTailPage(const state::VehicleState& s) {
 
 void ScreenDashboard::updateLedsPage(const state::VehicleState& s) {
   static const char* const kModeStr[] = {
-    "OFF", "STATIC", "BREATHE", "RAINBOW", "RPM", "FLASH", "METH", "FAULT", "SWEEP"
+    "OFF", "STATIC", "BREATHE", "RAINBOW", "RPM", "FLASH", "METH", "FAULT", "SWEEP", "GAUGE"
   };
-  constexpr uint8_t kModeStrCount = 9;
+  constexpr uint8_t kModeStrCount = 10;
 
   auto modeName = [&](state::LedMode m) -> const char* {
     const uint8_t idx = static_cast<uint8_t>(m);
@@ -1738,7 +2580,7 @@ void ScreenDashboard::updateLedsPage(const state::VehicleState& s) {
 
   // Highlight the active mode button for CH1 (as reference)
   for (uint8_t i = 0; i < 5; i++) {
-    const bool active = (static_cast<uint8_t>(s.led_channel_1_mode) == i);
+    const bool active = (s.led_channel_1_mode == s_ledModeCtxs[i].mode);
     setBgColor(ledModeBtns_[i],
         active ? lv_palette_main(LV_PALETTE_BLUE) : lv_color_hex(0x1a2540),
         LV_PART_MAIN);
@@ -1786,15 +2628,16 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
     setMeterValue(gpsSatMeter_, gpsSatNeedle_, gpsSatMeterLast_, sats);
   }
 
-  char info[128];
+  char info[160];
   snprintf(info, sizeof(info),
-           LV_SYMBOL_GPS " %s  FIX:%s  USED:%u VIEW:%u\nQ:%u MODE:%u  LAT: %.6f\nLON: %.6f",
+           LV_SYMBOL_GPS " %s  FIX:%s  USED:%u VIEW:%u\nQ:%u MODE:%u HDOP:%.1f\nLAT: %.6f\nLON: %.6f",
            gpsLive ? "LIVE" : "STALE",
            s.gps_fix ? "YES" : "NO",
            static_cast<unsigned>(s.gps_satellites),
            static_cast<unsigned>(s.gps_satellites_in_view),
            static_cast<unsigned>(s.gps_fix_quality),
            static_cast<unsigned>(s.gps_fix_mode),
+           static_cast<double>(s.gps_hdop_x10 / 10.0f),
            s.gps_latitude,
            s.gps_longitude);
   setLabelText(gpsInfoLabel_, info);
@@ -1929,11 +2772,12 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
 
   // ── GPS ──────────────────────────────────────────────────────────────────
   n += snprintf(buf + n, kBuf - n,
-      "GPS   Used:%u View:%u Q:%u M:%u  Alt:%dm  Lat:%.4f  Lon:%.4f\n",
+      "GPS   Used:%u View:%u Q:%u M:%u H:%.1f  Alt:%dm  Lat:%.4f  Lon:%.4f\n",
       static_cast<unsigned>(s.gps_satellites),
       static_cast<unsigned>(s.gps_satellites_in_view),
       static_cast<unsigned>(s.gps_fix_quality),
       static_cast<unsigned>(s.gps_fix_mode),
+      static_cast<double>(s.gps_hdop_x10 / 10.0f),
       static_cast<int>(s.gps_altitude_m),
       s.gps_latitude,
       s.gps_longitude);
@@ -1972,6 +2816,8 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
     setLabelText(btnLabel(benchTestBtn_),
         s.bench_test_mode ? "BENCH: ON" : "BENCH: OFF");
   }
+
+  refreshSdBrowser(now, false);
 }
 
 void ScreenDashboard::updateKnockPage(const state::VehicleState& s, uint32_t nowMs) {
@@ -2124,6 +2970,39 @@ void ScreenDashboard::updateKnockPage(const state::VehicleState& s, uint32_t now
   setLabelText(knockLogLabel_, buf);
 }
 
+void ScreenDashboard::updateActivePage(const state::VehicleState& s, uint32_t nowMs) {
+  // Only update the visible page. Updating hidden objects still dirties LVGL's
+  // region tracker and can produce stale partial redraws on tab switches.
+  switch (activePage_) {
+    case 0: updateDashPage(s);          break;
+    case 1: updateMethPage(s, nowMs);   break;
+    case 2: updateTailPage(s);          break;
+    case 3: updateLedsPage(s);          break;
+    case 4: updateGpsPage(s);           break;
+    case 5: updateTempsPage(s);         break;
+    case 6: updateDiagPage(s);          break;
+    case 7: updateKnockPage(s, nowMs);  break;
+    default: break;
+  }
+}
+
+void ScreenDashboard::forceContentRepaint() {
+  if (bottomEdgeGuard_) {
+    lv_obj_move_foreground(bottomEdgeGuard_);
+    lv_obj_invalidate(bottomEdgeGuard_);
+  }
+  if (kFullRepaintOnPageSwitch) {
+    lv_obj_invalidate(lv_scr_act());
+    return;
+  }
+  if (contentArea_) {
+    lv_obj_invalidate(contentArea_);
+  }
+  if (activePage_ < kPageCount && pages_[activePage_]) {
+    lv_obj_invalidate(pages_[activePage_]);
+  }
+}
+
 void ScreenDashboard::setActionFeedback(const char* text, uint32_t nowMs) {
   if (!text) return;
   strncpy(actionFeedback_, text, sizeof(actionFeedback_) - 1);
@@ -2154,6 +3033,145 @@ touch::TouchSample ScreenDashboard::normalizeRaw(const touch::TouchSample& raw) 
   if (t.x > kWidth)  t.x = static_cast<uint16_t>((static_cast<uint32_t>(t.x) * kWidth)  / 4095U);
   if (t.y > kHeight) t.y = static_cast<uint16_t>((static_cast<uint32_t>(t.y) * kHeight) / 4095U);
   return t;
+}
+
+void ScreenDashboard::setSdPathRoot() {
+  snprintf(sdCurrentPath_, sizeof(sdCurrentPath_), "/");
+  sdListOffset_ = 0;
+  sdBrowserLastRefreshMs_ = 0;
+}
+
+void ScreenDashboard::setSdPathParent() {
+  if (strcmp(sdCurrentPath_, "/") == 0) {
+    return;
+  }
+
+  char* slash = strrchr(sdCurrentPath_, '/');
+  if (!slash || slash == sdCurrentPath_) {
+    setSdPathRoot();
+    return;
+  }
+
+  *slash = '\0';
+  sdListOffset_ = 0;
+  sdBrowserLastRefreshMs_ = 0;
+}
+
+bool ScreenDashboard::enterSdDirectory(const char* name, uint32_t nowMs) {
+  if (!name || !name[0]) {
+    return false;
+  }
+
+  char next[sizeof(sdCurrentPath_)];
+  const int written = (strcmp(sdCurrentPath_, "/") == 0)
+      ? snprintf(next, sizeof(next), "/%s", name)
+      : snprintf(next, sizeof(next), "%s/%s", sdCurrentPath_, name);
+  if (written < 0 || static_cast<size_t>(written) >= sizeof(next)) {
+    setActionFeedback("SD PATH TOO LONG", nowMs);
+    return false;
+  }
+
+  snprintf(sdCurrentPath_, sizeof(sdCurrentPath_), "%s", next);
+  sdListOffset_ = 0;
+  refreshSdBrowser(nowMs, true);
+  return true;
+}
+
+void ScreenDashboard::refreshSdBrowser(uint32_t nowMs, bool force) {
+  if (!sdPathLabel_) {
+    return;
+  }
+  if (!force && sdBrowserLastRefreshMs_ != 0 &&
+      static_cast<uint32_t>(nowMs - sdBrowserLastRefreshMs_) < 3000U) {
+    return;
+  }
+  sdBrowserLastRefreshMs_ = nowMs;
+
+  auto clearRows = [this](const char* text) {
+    sdEntryCount_ = 0;
+    sdTotalEntries_ = 0;
+    for (uint8_t i = 0; i < kSdFileRowCount; ++i) {
+      sdEntries_[i] = {};
+      if (sdFileRowLabels_[i]) {
+        setLabelText(sdFileRowLabels_[i], text ? text : "--");
+      }
+      if (sdFileRows_[i]) {
+        setBgColor(sdFileRows_[i], lv_color_hex(0x101826), LV_PART_MAIN);
+      }
+    }
+  };
+
+  if (!sdMgr_ || !sdMgr_->mounted()) {
+    char status[64];
+    snprintf(status, sizeof(status), "SD: %s",
+             sdMgr_ ? sdMgr_->lastStatus() : "not_ready");
+    setLabelText(sdPathLabel_, status);
+    clearRows("--");
+    return;
+  }
+
+  size_t total = 0;
+  bool ok = sdMgr_->listDirectory(sdCurrentPath_, sdEntries_, kSdFileRowCount,
+                                  sdListOffset_, total);
+  if (ok && total > 0 && sdListOffset_ >= total) {
+    sdListOffset_ = static_cast<uint16_t>(((total - 1U) / kSdFileRowCount) * kSdFileRowCount);
+    ok = sdMgr_->listDirectory(sdCurrentPath_, sdEntries_, kSdFileRowCount,
+                               sdListOffset_, total);
+  }
+
+  if (!ok) {
+    setLabelText(sdPathLabel_, "SD: open failed");
+    clearRows("--");
+    return;
+  }
+
+  sdTotalEntries_ = (total > 65535U) ? static_cast<uint16_t>(65535U) : static_cast<uint16_t>(total);
+  sdEntryCount_ = 0;
+  for (uint8_t i = 0; i < kSdFileRowCount; ++i) {
+    if (sdEntries_[i].name[0]) {
+      ++sdEntryCount_;
+    }
+  }
+
+  const uint16_t first = (sdTotalEntries_ == 0) ? 0 : static_cast<uint16_t>(sdListOffset_ + 1U);
+  const uint16_t last = static_cast<uint16_t>(sdListOffset_ + sdEntryCount_);
+  char pathBuf[96];
+  snprintf(pathBuf, sizeof(pathBuf), "SD %s  %u-%u/%u",
+           sdCurrentPath_,
+           static_cast<unsigned>(first),
+           static_cast<unsigned>(last),
+           static_cast<unsigned>(sdTotalEntries_));
+  setLabelText(sdPathLabel_, pathBuf);
+
+  for (uint8_t i = 0; i < kSdFileRowCount; ++i) {
+    if (!sdFileRowLabels_[i]) {
+      continue;
+    }
+
+    if (i >= sdEntryCount_) {
+      setLabelText(sdFileRowLabels_[i], "--");
+      if (sdFileRows_[i]) {
+        setBgColor(sdFileRows_[i], lv_color_hex(0x101826), LV_PART_MAIN);
+      }
+      continue;
+    }
+
+    char line[72];
+    if (sdEntries_[i].isDirectory) {
+      snprintf(line, sizeof(line), "[DIR] %s", sdEntries_[i].name);
+      if (sdFileRows_[i]) {
+        setBgColor(sdFileRows_[i], lv_color_hex(0x173757), LV_PART_MAIN);
+      }
+    } else {
+      char sizeBuf[12];
+      formatFileSize(sdEntries_[i].sizeBytes, sizeBuf, sizeof(sizeBuf));
+      snprintf(line, sizeof(line), "[FILE] %-36s %s", sdEntries_[i].name, sizeBuf);
+      if (sdFileRows_[i]) {
+        setBgColor(sdFileRows_[i], lv_color_hex(0x101826), LV_PART_MAIN);
+      }
+    }
+    setLabelText(sdFileRowLabels_[i], line);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2213,6 +3231,7 @@ void ScreenDashboard::onTailShowMenuClicked(lv_event_t* e) {
   self->tailShowPage_ = 0;
   lv_obj_add_flag(self->tailModePanel_,   LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(self->tailShowPanel_, LV_OBJ_FLAG_HIDDEN);
+  if (self->pages_[2]) lv_obj_invalidate(self->pages_[2]);
   self->setActionFeedback("SHOW MENU", millis());
 }
 
@@ -2221,12 +3240,14 @@ void ScreenDashboard::onTailShowPrevClicked(lv_event_t* e) {
   self->tailShowPage_ = (self->tailShowPage_ == 0)
       ? static_cast<uint8_t>(kTaillightShowPageCount - 1U)
       : static_cast<uint8_t>(self->tailShowPage_ - 1U);
+  if (self->tailShowPanel_) lv_obj_invalidate(self->tailShowPanel_);
   self->setActionFeedback("SHOW PAGE", millis());
 }
 
 void ScreenDashboard::onTailShowNextClicked(lv_event_t* e) {
   auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
   self->tailShowPage_ = static_cast<uint8_t>((self->tailShowPage_ + 1U) % kTaillightShowPageCount);
+  if (self->tailShowPanel_) lv_obj_invalidate(self->tailShowPanel_);
   self->setActionFeedback("SHOW PAGE", millis());
 }
 
@@ -2234,6 +3255,7 @@ void ScreenDashboard::onTailShowBackClicked(lv_event_t* e) {
   auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
   lv_obj_clear_flag(self->tailModePanel_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(self->tailShowPanel_,   LV_OBJ_FLAG_HIDDEN);
+  if (self->pages_[2]) lv_obj_invalidate(self->pages_[2]);
   self->setActionFeedback("SHOW MENU EXIT", millis());
 }
 
@@ -2395,6 +3417,91 @@ void ScreenDashboard::onBenchTestClicked(lv_event_t* e) {
     vs.bench_test_mode = on;
   });
   self->setActionFeedback(on ? "BENCH TEST ON" : "BENCH TEST OFF", millis());
+}
+
+void ScreenDashboard::onSdFileRowClicked(lv_event_t* e) {
+  auto* ctx = static_cast<SdFileRowCtx*>(lv_event_get_user_data(e));
+  if (!ctx || !ctx->self || ctx->row >= ctx->self->sdEntryCount_) {
+    return;
+  }
+
+  ScreenDashboard* self = ctx->self;
+  const storage::SdFileEntry& entry = self->sdEntries_[ctx->row];
+  const uint32_t now = millis();
+  if (entry.isDirectory) {
+    self->enterSdDirectory(entry.name, now);
+    return;
+  }
+
+  char msg[48];
+  snprintf(msg, sizeof(msg), "SD FILE: %.36s", entry.name);
+  self->setActionFeedback(msg, now);
+}
+
+void ScreenDashboard::onSdUpClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) {
+    return;
+  }
+  const uint32_t now = millis();
+  self->setSdPathParent();
+  self->refreshSdBrowser(now, true);
+  self->setActionFeedback("SD UP", now);
+}
+
+void ScreenDashboard::onSdPrevClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) {
+    return;
+  }
+  if (self->sdListOffset_ >= kSdFileRowCount) {
+    self->sdListOffset_ = static_cast<uint16_t>(self->sdListOffset_ - kSdFileRowCount);
+  } else {
+    self->sdListOffset_ = 0;
+  }
+  const uint32_t now = millis();
+  self->refreshSdBrowser(now, true);
+  self->setActionFeedback("SD PREV", now);
+}
+
+void ScreenDashboard::onSdNextClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) {
+    return;
+  }
+  if (self->sdListOffset_ + kSdFileRowCount < self->sdTotalEntries_) {
+    self->sdListOffset_ = static_cast<uint16_t>(self->sdListOffset_ + kSdFileRowCount);
+  }
+  const uint32_t now = millis();
+  self->refreshSdBrowser(now, true);
+  self->setActionFeedback("SD NEXT", now);
+}
+
+void ScreenDashboard::onSdTestClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (!self->sdMgr_ || !self->sdMgr_->mounted()) {
+    self->setActionFeedback("SD NOT MOUNTED", now);
+    self->refreshSdBrowser(now, true);
+    return;
+  }
+
+  char line[64];
+  snprintf(line, sizeof(line), "sd_browser_test_ms=%lu", static_cast<unsigned long>(now));
+  const bool ok = self->sdMgr_->ensureFolder("/logs") &&
+                  self->sdMgr_->appendLine("/logs/sd_check.txt", line);
+  if (ok) {
+    snprintf(self->sdCurrentPath_, sizeof(self->sdCurrentPath_), "/logs");
+    self->sdListOffset_ = 0;
+    self->setActionFeedback("SD TEST OK", now);
+  } else {
+    self->setActionFeedback("SD TEST FAIL", now);
+  }
+  self->refreshSdBrowser(now, true);
 }
 
 }  // namespace ui

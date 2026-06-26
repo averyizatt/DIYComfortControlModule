@@ -8,10 +8,13 @@
 namespace hal {
 
 void initSharedSpiBusLock();
+void deassertSharedSpiDevices();
+bool sharedSpiBusLocked();
+const char* sharedSpiBusOwner();
 
 class SharedSpiBusLock {
  public:
-  SharedSpiBusLock();
+  explicit SharedSpiBusLock(const char* owner = nullptr);
   ~SharedSpiBusLock();
 
   SharedSpiBusLock(const SharedSpiBusLock&) = delete;
@@ -20,6 +23,7 @@ class SharedSpiBusLock {
   bool locked() const { return locked_; }
 
  private:
+  const char* owner_ = nullptr;
   bool locked_ = false;
 };
 

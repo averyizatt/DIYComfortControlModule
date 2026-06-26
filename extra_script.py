@@ -45,6 +45,23 @@ _gfx_databus = os.path.join(
     env["PROJECT_LIBDEPS_DIR"], env["PIOENV"],
     "GFX Library for Arduino", "src", "databus"
 )
+_gfx_src = os.path.join(
+    env["PROJECT_LIBDEPS_DIR"], env["PIOENV"],
+    "GFX Library for Arduino", "src"
+)
+# This project uses LCD DC on GPIO46. On ESP32-S3 + Arduino 3.x, avoid direct
+# GPIO register writes for GFX CS/DC if CCM_GFX_DISABLE_FAST_PINIO is enabled.
+# A missed DC edge turns pixel bytes into commands and shows up as white blocks.
+_patch_file(
+    os.path.join(_gfx_src, "Arduino_DataBus.h"),
+    "#elif defined(ESP32)\n#define USE_FAST_PINIO   ///< Use direct PORT register access\n#define HAS_PORT_SET_CLR ///< PORTs have set & clear registers\ntypedef uint32_t ARDUINOGFX_PORT_t;",
+    "#elif defined(ESP32)\n#if !defined(CCM_GFX_DISABLE_FAST_PINIO) || (CCM_GFX_DISABLE_FAST_PINIO == 0)\n#define USE_FAST_PINIO   ///< Use direct PORT register access\n#define HAS_PORT_SET_CLR ///< PORTs have set & clear registers\n#endif\ntypedef uint32_t ARDUINOGFX_PORT_t;\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\ntypedef volatile ARDUINOGFX_PORT_t *PORTreg_t;\n#endif",
+)
+_patch_file(
+    os.path.join(_gfx_src, "Arduino_DataBus.h"),
+    "#elif defined(ESP32)\n#if !defined(CCM_GFX_DISABLE_FAST_PINIO) || (CCM_GFX_DISABLE_FAST_PINIO == 0)\n#define USE_FAST_PINIO   ///< Use direct PORT register access\n#define HAS_PORT_SET_CLR ///< PORTs have set & clear registers\n#endif\ntypedef uint32_t ARDUINOGFX_PORT_t;\n#elif defined(ESP8266)",
+    "#elif defined(ESP32)\n#if !defined(CCM_GFX_DISABLE_FAST_PINIO) || (CCM_GFX_DISABLE_FAST_PINIO == 0)\n#define USE_FAST_PINIO   ///< Use direct PORT register access\n#define HAS_PORT_SET_CLR ///< PORTs have set & clear registers\n#endif\ntypedef uint32_t ARDUINOGFX_PORT_t;\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\ntypedef volatile ARDUINOGFX_PORT_t *PORTreg_t;\n#endif\n#elif defined(ESP8266)",
+)
 # _on_apb_change: local spi_t* _spi is already in scope
 _patch_file(
     os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
@@ -58,9 +75,49 @@ _patch_file(
     "_div = spiFrequencyToClockDiv(nullptr, _speed);",
 )
 _patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPI::DC_HIGH(void)\n{\n  *_dcPortSet = _dcPinMask;\n}",
+    "GFX_INLINE void Arduino_ESP32SPI::DC_HIGH(void)\n{\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n  digitalWrite(_dc, HIGH);\n#else\n  *_dcPortSet = _dcPinMask;\n#endif\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPI::DC_LOW(void)\n{\n  *_dcPortClr = _dcPinMask;\n}",
+    "GFX_INLINE void Arduino_ESP32SPI::DC_LOW(void)\n{\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n  digitalWrite(_dc, LOW);\n#else\n  *_dcPortClr = _dcPinMask;\n#endif\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPI::CS_HIGH(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n    *_csPortSet = _csPinMask;\n  }\n}",
+    "GFX_INLINE void Arduino_ESP32SPI::CS_HIGH(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n    digitalWrite(_cs, HIGH);\n#else\n    *_csPortSet = _csPinMask;\n#endif\n  }\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPI.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPI::CS_LOW(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n    *_csPortClr = _csPinMask;\n  }\n}",
+    "GFX_INLINE void Arduino_ESP32SPI::CS_LOW(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n    digitalWrite(_cs, LOW);\n#else\n    *_csPortClr = _csPinMask;\n#endif\n  }\n}",
+)
+_patch_file(
     os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
     "_div = spiFrequencyToClockDiv(_speed);",
     "_div = spiFrequencyToClockDiv(nullptr, _speed);",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPIDMA::DC_HIGH(void)\n{\n  *_dcPortSet = _dcPinMask;\n}",
+    "GFX_INLINE void Arduino_ESP32SPIDMA::DC_HIGH(void)\n{\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n  digitalWrite(_dc, HIGH);\n#else\n  *_dcPortSet = _dcPinMask;\n#endif\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPIDMA::DC_LOW(void)\n{\n  *_dcPortClr = _dcPinMask;\n}",
+    "GFX_INLINE void Arduino_ESP32SPIDMA::DC_LOW(void)\n{\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n  digitalWrite(_dc, LOW);\n#else\n  *_dcPortClr = _dcPinMask;\n#endif\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPIDMA::CS_HIGH(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n    *_csPortSet = _csPinMask;\n  }\n}",
+    "GFX_INLINE void Arduino_ESP32SPIDMA::CS_HIGH(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n    digitalWrite(_cs, HIGH);\n#else\n    *_csPortSet = _csPinMask;\n#endif\n  }\n}",
+)
+_patch_file(
+    os.path.join(_gfx_databus, "Arduino_ESP32SPIDMA.cpp"),
+    "GFX_INLINE void Arduino_ESP32SPIDMA::CS_LOW(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n    *_csPortClr = _csPinMask;\n  }\n}",
+    "GFX_INLINE void Arduino_ESP32SPIDMA::CS_LOW(void)\n{\n  if (_cs != GFX_NOT_DEFINED)\n  {\n#if defined(CCM_GFX_DISABLE_FAST_PINIO) && (CCM_GFX_DISABLE_FAST_PINIO != 0)\n    digitalWrite(_cs, LOW);\n#else\n    *_csPortClr = _csPinMask;\n#endif\n  }\n}",
 )
 # pioarduino + newer toolchains can treat narrowing in designated initializers
 # as an error for this file. Clamp/cast _speed for pclk_hz field.

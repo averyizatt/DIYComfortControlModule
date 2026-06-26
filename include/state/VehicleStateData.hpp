@@ -121,6 +121,7 @@ struct VehicleState {
   uint8_t gps_satellites_in_view = 0;
   uint8_t gps_fix_quality = 0;
   uint8_t gps_fix_mode = 0;
+  uint16_t gps_hdop_x10 = 0;
   bool can_online = false;
   uint32_t can_rx_count = 0;
   uint32_t can_tx_count = 0;

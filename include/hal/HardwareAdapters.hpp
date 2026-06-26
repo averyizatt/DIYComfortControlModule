@@ -49,6 +49,7 @@ class UartGpsAdapter : public GpsHal {
   void openSerial(uint32_t baud);
   void attachCustomNmeaFields();
   void maybeAutoBaud(uint32_t nowMs);
+  void sendUbx(uint8_t msgClass, uint8_t msgId, const uint8_t* payload, size_t payloadLen);
   void sendOptionalUbxTuning();
 
   HardwareSerial& serial_;
@@ -57,6 +58,7 @@ class UartGpsAdapter : public GpsHal {
   TinyGPSCustom gsvSatsInView_[6];
   TinyGPSCustom gsaFixMode_[6];
   core::GpsData latest_{};
+  uint32_t preferredBaud_ = 0;
   uint32_t currentBaud_ = 0;
   uint32_t lastBaudOpenMs_ = 0;
   uint32_t lastGoodSentenceMs_ = 0;

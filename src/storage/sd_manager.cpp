@@ -4,13 +4,57 @@
 
 #include "hal/SharedSpiBus.hpp"
 
+#ifndef CCM_SD_ENABLED
+#define CCM_SD_ENABLED 1
+#endif
+
+#ifndef CCM_SD_AUTOMOUNT
+#define CCM_SD_AUTOMOUNT 0
+#endif
+
 namespace storage {
+namespace {
+
+const char* baseName(const char* path) {
+  if (!path || path[0] == '\0') {
+    return "";
+  }
+  const char* slash = strrchr(path, '/');
+  if (!slash) {
+    return path;
+  }
+  return slash[1] ? slash + 1 : path;
+}
+
+void copyEntryName(char* dst, size_t dstLen, const char* src) {
+  if (!dst || dstLen == 0) return;
+  const char* name = baseName(src);
+  if (!name || name[0] == '\0') {
+    name = src ? src : "";
+  }
+  strncpy(dst, name, dstLen - 1);
+  dst[dstLen - 1] = '\0';
+}
+
+}  // namespace
 
 bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   lcdCsPin_ = lcdCsPin;
   sdCsPin_ = sdCsPin;
 
-  // The display driver starts the shared SPI instance during screen init.
+#if !CCM_SD_ENABLED
+  mounted_ = false;
+  setStatus("disabled", false);
+  Serial0.printf("[SD] disabled by build flag (cs=%u)\n", static_cast<unsigned>(sdCsPin_));
+  return false;
+#elif !CCM_SD_AUTOMOUNT
+  mounted_ = false;
+  setStatus("mount_deferred", false);
+  Serial0.printf("[SD] auto-mount skipped by build flag (cs=%u)\n",
+                 static_cast<unsigned>(sdCsPin_));
+  return false;
+#else
+  // setup() starts the shared Arduino SPI instance on the board's custom pins.
   // Keep both chip-selects deasserted before the SD init transaction.
   pinMode(lcdCsPin_, OUTPUT);
   pinMode(sdCsPin_, OUTPUT);
@@ -18,18 +62,20 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   digitalWrite(sdCsPin_, HIGH);
 
   {
-    hal::SharedSpiBusLock spiLock;
-    // SD.begin() manages CS internally; start slow on the shared SPI bus.
-    // Some cards/modules fail their power-up sequence when probed at 20 MHz.
-    mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
+    hal::SharedSpiBusLock spiLock("SD:begin");
+    // SD.begin() manages CS internally; start at the safest speed on the
+    // shared SPI bus. We only try faster rates if the card did not answer.
+    mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
     if (!mounted_) {
       delay(50);
       mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
     }
     if (!mounted_) {
       delay(50);
-      mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
+      mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
     }
+    digitalWrite(lcdCsPin_, HIGH);
+    digitalWrite(sdCsPin_, HIGH);
   }
   Serial0.printf("[SD] mount %s (cs=%u)\n", mounted_ ? "OK" : "FAILED (no card?)", static_cast<unsigned>(sdCsPin_));
 
@@ -38,30 +84,53 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
     return false;
   }
 
-  ensureFolder("/logs");
-  ensureFolder("/logs/can");
-  ensureFolder("/logs/gps");
-  ensureFolder("/logs/meth");
-  ensureFolder("/logs/knock");
-  ensureFolder("/logs/faults");
-  ensureFolder("/logs/tach");
-  ensureFolder("/logs/race");
-  ensureFolder("/ui");
-  ensureFolder("/ui/images");
-  ensureFolder("/ui/icons");
-  ensureFolder("/ui/themes");
-  ensureFolder("/ui/splash");
+  uint64_t cardSize = 0;
+  {
+    hal::SharedSpiBusLock spiLock("SD:size");
+    digitalWrite(lcdCsPin_, HIGH);
+    cardSize = SD.cardSize();
+    digitalWrite(sdCsPin_, HIGH);
+  }
+  Serial0.printf("[SD] card size=%lu MB\n",
+                 static_cast<unsigned long>(cardSize / (1024ULL * 1024ULL)));
 
-  setStatus("mounted", false);
+  bool foldersOk = true;
+  foldersOk &= ensureFolder("/logs");
+  foldersOk &= ensureFolder("/logs/can");
+  foldersOk &= ensureFolder("/logs/gps");
+  foldersOk &= ensureFolder("/logs/meth");
+  foldersOk &= ensureFolder("/logs/knock");
+  foldersOk &= ensureFolder("/logs/faults");
+  foldersOk &= ensureFolder("/logs/tach");
+  foldersOk &= ensureFolder("/logs/race");
+  foldersOk &= ensureFolder("/ui");
+  foldersOk &= ensureFolder("/ui/images");
+  foldersOk &= ensureFolder("/ui/icons");
+  foldersOk &= ensureFolder("/ui/themes");
+  foldersOk &= ensureFolder("/ui/splash");
+
+  setStatus(foldersOk ? "mounted" : "folder_failed", !foldersOk);
+  Serial0.printf("[SD] folders %s\n", foldersOk ? "ready" : "incomplete");
   return true;
+#endif
 }
 
 uint64_t SdManager::totalBytes() const {
-  return mounted_ ? SD.totalBytes() : 0;
+  if (!mounted_) return 0;
+  hal::SharedSpiBusLock spiLock("SD:total");
+  digitalWrite(lcdCsPin_, HIGH);
+  const uint64_t total = SD.totalBytes();
+  digitalWrite(sdCsPin_, HIGH);
+  return total;
 }
 
 uint64_t SdManager::usedBytes() const {
-  return mounted_ ? SD.usedBytes() : 0;
+  if (!mounted_) return 0;
+  hal::SharedSpiBusLock spiLock("SD:used");
+  digitalWrite(lcdCsPin_, HIGH);
+  const uint64_t used = SD.usedBytes();
+  digitalWrite(sdCsPin_, HIGH);
+  return used;
 }
 
 void SdManager::setStatus(const char* s, bool isError) {
@@ -72,18 +141,34 @@ void SdManager::setStatus(const char* s, bool isError) {
 
 bool SdManager::ensureFolder(const char* path) {
   if (!mounted_ || !path) return false;
-  if (SD.exists(path)) return true;
+  hal::SharedSpiBusLock spiLock("SD:mkdir");
+  digitalWrite(lcdCsPin_, HIGH);
+  if (SD.exists(path)) {
+    digitalWrite(sdCsPin_, HIGH);
+    return true;
+  }
   if (!SD.mkdir(path)) {
+    digitalWrite(sdCsPin_, HIGH);
     setStatus("mkdir_failed", true);
     return false;
   }
+  digitalWrite(sdCsPin_, HIGH);
   return true;
+}
+
+bool SdManager::exists(const char* path) const {
+  if (!mounted_ || !path) return false;
+  hal::SharedSpiBusLock spiLock("SD:exists");
+  digitalWrite(lcdCsPin_, HIGH);
+  const bool ok = SD.exists(path);
+  digitalWrite(sdCsPin_, HIGH);
+  return ok;
 }
 
 bool SdManager::appendLine(const char* path, const char* line) {
   if (!mounted_ || !path) return false;
 
-  hal::SharedSpiBusLock spiLock;
+  hal::SharedSpiBusLock spiLock("SD:append");
   digitalWrite(lcdCsPin_, HIGH);
   digitalWrite(sdCsPin_, LOW);
 
@@ -99,6 +184,46 @@ bool SdManager::appendLine(const char* path, const char* line) {
   digitalWrite(sdCsPin_, HIGH);
   setStatus(ok ? "write_ok" : "write_failed", !ok);
   return ok;
+}
+
+bool SdManager::listDirectory(const char* path, SdFileEntry* entries, size_t maxEntries,
+                              size_t offset, size_t& totalEntriesOut) const {
+  totalEntriesOut = 0;
+  if (!mounted_ || !path || !entries) return false;
+  for (size_t i = 0; i < maxEntries; ++i) {
+    entries[i] = SdFileEntry{};
+  }
+
+  hal::SharedSpiBusLock spiLock("SD:list");
+  digitalWrite(lcdCsPin_, HIGH);
+
+  File dir = SD.open(path);
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    digitalWrite(sdCsPin_, HIGH);
+    return false;
+  }
+
+  size_t stored = 0;
+  while (true) {
+    File entry = dir.openNextFile();
+    if (!entry) {
+      break;
+    }
+
+    const size_t index = totalEntriesOut++;
+    if (index >= offset && stored < maxEntries) {
+      SdFileEntry& dst = entries[stored++];
+      copyEntryName(dst.name, sizeof(dst.name), entry.name());
+      dst.sizeBytes = entry.isDirectory() ? 0U : static_cast<uint32_t>(entry.size());
+      dst.isDirectory = entry.isDirectory();
+    }
+    entry.close();
+  }
+
+  dir.close();
+  digitalWrite(sdCsPin_, HIGH);
+  return true;
 }
 
 }  // namespace storage

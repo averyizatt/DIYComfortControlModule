@@ -1,7 +1,5 @@
 #include "ui/asset_manager.h"
 
-#include <SD.h>
-
 namespace ui {
 
 bool AssetManager::begin(storage::SdManager* sd) {
@@ -11,7 +9,7 @@ bool AssetManager::begin(storage::SdManager* sd) {
 
 bool AssetManager::hasAsset(const char* path) const {
   if (!sd_ || !sd_->mounted() || !path) return false;
-  return SD.exists(path);
+  return sd_->exists(path);
 }
 
 String AssetManager::resolveOrFallback(const char* path, const char* fallback) const {

@@ -3,7 +3,12 @@
 namespace led {
 
 namespace {
-constexpr uint32_t kFrameIntervalMs = 16;
+#ifndef CCM_LED_FRAME_INTERVAL_MS
+#define CCM_LED_FRAME_INTERVAL_MS 33
+#endif
+
+constexpr uint32_t kFrameIntervalMs =
+    (CCM_LED_FRAME_INTERVAL_MS < 16) ? 16U : static_cast<uint32_t>(CCM_LED_FRAME_INTERVAL_MS);
 constexpr uint32_t kBreathingPeriodMs = 2200;
 constexpr uint32_t kWarningFlashMs = 120;
 constexpr uint32_t kCanFaultFlashMs = 100;
@@ -15,6 +20,9 @@ constexpr uint16_t kRpmGaugeStart = 1000;
 constexpr uint16_t kRpmGaugeGreenEnd = 3000;
 constexpr uint16_t kRpmGaugeYellowEnd = 5000;
 constexpr uint16_t kRpmGaugeRedEnd = 6000;
+constexpr uint8_t kRpmGaugePreviewBrightnessMin = 6;
+constexpr uint8_t kRpmGaugePreviewBrightnessMax = 28;
+constexpr uint8_t kRpmGaugePreviewBrightnessDivisor = 14;
 constexpr uint32_t kRpmGreen = 0x00D64A;
 constexpr uint32_t kRpmYellow = 0xFFD000;
 constexpr uint32_t kRpmRed = 0xFF2000;
@@ -266,9 +274,15 @@ void LedManager::renderChannel(Channel& ch, const state::VehicleState& s, uint32
     case state::LedMode::RPM_GAUGE: {
       const uint16_t rpm = effectiveRpm(s);
       const uint8_t lit = rpmGaugeLitCount(rpm, n);
+      const uint8_t previewBrightness = (rpm == 0U)
+          ? 0U
+          : min<uint8_t>(kRpmGaugePreviewBrightnessMax,
+                         max<uint8_t>(kRpmGaugePreviewBrightnessMin,
+                                      channelBrightness / kRpmGaugePreviewBrightnessDivisor));
       for (uint16_t i = 0; i < n; ++i) {
+        const uint8_t pixelBrightness = (i < lit) ? channelBrightness : previewBrightness;
         ch.strip->setPixelColor(offset + i,
-            i < lit ? scaleColor(rpmGaugeColor(i, n), channelBrightness) : 0U);
+            pixelBrightness > 0U ? scaleColor(rpmGaugeColor(i, n), pixelBrightness) : 0U);
       }
       break;
     }

@@ -48,6 +48,7 @@ struct GpsData {
   uint32_t satellitesInView = 0;
   uint8_t fixQuality = 0;
   uint8_t fixMode = 0;
+  uint16_t hdopHundredths = 0;
   uint32_t baud = 0;
   uint32_t charsProcessed = 0;
   uint32_t passedChecksum = 0;

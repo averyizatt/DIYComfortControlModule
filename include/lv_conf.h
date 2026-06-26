@@ -35,7 +35,10 @@
 /*====================
    HAL SETTINGS
  *====================*/
-#define LV_DISP_DEF_REFR_PERIOD   16   /* ms  ~60 FPS                    */
+#ifndef CCM_LVGL_REFRESH_PERIOD_MS
+#define CCM_LVGL_REFRESH_PERIOD_MS 16  /* ms  ~60 FPS cap                */
+#endif
+#define LV_DISP_DEF_REFR_PERIOD   CCM_LVGL_REFRESH_PERIOD_MS
 #define LV_INDEV_DEF_READ_PERIOD  12   /* ms  touch polling interval     */
 
 /* Use Arduino millis() as LVGL tick source */
@@ -110,7 +113,7 @@
 #define LV_FONT_MONTSERRAT_42 0
 #define LV_FONT_MONTSERRAT_44 0
 #define LV_FONT_MONTSERRAT_46 0
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_48 1
 
 #define LV_FONT_UNSCII_8    0
 #define LV_FONT_UNSCII_16   0

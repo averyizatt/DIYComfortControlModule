@@ -69,7 +69,7 @@ MCP2515 g_mcp2515(pins::kCanSpiCs);
 bool g_spiCanOnline = false;
 
 bool initSpiCan() {
-  hal::SharedSpiBusLock spiLock;
+  hal::SharedSpiBusLock spiLock("CAN:init");
   // The shared SPI bus is initialized once in setup(). Re-running SPI.begin()
   // here can disturb Arduino-ESP32 3.x peripheral ownership after the display
   // has attached to the same bus.
@@ -154,7 +154,7 @@ void CanManager::tick() {
     lastCanErrCheckMs_ = nowMs;
     uint8_t eflg = 0;
     {
-      hal::SharedSpiBusLock spiLock;
+      hal::SharedSpiBusLock spiLock("CAN:eflg");
       eflg = g_mcp2515.getErrorFlags();
     }
     const bool busOff    = (eflg & 0x20) != 0;  // TXBO
@@ -169,7 +169,7 @@ void CanManager::tick() {
         busOff    ? " BUSOFF-REINIT" :
         txErrPass ? " TX-ERR-PASSIVE" : "");
     if (rxOvr) {
-      hal::SharedSpiBusLock spiLock;
+      hal::SharedSpiBusLock spiLock("CAN:clear");
       g_mcp2515.clearRXnOVRFlags();
     }
     if (busOff) {
@@ -374,7 +374,7 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       tx.data[i] = frame.data[i];
     }
-    hal::SharedSpiBusLock spiLock;
+    hal::SharedSpiBusLock spiLock("CAN:tx");
     sent = g_mcp2515.sendMessage(&tx) == MCP2515::ERROR_OK;
   }
 #endif
@@ -413,7 +413,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
 #if CCM_HAS_SPI_CAN
   if (hwCanReady_ && g_spiCanOnline) {
     struct can_frame rx{};
-    hal::SharedSpiBusLock spiLock;
+    hal::SharedSpiBusLock spiLock("CAN:rx");
     if (g_mcp2515.readMessage(&rx) != MCP2515::ERROR_OK) {
       return false;
     }
@@ -755,6 +755,7 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.gps_fix = true;
     s.gps_fix_quality = 1;
     s.gps_fix_mode = 3;
+    s.gps_hdop_x10 = 9;
     s.gps_fix_type = 1;
     s.last_gps_ms = nowMs;
     s.gps_altitude_m = 128;

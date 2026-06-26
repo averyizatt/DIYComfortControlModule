@@ -7,6 +7,7 @@
 #include "race/race_manager.h"
 #include "settings/settings_manager.h"
 #include "state/vehicle_state.h"
+#include "storage/sd_manager.h"
 #include "touch/touch_manager.h"
 
 namespace ui {
@@ -18,7 +19,7 @@ class ScreenDashboard {
   void tick(const state::VehicleState& s, uint32_t nowMs);
   void handleTouch(const touch::TouchSample& sample, uint32_t nowMs);
   void attach(canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr,
-              settings::SettingsManager* settingsMgr);
+              settings::SettingsManager* settingsMgr, storage::SdManager* sdMgr);
   bool online() const { return online_; }
 
  private:
@@ -50,6 +51,7 @@ class ScreenDashboard {
   void buildTempsPage(lv_obj_t* parent);
   void buildDiagPage(lv_obj_t* parent);
   void buildKnockPage(lv_obj_t* parent);
+  void buildSdBrowser(lv_obj_t* parent);
   void showPage(uint8_t idx);
 
   // ---- Per-tick updates -----------------------------------------------
@@ -62,14 +64,21 @@ class ScreenDashboard {
   void updateTempsPage(const state::VehicleState& s);
   void updateDiagPage(const state::VehicleState& s);
   void updateKnockPage(const state::VehicleState& s, uint32_t nowMs);
+  void updateActivePage(const state::VehicleState& s, uint32_t nowMs);
+  void forceContentRepaint();
 
   // ---- Helpers --------------------------------------------------------
   void    setActionFeedback(const char* text, uint32_t nowMs);
   uint8_t nextMethRatio(uint8_t current) const;
   touch::TouchSample normalizeRaw(const touch::TouchSample& raw) const;
+  void refreshSdBrowser(uint32_t nowMs, bool force);
+  bool enterSdDirectory(const char* name, uint32_t nowMs);
+  void setSdPathRoot();
+  void setSdPathParent();
 
   // ---- LVGL callbacks -------------------------------------------------
   static void lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colors);
+  static void lvglRounderCb(lv_disp_drv_t* drv, lv_area_t* area);
   static void lvglTouchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data);
 
   // ---- Event handlers -------------------------------------------------
@@ -95,16 +104,24 @@ class ScreenDashboard {
   static void onKnockSimulateClicked(lv_event_t* e);
   static void onLedMasterSwitchChanged(lv_event_t* e);
   static void onBenchTestClicked(lv_event_t* e);
+  static void onSdFileRowClicked(lv_event_t* e);
+  static void onSdUpClicked(lv_event_t* e);
+  static void onSdPrevClicked(lv_event_t* e);
+  static void onSdNextClicked(lv_event_t* e);
+  static void onSdTestClicked(lv_event_t* e);
 
   // ---- Dependencies ---------------------------------------------------
   canbus::CanManager*           canMgr_      = nullptr;
   race::RacePerformanceManager* raceMgr_     = nullptr;
   settings::SettingsManager*    settingsMgr_ = nullptr;
+  storage::SdManager*           sdMgr_       = nullptr;
 
   bool     online_                = false;
   uint32_t actionFeedbackUntilMs_ = 0;
   char     actionFeedback_[48]    = {};
   uint8_t  activePage_            = 0;
+  bool     pageSwitchPending_      = false;
+  uint32_t lastStressPageSwitchMs_ = 0;
   uint32_t lastHeaderUpdateMs_    = 0;
   uint32_t lastPageUpdateMs_      = 0;
 #if !LV_TICK_CUSTOM
@@ -140,20 +157,22 @@ class ScreenDashboard {
   // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG 7=KNOCK)
   lv_obj_t* navBtns_[8]     = {};
   lv_obj_t* navBtnIcons_[8] = {};
+  lv_obj_t* bottomEdgeGuard_ = nullptr;
 
   // Page content panels (one visible at a time)
+  lv_obj_t* contentArea_ = nullptr;
   lv_obj_t* pages_[8] = {};
 
   // -- DASH page --
-  lv_obj_t* rpmArc_          = nullptr;
-  lv_obj_t* spdArc_          = nullptr;   // speed arc gauge (right)
+  lv_obj_t* rpmArc_          = nullptr;  // unused on the simplified DASH page
+  lv_obj_t* spdArc_          = nullptr;  // main MPH gauge
   lv_obj_t* rpmValLabel_     = nullptr;  // large RPM number
   lv_obj_t* spdValLabel_     = nullptr;  // large speed number
   lv_obj_t* boostBar_        = nullptr;
   lv_obj_t* boostValLabel_   = nullptr;
-  lv_obj_t* dashEnvLabel_    = nullptr;  // bat / cabin / IAT / sats
-  lv_obj_t* dashStatusLabel_ = nullptr;  // CAN / METH / TAIL online
-  lv_obj_t* dashRaceLabel_   = nullptr;  // 0-60 / 1/4 stats
+  lv_obj_t* dashEnvLabel_    = nullptr;  // meth duty / tank
+  lv_obj_t* dashStatusLabel_ = nullptr;  // meth activation state
+  lv_obj_t* dashRaceLabel_   = nullptr;  // compact voltage / GPS / IAT row
   lv_obj_t* raceAccelBtn_    = nullptr;
   lv_obj_t* raceLapBtn_      = nullptr;
   lv_obj_t* raceStopBtn_     = nullptr;
@@ -218,6 +237,20 @@ class ScreenDashboard {
   // -- DIAG page --
   lv_obj_t* diagLabel_     = nullptr;
   lv_obj_t* benchTestBtn_  = nullptr;
+  static constexpr uint8_t kSdFileRowCount = 5;
+  lv_obj_t* sdPathLabel_ = nullptr;
+  lv_obj_t* sdFileRows_[kSdFileRowCount] = {};
+  lv_obj_t* sdFileRowLabels_[kSdFileRowCount] = {};
+  lv_obj_t* sdUpBtn_ = nullptr;
+  lv_obj_t* sdPrevBtn_ = nullptr;
+  lv_obj_t* sdNextBtn_ = nullptr;
+  lv_obj_t* sdTestBtn_ = nullptr;
+  storage::SdFileEntry sdEntries_[kSdFileRowCount] = {};
+  uint8_t sdEntryCount_ = 0;
+  uint16_t sdTotalEntries_ = 0;
+  uint16_t sdListOffset_ = 0;
+  uint32_t sdBrowserLastRefreshMs_ = 0;
+  char sdCurrentPath_[64] = "/";
 
   // -- KNOCK page --
   lv_obj_t* knockStateLabel_       = nullptr;

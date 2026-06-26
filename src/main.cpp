@@ -6,6 +6,22 @@
 #define CCM_WEB_ENABLED 0
 #endif
 
+#ifndef CCM_SCREEN_TASK_PERIOD_MS
+#define CCM_SCREEN_TASK_PERIOD_MS 17
+#endif
+
+#ifndef CCM_DISPLAY_LCD_ONLY_TEST
+#define CCM_DISPLAY_LCD_ONLY_TEST 0
+#endif
+
+#ifndef CCM_LED_ENABLED
+#define CCM_LED_ENABLED 1
+#endif
+
+#ifndef CCM_LED_SHOW_SHARED_LOCK
+#define CCM_LED_SHOW_SHARED_LOCK 1
+#endif
+
 #if CCM_WEB_ENABLED
 #include <WiFi.h>
 #endif
@@ -39,9 +55,21 @@ namespace {
 canbus::CanManager g_can;
 settings::SettingsManager g_settings;
 
-constexpr uint16_t kMainLedCount = 18;
-constexpr uint16_t kCaseLedCount = 7;
-constexpr uint16_t kCaseLedOffset = 0;
+#ifndef CCM_MAIN_LED_COUNT
+#define CCM_MAIN_LED_COUNT 18
+#endif
+
+#ifndef CCM_CASE_LED_COUNT
+#define CCM_CASE_LED_COUNT 7
+#endif
+
+#ifndef CCM_CASE_LED_OFFSET
+#define CCM_CASE_LED_OFFSET 0
+#endif
+
+constexpr uint16_t kMainLedCount = CCM_MAIN_LED_COUNT;
+constexpr uint16_t kCaseLedCount = CCM_CASE_LED_COUNT;
+constexpr uint16_t kCaseLedOffset = CCM_CASE_LED_OFFSET;
 
 // GPS: UartGpsAdapter owns Serial2 (GPIO41=RX, GPIO42=TX @ 9600 baud)
 static ccm::hal::UartGpsAdapter g_gpsHal(Serial2);
@@ -110,11 +138,16 @@ void initTaskWatchdog() {
 #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 5)
   esp_task_wdt_config_t cfg{};
   cfg.timeout_ms = kTaskWatchdogTimeoutS * 1000;
-  cfg.idle_core_mask = (1U << portNUM_PROCESSORS) - 1U;
+  // We explicitly register critical tasks with TWDT; do not watch idle tasks.
+  // setup() performs blocking peripheral bring-up (e.g. SD mount), which can
+  // legitimately starve IDLE1 long enough to trigger false-positive resets.
+  cfg.idle_core_mask = 0;
   cfg.trigger_panic = true;
-  esp_err_t err = esp_task_wdt_init(&cfg);
+  // Reconfigure first to avoid noisy "already initialized" logs when Arduino
+  // core has already brought up TWDT before setup().
+  esp_err_t err = esp_task_wdt_reconfigure(&cfg);
   if (err == ESP_ERR_INVALID_STATE) {
-    err = esp_task_wdt_reconfigure(&cfg);
+    err = esp_task_wdt_init(&cfg);
   }
   if (err != ESP_OK) {
     Serial0.printf("[WDT] configure failed: %d\n", static_cast<int>(err));
@@ -297,19 +330,30 @@ void canTask(void*) {
 }
 
 void ledTask(void*) {
+#if !CCM_LED_ENABLED
+  vTaskDelete(nullptr);
+#else
   registerTaskWatchdog();
   while (true) {
     const state::VehicleState s = state::g_vehicle_state.read();
     if (s.led_startup_preview) {
       g_led.triggerStartupSweep();
     }
+#if CCM_LED_SHOW_SHARED_LOCK
+    {
+      hal::SharedSpiBusLock quietDisplayTiming("LED:show");
+      g_led.tick(s);
+    }
+#else
     g_led.tick(s);
+#endif
     state::g_vehicle_state.mutate([](state::VehicleState& st) {
       if (st.led_startup_preview) st.led_startup_preview = false;
     });
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(8));
   }
+#endif
 }
 
 #if CCM_WEB_ENABLED
@@ -468,7 +512,11 @@ void screenTask(void*) {
   registerTaskWatchdog();
   uint32_t lastFpsMs = millis();
   uint32_t frameCount = 0;
-  constexpr uint32_t kScreenTaskPeriodMs = 5;
+  constexpr uint32_t kScreenTaskPeriodMs =
+      (CCM_SCREEN_TASK_PERIOD_MS < 1) ? 1 : CCM_SCREEN_TASK_PERIOD_MS;
+  Serial0.printf("[SCREEN] task period=%lu ms fps_cap=%.1f\n",
+                 static_cast<unsigned long>(kScreenTaskPeriodMs),
+                 static_cast<double>(1000.0f / static_cast<float>(kScreenTaskPeriodMs)));
   TickType_t lastWake = xTaskGetTickCount();
 
   while (true) {
@@ -622,12 +670,13 @@ void gpsTask(void*) {
     if (fixLive != lastFix) {
       lastFix = fixLive;
       if (fixLive) {
-        Serial0.printf("[GPS] fix acquired - baud=%lu sats=%lu view=%lu q=%u mode=%u lat=%.6f lon=%.6f\n",
+        Serial0.printf("[GPS] fix acquired - baud=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f lat=%.6f lon=%.6f\n",
           static_cast<unsigned long>(d.baud),
           static_cast<unsigned long>(d.satellites),
           static_cast<unsigned long>(d.satellitesInView),
           static_cast<unsigned>(d.fixQuality),
           static_cast<unsigned>(d.fixMode),
+          static_cast<double>(d.hdopHundredths / 100.0f),
           d.latitude, d.longitude);
       } else {
         Serial0.println("[GPS] fix lost - searching...");
@@ -635,7 +684,7 @@ void gpsTask(void*) {
     } else if (!fixLive && (nowMs - lastSearchMs) >= 10000U) {
       lastSearchMs = nowMs;
       const uint32_t rxAge = d.lastRxMs == 0 ? 0xFFFFFFFFUL : (nowMs - d.lastRxMs);
-      Serial0.printf("[GPS] searching baud=%lu rx=%u rx_age=%lu chars=%lu ok=%lu err=%lu fix_sent=%lu sats=%lu view=%lu q=%u mode=%u\n",
+      Serial0.printf("[GPS] searching baud=%lu rx=%u rx_age=%lu chars=%lu ok=%lu err=%lu fix_sent=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f\n",
         static_cast<unsigned long>(d.baud),
         rxLive ? 1U : 0U,
         static_cast<unsigned long>(rxAge),
@@ -646,7 +695,8 @@ void gpsTask(void*) {
         static_cast<unsigned long>(d.satellites),
         static_cast<unsigned long>(d.satellitesInView),
         static_cast<unsigned>(d.fixQuality),
-        static_cast<unsigned>(d.fixMode));
+        static_cast<unsigned>(d.fixMode),
+        static_cast<double>(d.hdopHundredths / 100.0f));
     }
 
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
@@ -659,6 +709,7 @@ void gpsTask(void*) {
       s.gps_satellites_in_view = static_cast<uint8_t>(d.satellitesInView > 255U ? 255U : d.satellitesInView);
       s.gps_fix_quality = d.fixQuality;
       s.gps_fix_mode = d.fixMode;
+      s.gps_hdop_x10 = static_cast<uint16_t>((d.hdopHundredths + 5U) / 10U);
       s.gps_fix_type = fixLive
           ? (d.fixQuality > 0U ? d.fixQuality : (d.fixMode > 0U ? d.fixMode : 2U))
           : (d.passedChecksum > 0 ? 1U : 0U);
@@ -677,7 +728,7 @@ void gpsTask(void*) {
       if (d.lastRxMs != 0) s.last_gps_ms = d.lastRxMs;
     });
     feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(fixLive ? 50U : 20U));
   }
 }
 
@@ -703,7 +754,6 @@ void setup() {
   Serial0.begin(115200);
   delay(200);
   initTaskWatchdog();
-  registerTaskWatchdog();
 
   const esp_reset_reason_t resetReason = esp_reset_reason();
   Serial0.printf("[BOOT] reset=%s free_heap=%lu die_temp=%d\n",
@@ -752,7 +802,24 @@ void setup() {
   digitalWrite(pins::kSdCs, HIGH);
   digitalWrite(pins::kLcdCs, HIGH);
 
-  g_screen.attach(&g_can, &g_race, &g_settings);
+  // Start the one shared Arduino SPI instance used by LCD, CAN, and SD.
+  // Keeping all three devices on the same SPI driver avoids ESP32-S3/Arduino 3.x
+  // host reconfiguration glitches on the shared bus.
+  Serial0.printf("[SPI] shared Arduino SPI SCK=%u MISO=%u MOSI=%u SD_CS=%u CAN_CS=%u LCD_CS=%u\n",
+                 static_cast<unsigned>(pins::kSpiSck),
+                 static_cast<unsigned>(pins::kSpiMiso),
+                 static_cast<unsigned>(pins::kSpiMosi),
+                 static_cast<unsigned>(pins::kSdCs),
+                 static_cast<unsigned>(pins::kCanSpiCs),
+                 static_cast<unsigned>(pins::kLcdCs));
+  SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, -1);
+  digitalWrite(pins::kCanSpiCs, HIGH);
+  digitalWrite(pins::kSdCs, HIGH);
+  digitalWrite(pins::kLcdCs, HIGH);
+  delay(5);
+  feedTaskWatchdog();
+
+  g_screen.attach(&g_can, &g_race, &g_settings, &g_sd);
   Serial0.printf("[SETUP] heap free before screen init: %lu bytes\n",
     static_cast<unsigned long>(ESP.getFreeHeap()));
   Serial0.printf("[SCREEN] pins  CS=%d RST=%d DC=%d SCK=%d MOSI=%d MISO=%d\n",
@@ -764,15 +831,24 @@ void setup() {
   Serial0.printf("[SCREEN] begin() -> %s\n", screenOk ? "OK" : "FAILED");
   feedTaskWatchdog();
 
-  // CAN (CS=11), SD (CS=5), and LCD (CS=10) share the same SPI instance.
-  // Arduino_HWSPI already calls SPI.begin() during screen init; calling it again
-  // after the display is attached can corrupt display transfers on Arduino-ESP32 3.x.
+#if CCM_DISPLAY_LCD_ONLY_TEST
+  Serial0.println("[LCD-ONLY] enabled: skipping CAN, SD, touch, sensors, storage, race, web, and LED tasks");
+  Serial0.println("[TASK] core1=screen only");
+  createPinnedTask(screenTask, "screen_task", 12288, kPrioUi, kCoreUi);
+  createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
+  return;
+#endif
+
+  // CAN (CS=11), SD (CS=5), and LCD (CS=10) share the same SPI pins and the
+  // same Arduino SPI driver. All bus users take SharedSpiBusLock before IO.
   g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
   g_imu.begin(Wire);  // MPU-6050 shares the same I2C bus
   g_can.begin(true);
   // GPS starts at the configured baud and auto-probes common NMEA baud rates.
   g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO41 RX / GPIO42 TX
+  Serial0.println("[SD] begin start");
   g_sd.begin(pins::kLcdCs, pins::kSdCs);
+  Serial0.println("[SD] begin done");
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
   { char pfx[32]; snprintf(pfx, sizeof(pfx), "boot_%lu", static_cast<unsigned long>(millis())); g_logs.setSessionPrefix(pfx); }
@@ -780,8 +856,12 @@ void setup() {
   feedTaskWatchdog();
 
   // Channel 3 is the visible 7-LED case strip.
+#if CCM_LED_ENABLED
   g_led.begin(pins::kLedData1, pins::kLedData2, pins::kLedData3,
               kMainLedCount, kCaseLedCount, kCaseLedOffset);
+#else
+  Serial0.println("[LED] disabled by build flag");
+#endif
 #if CCM_WEB_ENABLED
   g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
 #endif
@@ -789,7 +869,9 @@ void setup() {
   Serial0.println("[TASK] core0=CAN/GPS/sensors/storage/race/hb core1=screen/touch/LED");
   createPinnedTask(canTask, "can_task", 6144, kPrioHighIo, kCoreIo);
   createPinnedTask(gpsTask, "gps_task", 6144, kPrioSensors, kCoreIo);
+#if CCM_LED_ENABLED
   createPinnedTask(ledTask, "led_task", 4096, kPrioBackground, kCoreUi);
+#endif
 #if CCM_WEB_ENABLED
   createPinnedTask(webTask, "web_task", 8192, kPrioBackground, kCoreIo);
 #endif

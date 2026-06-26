@@ -21,8 +21,9 @@ namespace {
 constexpr uint32_t kTachPwmInitialHz = 100;
 constexpr uint8_t kTachPwmResolutionBits = 8;
 
-constexpr uint32_t kGpsNoRxProbeMs = 3000;
-constexpr uint32_t kGpsNoGoodSentenceProbeMs = 5000;
+constexpr uint32_t kGpsNoRxProbeMs = 15000;
+constexpr uint32_t kGpsNoGoodSentenceProbeMs = 15000;
+constexpr uint32_t kGpsPreferredBaudHoldMs = 30000;
 constexpr uint32_t kGpsProbeBauds[] = {9600, 38400, 57600, 115200, 4800};
 constexpr const char* kGpsGgaTalkers[] = {"GPGGA", "GNGGA"};
 constexpr const char* kGpsGsvTalkers[] = {"GPGSV", "GNGSV", "GLGSV", "GAGSV", "GBGSV", "BDGSV"};
@@ -127,7 +128,7 @@ bool TwaiCanAdapter::receive(can::CanFrame& frame) {
 
 void UartGpsAdapter::openSerial(uint32_t baud) {
   serial_.end();
-  serial_.setRxBufferSize(512);
+  serial_.setRxBufferSize(2048);
   serial_.begin(baud, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
   while (serial_.available() > 0) {
     (void)serial_.read();
@@ -161,8 +162,45 @@ void UartGpsAdapter::attachCustomNmeaFields() {
 }
 
 bool UartGpsAdapter::begin(uint32_t baud) {
+  preferredBaud_ = baud;
+  baudProbeIndex_ = 0;
+  for (uint8_t i = 0; i < sizeof(kGpsProbeBauds) / sizeof(kGpsProbeBauds[0]); ++i) {
+    if (kGpsProbeBauds[i] == baud) {
+      baudProbeIndex_ = i;
+      break;
+    }
+  }
   openSerial(baud);
   return true;
+}
+
+void UartGpsAdapter::sendUbx(uint8_t msgClass, uint8_t msgId,
+                             const uint8_t* payload, size_t payloadLen) {
+  const uint8_t lenL = static_cast<uint8_t>(payloadLen & 0xFFU);
+  const uint8_t lenH = static_cast<uint8_t>((payloadLen >> 8) & 0xFFU);
+  uint8_t ckA = 0;
+  uint8_t ckB = 0;
+
+  auto addChecksum = [&](uint8_t b) {
+    ckA = static_cast<uint8_t>(ckA + b);
+    ckB = static_cast<uint8_t>(ckB + ckA);
+  };
+
+  const uint8_t header[] = {0xB5, 0x62, msgClass, msgId, lenL, lenH};
+  serial_.write(header, sizeof(header));
+  addChecksum(msgClass);
+  addChecksum(msgId);
+  addChecksum(lenL);
+  addChecksum(lenH);
+
+  for (size_t i = 0; i < payloadLen; ++i) {
+    const uint8_t b = payload ? payload[i] : 0;
+    serial_.write(b);
+    addChecksum(b);
+  }
+
+  serial_.write(ckA);
+  serial_.write(ckB);
 }
 
 void UartGpsAdapter::sendOptionalUbxTuning() {
@@ -170,46 +208,69 @@ void UartGpsAdapter::sendOptionalUbxTuning() {
     return;
   }
 
+  // UBX-CFG-NAV5: automotive dynamic model, automatic 2D/3D fix mode.
+  // This helps receivers stay locked while moving once a solution is forming.
+  static const uint8_t kUbxCfgNav5Automotive[] = {
+    0x05, 0x00,  // mask: dynamic model + fix mode
+    0x04,        // dynModel: automotive
+    0x03,        // fixMode: auto 2D/3D
+    0x00, 0x00, 0x00, 0x00,  // fixedAlt
+    0x00, 0x00, 0x00, 0x00,  // fixedAltVar
+    0x00,        // minElev
+    0x00,        // drLimit
+    0x00, 0x00,  // pDop
+    0x00, 0x00,  // tDop
+    0x00, 0x00,  // pAcc
+    0x00, 0x00,  // tAcc
+    0x00,        // staticHoldThresh
+    0x00,        // dgpsTimeOut
+    0x00,        // cnoThreshNumSVs
+    0x00,        // cnoThresh
+    0x00, 0x00,  // reserved1
+    0x00, 0x00,  // staticHoldMaxDist
+    0x00,        // utcStandard
+    0x00, 0x00, 0x00, 0x00, 0x00  // reserved2
+  };
+  sendUbx(0x06, 0x24, kUbxCfgNav5Automotive, sizeof(kUbxCfgNav5Automotive));
+
   if (currentBaud_ >= 38400U) {
     // Set navigation update rate to 5 Hz (200 ms measurement period).
     // UBX-CFG-RATE: measRate=200 ms, navRate=1, timeRef=GPS.
-    // CK_A=0xDE, CK_B=0x6A.
-    static const uint8_t kUbxSetRate5Hz[] = {
-      0xB5, 0x62,  // UBX sync header
-      0x06, 0x08,  // class=CFG, id=RATE
-      0x06, 0x00,  // payload length = 6
+    static const uint8_t kUbxSetRate5HzPayload[] = {
       0xC8, 0x00,  // measRate: 200 ms (5 Hz), little-endian
       0x01, 0x00,  // navRate: 1 solution per measurement epoch
-      0x01, 0x00,  // timeRef: GPS time
-      0xDE, 0x6A   // CK_A, CK_B
+      0x01, 0x00   // timeRef: GPS time
     };
-    serial_.write(kUbxSetRate5Hz, sizeof(kUbxSetRate5Hz));
+    sendUbx(0x06, 0x08, kUbxSetRate5HzPayload, sizeof(kUbxSetRate5HzPayload));
   }
 
-  // Enable SBAS (WAAS/EGNOS/MSAS) augmentation for faster first fix.
+  // Enable SBAS (WAAS/EGNOS/MSAS) augmentation where available.
   // UBX-CFG-SBAS: enable, all usage bits, 3 channels, auto-scan.
-  // CK_A=0x2F, CK_B=0xD5.
-  static const uint8_t kUbxEnableSbas[] = {
-    0xB5, 0x62,              // UBX sync header
-    0x06, 0x16,              // class=CFG, id=SBAS
-    0x08, 0x00,              // payload length = 8
+  static const uint8_t kUbxEnableSbasPayload[] = {
     0x01,                    // mode: enable SBAS
     0x07,                    // usage: range + differential + integrity
     0x03,                    // max SBAS channels
     0x00,                    // scanmode2
-    0x00, 0x00, 0x00, 0x00, // scanmode1: auto-scan all PRNs
-    0x2F, 0xD5               // CK_A, CK_B
+    0x00, 0x00, 0x00, 0x00  // scanmode1: auto-scan all PRNs
   };
-  serial_.write(kUbxEnableSbas, sizeof(kUbxEnableSbas));
+  sendUbx(0x06, 0x16, kUbxEnableSbasPayload, sizeof(kUbxEnableSbasPayload));
   serial_.flush();
 
   ubxTuningSent_ = true;
-  Serial0.printf("[GPS] NMEA detected at %lu baud; sent optional UBX tuning%s\n",
+  Serial0.printf("[GPS] NMEA detected at %lu baud; sent UBX automotive+SBAS tuning%s\n",
                  static_cast<unsigned long>(currentBaud_),
                  currentBaud_ >= 38400U ? " + 5Hz rate" : "");
 }
 
 void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
+  if (lastGoodSentenceMs_ != 0) {
+    return;
+  }
+  if (preferredBaud_ != 0 && currentBaud_ == preferredBaud_ &&
+      (nowMs - lastBaudOpenMs_) < kGpsPreferredBaudHoldMs) {
+    return;
+  }
+
   const bool noRx = latest_.lastRxMs == 0 && (nowMs - lastBaudOpenMs_) >= kGpsNoRxProbeMs;
   const bool noGoodSentence = latest_.lastRxMs != 0 && lastGoodSentenceMs_ == 0 &&
                               (nowMs - lastBaudOpenMs_) >= kGpsNoGoodSentenceProbeMs;
@@ -222,7 +283,7 @@ void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
     baudProbeIndex_ = static_cast<uint8_t>((baudProbeIndex_ + 1U) % probeCount);
     const uint32_t nextBaud = kGpsProbeBauds[baudProbeIndex_];
     if (nextBaud != currentBaud_) {
-      Serial0.printf("[GPS] no valid NMEA at %lu baud; probing %lu baud\n",
+      Serial0.printf("[GPS] no valid NMEA after hold at %lu baud; probing %lu baud\n",
                      static_cast<unsigned long>(currentBaud_),
                      static_cast<unsigned long>(nextBaud));
       openSerial(nextBaud);
@@ -268,9 +329,12 @@ void UartGpsAdapter::poll() {
   latest_.passedChecksum = parser_.passedChecksum();
   latest_.failedChecksum = parser_.failedChecksum();
   latest_.sentencesWithFix = parser_.sentencesWithFix();
-  const bool hasCurrentNmeaFix = seenGgaFixQuality_
-      ? (latest_.fixQuality > 0U)
-      : (seenGsaFixMode_ && latest_.fixMode >= 2U);
+  latest_.hdopHundredths = parser_.hdop.isValid()
+      ? static_cast<uint16_t>(parser_.hdop.value() > 65535UL ? 65535UL : parser_.hdop.value())
+      : 0U;
+  const bool hasCurrentNmeaFix =
+      (seenGgaFixQuality_ && latest_.fixQuality > 0U) ||
+      (seenGsaFixMode_ && latest_.fixMode >= 2U);
   latest_.validFix = parser_.location.isValid() && hasCurrentNmeaFix;
   if (latest_.passedChecksum != lastPassedChecksum_) {
     lastPassedChecksum_ = latest_.passedChecksum;

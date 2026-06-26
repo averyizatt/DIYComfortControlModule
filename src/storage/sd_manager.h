@@ -6,9 +6,15 @@
 
 namespace storage {
 
+struct SdFileEntry {
+  char name[40] = {};
+  uint32_t sizeBytes = 0;
+  bool isDirectory = false;
+};
+
 class SdManager {
  public:
-  // SPI bus must be initialised externally (SPI.begin) before calling begin().
+  // The shared Arduino SPI instance must already be started by setup().
   bool begin(uint8_t lcdCsPin, uint8_t sdCsPin);
   bool mounted() const { return mounted_; }
   uint64_t totalBytes() const;
@@ -16,8 +22,11 @@ class SdManager {
   const char* lastStatus() const { return lastStatus_; }
   uint32_t errorCount() const { return errorCount_; }
 
+  bool exists(const char* path) const;
   bool ensureFolder(const char* path);
   bool appendLine(const char* path, const char* line);
+  bool listDirectory(const char* path, SdFileEntry* entries, size_t maxEntries,
+                     size_t offset, size_t& totalEntriesOut) const;
 
  private:
   void setStatus(const char* s, bool isError);
