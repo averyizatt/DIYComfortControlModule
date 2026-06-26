@@ -1111,13 +1111,9 @@ void setup() {
   }
 
   SPI.begin();
-<<<<<<< HEAD
-  pinMode(pins::CAN_SPI_INT, INPUT_PULLUP);
-=======
   // Init relay AFTER SPI.begin() so SPI cannot reclaim the pump pin.
   pumpDriver.beginRelay(pins::PUMP_OUT, config.relayPeriodMs);
   pinMode(pins::CAN_SPI_INT, INPUT);
->>>>>>> d0c50ae0a43a33aa5756daf64d60ee02868d0892
   if (initCanBus()) {
     Serial.println("CAN: MCP2515 online");
     lastMasterRxMs = millis();
