@@ -25,6 +25,8 @@ enum class LedMode : uint8_t {
   CAN_FAULT = 7,
   STARTUP_SWEEP = 8,
   RPM_GAUGE = 9,
+  LOW_LIGHT = 10,
+  HIGH_LIGHT = 11,
 };
 
 enum class RaceMode : uint8_t {
@@ -71,6 +73,7 @@ struct VehicleState {
   uint8_t meth_flow_status = 0;
   uint8_t meth_selected_ratio_percent = 50;
   uint8_t meth_config_version = 0;
+  uint8_t meth_fault_flags = 0;
   bool meth_desired_armed = false;
 
   bool knock_enabled = true;
@@ -92,6 +95,7 @@ struct VehicleState {
 
   float knock_boost_enable_kpa = 120.0f;
   uint16_t knock_rpm_enable_min = 2500;
+  float knock_gain = 1.0f;
   float knock_threshold_multiplier = 2.5f;
   float knock_threshold_offset = 8.0f;
   uint16_t knock_event_cooldown_ms = 250;
@@ -170,12 +174,12 @@ struct VehicleState {
   bool led_channel_1_enabled = true;
   bool led_channel_2_enabled = true;
   bool led_channel_3_enabled = true;
-  uint32_t led_channel_1_color = 0x00FF80;
-  uint32_t led_channel_2_color = 0x0080FF;
-  uint32_t led_channel_3_color = 0xFF8000;
-  LedMode led_channel_1_mode = LedMode::STATIC_COLOR;
-  LedMode led_channel_2_mode = LedMode::STATIC_COLOR;
-  LedMode led_channel_3_mode = LedMode::RPM_GAUGE;
+  uint32_t led_channel_1_color = 0xFFFFFF;
+  uint32_t led_channel_2_color = 0xFFFFFF;
+  uint32_t led_channel_3_color = 0xFFFFFF;
+  LedMode led_channel_1_mode = LedMode::RPM_GAUGE;
+  LedMode led_channel_2_mode = LedMode::LOW_LIGHT;
+  LedMode led_channel_3_mode = LedMode::LOW_LIGHT;
   uint8_t led_channel_1_brightness = 180;
   uint8_t led_channel_2_brightness = 180;
   uint8_t led_channel_3_brightness = 180;

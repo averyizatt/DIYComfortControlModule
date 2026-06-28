@@ -64,10 +64,30 @@ void test_knock_and_sensor_frames_pack_expected_bytes() {
   TEST_ASSERT_EQUAL_UINT8(0x34, sensor.data[6]);
 }
 
+void test_meth_config_broadcast_has_required_fields_and_checksum() {
+  state::VehicleState s{};
+  s.meth_config_version = 7;
+  s.meth_desired_armed = true;
+  s.meth_selected_ratio_percent = 60;
+
+  const auto frame = canbus::packMethConfigState(s);
+  can_protocol::MethConfigBroadcast msg{};
+  TEST_ASSERT_TRUE(can_protocol::unpackMethConfigBroadcast(frame, msg));
+  TEST_ASSERT_EQUAL_UINT8(7, msg.version);
+  TEST_ASSERT_EQUAL_UINT8(1, msg.desired_armed);
+  TEST_ASSERT_EQUAL_UINT8(60, msg.ratio_percent);
+  TEST_ASSERT_EQUAL_UINT8(114, msg.boost_trigger_kpa);
+  TEST_ASSERT_EQUAL_UINT8(can_protocol::tempToOffset40(50), msg.iat_threshold_offset40);
+  TEST_ASSERT_EQUAL_UINT8(100, msg.max_pump_duty);
+  TEST_ASSERT_EQUAL_UINT8(0x03, msg.failsafe_flags);
+  TEST_ASSERT_TRUE(can_protocol::validateMethConfigChecksum(msg));
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_taillight_and_meth_frames_remain_compatible);
   RUN_TEST(test_invalid_dlc_and_endian_handling);
   RUN_TEST(test_knock_and_sensor_frames_pack_expected_bytes);
+  RUN_TEST(test_meth_config_broadcast_has_required_fields_and_checksum);
   return UNITY_END();
 }

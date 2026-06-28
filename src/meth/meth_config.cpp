@@ -21,8 +21,10 @@ can_protocol::CanFrame toCanBroadcast(const DesiredConfig& cfg) {
   m.version = cfg.version;
   m.desired_armed = cfg.armed ? 1 : 0;
   m.ratio_percent = sanitizeRatio(cfg.ratio_percent);
-  // boost_trigger_kpa, iat_threshold_offset40, max_pump_duty, failsafe_flags
-  // are intentionally left 0: the meth module owns those parameters.
+  m.boost_trigger_kpa = 114;  // ~3.5 psi boost above a 90 kPa local baro default
+  m.iat_threshold_offset40 = can_protocol::tempToOffset40(50);
+  m.max_pump_duty = 100;
+  m.failsafe_flags = 0x03;  // low tank + sensor validity required
   return can_protocol::packMethConfigBroadcast(m);
 }
 

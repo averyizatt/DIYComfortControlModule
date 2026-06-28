@@ -8,11 +8,27 @@ namespace settings {
 inline AppSettings normalizeSettings(AppSettings settings) {
   if (settings.display_brightness < 10) settings.display_brightness = 10;
   if (settings.meth_selected_ratio_percent > 100) settings.meth_selected_ratio_percent = 100;
+  if (settings.led_global_brightness < 10) settings.led_global_brightness = 180;
+  settings.led_ch_mode[0] = 9;
+  for (uint8_t i = 1; i < 3; ++i) {
+    if (settings.led_ch_mode[i] == 1) settings.led_ch_mode[i] = 10;
+    else if (settings.led_ch_mode[i] == 2) settings.led_ch_mode[i] = 11;
+    else if (settings.led_ch_mode[i] != 0 &&
+             settings.led_ch_mode[i] != 10 &&
+             settings.led_ch_mode[i] != 11) {
+      settings.led_ch_mode[i] = 10;
+    }
+  }
+  for (uint8_t i = 0; i < 3; ++i) {
+    if (settings.led_ch_brightness[i] < 10) settings.led_ch_brightness[i] = 180;
+  }
 
   if (settings.knock_warning_threshold_count < 1) settings.knock_warning_threshold_count = 1;
   if (settings.knock_critical_threshold_count < settings.knock_warning_threshold_count) {
     settings.knock_critical_threshold_count = settings.knock_warning_threshold_count;
   }
+  if (settings.knock_gain < 0.25f) settings.knock_gain = 0.25f;
+  if (settings.knock_gain > 8.0f) settings.knock_gain = 8.0f;
   if (settings.knock_threshold_multiplier < 1.0f) settings.knock_threshold_multiplier = 1.0f;
   if (settings.knock_event_cooldown_ms < 50) settings.knock_event_cooldown_ms = 50;
   if (settings.knock_response_mode > 3) settings.knock_response_mode = 1;

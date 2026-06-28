@@ -20,19 +20,19 @@ const char kIndexHtml[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Foxbody Cabin Master</title><style>
 *{box-sizing:border-box}
-body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0;line-height:1.35}
-header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55}
+body{font-family:{{UI_FONT_STACK}};background:#000;color:#f3f6fa;margin:0;line-height:1.35}
+header{padding:16px 18px;background:#000;border-bottom:2px solid #3a1212}
 h1{margin:0;font-size:clamp(28px,5vw,44px);letter-spacing:.5px}
 .sub{margin-top:6px;color:#b8c4d8;font-size:clamp(13px,2.2vw,18px)}
 main{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;max-width:1320px;margin:0 auto}
-.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27;min-width:0}
+.card{border:2px solid #5c1717;border-radius:12px;padding:14px;background:#120606;min-width:0}
 .card h2{margin:0 0 10px 0;font-size:clamp(22px,3.3vw,30px)}
-pre{margin:0;background:#0f141c;border:1px solid #2f3d51;border-radius:8px;padding:10px;font-size:clamp(14px,2.25vw,20px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+pre{margin:0;background:#050000;border:1px solid #3a1212;border-radius:8px;padding:10px;font-size:clamp(14px,2.25vw,20px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
 .warn{font-size:clamp(14px,2.3vw,18px);font-weight:700;color:#ffd27d}
 .actions{display:grid;grid-template-columns:repeat(2,minmax(130px,1fr));gap:8px}
-button{font:inherit;font-size:clamp(16px,2.6vw,22px);font-weight:800;padding:12px;border-radius:10px;border:2px solid #4c6488;background:#243246;color:#f0f4ff}
+button{font:inherit;font-size:clamp(16px,2.6vw,22px);font-weight:800;padding:12px;border-radius:10px;border:2px solid #8e1b1b;background:#4a0b0b;color:#fff4f4}
 button:active{transform:scale(.99)}
-a.link{color:#8ec8ff;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
+a.link{color:#ff8a8a;font-size:clamp(16px,2.4vw,22px);text-decoration:none}
 @media (max-width:760px){.actions{grid-template-columns:1fr}}
 </style></head>
 <body>
@@ -68,12 +68,12 @@ setInterval(updatePanels,1000);updatePanels();
 const char kCanStatusHtml[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Foxbody CAN Status</title><style>
-*{box-sizing:border-box}body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0}
-header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55}
+*{box-sizing:border-box}body{font-family:{{UI_FONT_STACK}};background:#000;color:#f3f6fa;margin:0}
+header{padding:16px 18px;background:#000;border-bottom:2px solid #3a1212}
 h1{margin:0;font-size:clamp(28px,5vw,44px)}main{padding:14px;max-width:1200px;margin:0 auto}
-.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27}
-pre{margin:0;background:#0f141c;border:1px solid #2f3d51;border-radius:8px;padding:10px;font-size:clamp(14px,2.4vw,22px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
-a{display:inline-block;margin-bottom:10px;color:#8ec8ff;font-size:clamp(16px,2.2vw,22px)}
+.card{border:2px solid #5c1717;border-radius:12px;padding:14px;background:#120606}
+pre{margin:0;background:#050000;border:1px solid #3a1212;border-radius:8px;padding:10px;font-size:clamp(14px,2.4vw,22px);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+a{display:inline-block;margin-bottom:10px;color:#ff8a8a;font-size:clamp(16px,2.2vw,22px)}
 </style></head>
 <body><header><h1>CAN Status</h1></header><main><a href='/'>← Back to Dashboard</a><div class='card'><pre id='canStatus'>Loading CAN status...</pre></div></main>
 <script>
@@ -87,8 +87,8 @@ const char kKnockHtml[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Knock Sense</title><style>
 *{box-sizing:border-box}
-body{font-family:{{UI_FONT_STACK}};background:#0f1114;color:#f3f6fa;margin:0;line-height:1.35}
-header{padding:16px 18px;background:#161c24;border-bottom:2px solid #2f3f55;display:flex;align-items:center;gap:16px}
+body{font-family:{{UI_FONT_STACK}};background:#000;color:#f3f6fa;margin:0;line-height:1.35}
+header{padding:16px 18px;background:#000;border-bottom:2px solid #3a1212;display:flex;align-items:center;gap:16px}
 h1{margin:0;font-size:clamp(24px,4vw,40px);letter-spacing:.5px}
 .badge{padding:4px 14px;border-radius:20px;font-size:clamp(13px,1.8vw,17px);font-weight:700}
 .badge-ok{background:#1a3a1a;color:#00e676;border:1px solid #00e676}
@@ -96,20 +96,20 @@ h1{margin:0;font-size:clamp(24px,4vw,40px);letter-spacing:.5px}
 .badge-crit{background:#3a0000;color:#ff5252;border:1px solid #ff5252}
 .badge-off{background:#1a1a2a;color:#667788;border:1px solid #445566}
 main{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px;max-width:1400px;margin:0 auto}
-.card{border:2px solid #33445f;border-radius:12px;padding:14px;background:#171d27;min-width:0}
+.card{border:2px solid #5c1717;border-radius:12px;padding:14px;background:#120606;min-width:0}
 .card h2{margin:0 0 10px;font-size:clamp(18px,2.5vw,26px)}
 .metric-row{display:flex;align-items:center;gap:10px;margin:6px 0}
 .metric-name{min-width:110px;color:#8fa8c0;font-size:clamp(13px,1.8vw,17px)}
 .metric-val{font-size:clamp(15px,2.2vw,21px);font-weight:700}
-.bar-wrap{flex:1;background:#0f141c;border-radius:4px;height:16px;overflow:hidden;border:1px solid #2a3a50}
+.bar-wrap{flex:1;background:#050000;border-radius:4px;height:16px;overflow:hidden;border:1px solid #3a1212}
 .bar-fill{height:100%;border-radius:4px;transition:width .3s,background .3s}
 .note{font-size:clamp(12px,1.6vw,15px);color:#7a8a9a;margin-top:6px}
 .actions{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px;margin-top:10px}
-button{font:inherit;font-size:clamp(14px,2vw,19px);font-weight:700;padding:10px;border-radius:9px;border:2px solid #4c6488;background:#243246;color:#f0f4ff;cursor:pointer}
+button{font:inherit;font-size:clamp(14px,2vw,19px);font-weight:700;padding:10px;border-radius:9px;border:2px solid #8e1b1b;background:#4a0b0b;color:#fff4f4;cursor:pointer}
 button:active{transform:scale(.98)}
 button.danger{border-color:#882222;background:#3a1010}
 button.sim{border-color:#7a5a00;background:#2a1e00;color:#ffd060}
-a.back{color:#8ec8ff;font-size:clamp(14px,2vw,18px);text-decoration:none}
+a.back{color:#ff8a8a;font-size:clamp(14px,2vw,18px);text-decoration:none}
 canvas{display:block;width:100%;height:140px;background:#0a0e14;border-radius:8px;border:1px solid #2a3a50}
 .setting-row{display:flex;align-items:center;gap:8px;margin:5px 0}
 .setting-row label{min-width:170px;font-size:clamp(12px,1.7vw,16px);color:#8fa8c0}
@@ -165,6 +165,7 @@ canvas{display:block;width:100%;height:140px;background:#0a0e14;border-radius:8p
   <p class='note'>Simulate only works in demo / dev builds.</p>
 </div>
 <div class='card'><h2>Settings</h2>
+  <div class='setting-row'><label>Signal Gain</label><input id='sGain' type='number' step='0.25' min='0.25' max='8'></div>
   <div class='setting-row'><label>Threshold ×</label><input id='sMult' type='number' step='0.1' min='1' max='10'></div>
   <div class='setting-row'><label>Boost Enable kPa</label><input id='sBoost' type='number' step='1'></div>
   <div class='setting-row'><label>RPM Enable</label><input id='sRpm' type='number' step='100'></div>
@@ -198,18 +199,22 @@ async function knockAction(action){
 }
 async function saveSettings(){
   const multEl=document.getElementById('sMult');
+  const gainEl=document.getElementById('sGain');
   const boostEl=document.getElementById('sBoost');
   const rpmEl=document.getElementById('sRpm');
   const respEl=document.getElementById('sResp');
   const mult=parseFloat(multEl.value);
+  const gain=parseFloat(gainEl.value);
   const boost=parseFloat(boostEl.value);
   const rpm=parseInt(rpmEl.value);
   const resp=parseInt(respEl.value);
   if(isNaN(mult)||mult<1){alert('Threshold multiplier must be a number >= 1');return;}
+  if(isNaN(gain)||gain<0.25||gain>8){alert('Signal gain must be between 0.25 and 8');return;}
   if(isNaN(boost)||boost<0){alert('Boost enable kPa must be a valid number');return;}
   if(isNaN(rpm)||rpm<0){alert('RPM enable must be a valid number');return;}
   if(isNaN(resp)){alert('Response mode is required');return;}
   const payload={
+    knock_gain:gain,
     knock_threshold_multiplier:mult,
     knock_boost_enable_kpa:boost,
     knock_rpm_enable_min:rpm,
@@ -223,6 +228,7 @@ function setV(id,v,unit){const el=document.getElementById(id);if(el)el.textConte
 function setBar(id,pct){const el=document.getElementById(id);if(!el)return;el.style.width=Math.min(100,Math.max(0,pct))+'%';if(pct>=90)el.style.background='#cc2222';else if(pct>=60)el.style.background='#cc7700';else el.style.background=(id==='bEnergy'?'#2255aa':id==='bBaseline'?'#22aa55':'#aa7722');}
 async function loadSettings(){
   try{const r=await fetch('/api/settings');const d=await r.json();
+  document.getElementById('sGain').value=d.knock_gain||1.0;
   document.getElementById('sMult').value=d.knock_threshold_multiplier||2.5;
   document.getElementById('sBoost').value=d.knock_boost_enable_kpa||120;
   document.getElementById('sRpm').value=d.knock_rpm_enable_min||2500;
@@ -394,6 +400,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
     doc["knock_sensor_fault"] = s.knock_sensor_fault;
     doc["knock_clipping_detected"] = s.knock_clipping_detected;
     doc["knock_baseline_learned"] = s.knock_baseline_learned;
+    doc["knock_gain"] = s.knock_gain;
     doc["knock_response_mode"] = s.knock_response_mode;
     doc["knock_logging_active"] = s.knock_logging_active;
     doc["knock_online"] = s.knock_online;
@@ -473,6 +480,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("knock_adc_pin")) s.knock_adc_pin = obj["knock_adc_pin"].as<uint8_t>();
         if (obj.containsKey("knock_boost_enable_kpa")) s.knock_boost_enable_kpa = obj["knock_boost_enable_kpa"].as<float>();
         if (obj.containsKey("knock_rpm_enable_min")) s.knock_rpm_enable_min = obj["knock_rpm_enable_min"].as<uint16_t>();
+        if (obj.containsKey("knock_gain")) s.knock_gain = obj["knock_gain"].as<float>();
         if (obj.containsKey("knock_threshold_multiplier")) s.knock_threshold_multiplier = obj["knock_threshold_multiplier"].as<float>();
         if (obj.containsKey("knock_threshold_offset")) s.knock_threshold_offset = obj["knock_threshold_offset"].as<float>();
         if (obj.containsKey("knock_event_cooldown_ms")) s.knock_event_cooldown_ms = obj["knock_event_cooldown_ms"].as<uint16_t>();
@@ -574,6 +582,7 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         if (obj.containsKey("adc_pin")) s.knock_adc_pin = obj["adc_pin"].as<uint8_t>();
         if (obj.containsKey("boost_enable_kpa")) s.knock_boost_enable_kpa = obj["boost_enable_kpa"].as<float>();
         if (obj.containsKey("rpm_enable_min")) s.knock_rpm_enable_min = obj["rpm_enable_min"].as<uint16_t>();
+        if (obj.containsKey("gain")) s.knock_gain = obj["gain"].as<float>();
         if (obj.containsKey("threshold_multiplier")) s.knock_threshold_multiplier = obj["threshold_multiplier"].as<float>();
         if (obj.containsKey("threshold_offset")) s.knock_threshold_offset = obj["threshold_offset"].as<float>();
         if (obj.containsKey("event_cooldown_ms")) s.knock_event_cooldown_ms = obj["event_cooldown_ms"].as<uint16_t>();
@@ -819,6 +828,11 @@ String WebServerManager::stateJson() const {
   doc["gps_satellites_in_view"] = s.gps_satellites_in_view;
   doc["gps_fix_quality"] = s.gps_fix_quality;
   doc["gps_fix_mode"] = s.gps_fix_mode;
+  doc["imu_online"] = s.imu_online;
+  doc["imu_g_lateral"] = s.imu_g_lateral;
+  doc["imu_g_longitudinal"] = s.imu_g_longitudinal;
+  doc["imu_g_total"] = s.imu_g_total;
+  doc["imu_g_peak"] = s.imu_g_peak;
   doc["battery_voltage"] = s.battery_voltage;
   doc["cabin_temp"] = s.cabin_temp;
   doc["outside_temp"] = s.outside_temp;
@@ -848,6 +862,7 @@ String WebServerManager::stateJson() const {
   doc["pump_duty"] = s.meth_pump_duty;
   doc["tank_level"] = s.meth_tank_level;
   doc["selected_meth_ratio"] = s.meth_selected_ratio_percent;
+  doc["meth_fault_flags"] = s.meth_fault_flags;
   doc["meth_manual_test_reject_reason"] = web::manualTestRejectReasonText(s.meth_manual_test_reject_reason);
   doc["meth_manual_test_cooldown_ms_remaining"] = s.meth_manual_test_cooldown_ms_remaining;
   doc["knock_enabled"] = s.knock_enabled;
@@ -919,6 +934,7 @@ String WebServerManager::canStatusJson() const {
   doc["meth_online"] = s.meth_online;
   doc["gps_stale"] = s.gps_stale;
   doc["fault_flags"] = s.fault_flags;
+  doc["meth_fault_flags"] = s.meth_fault_flags;
   doc["master_state"] = s.master_state;
   doc["knock_enabled"] = s.knock_enabled;
   doc["knock_signal_valid"] = s.knock_signal_valid;
@@ -986,6 +1002,7 @@ void WebServerManager::sendSettings(AsyncWebServerRequest* request) const {
   doc["knock_adc_pin"] = st.knock_adc_pin;
   doc["knock_boost_enable_kpa"] = st.knock_boost_enable_kpa;
   doc["knock_rpm_enable_min"] = st.knock_rpm_enable_min;
+  doc["knock_gain"] = st.knock_gain;
   doc["knock_threshold_multiplier"] = st.knock_threshold_multiplier;
   doc["knock_threshold_offset"] = st.knock_threshold_offset;
   doc["knock_event_cooldown_ms"] = st.knock_event_cooldown_ms;
@@ -1056,6 +1073,11 @@ void WebServerManager::sendDiagnostics(AsyncWebServerRequest* request) const {
   doc["last_sd_write_status"] = s.last_sd_write_status;
   doc["sd_write_error_count"] = s.sd_write_error_count;
   doc["touch_online"] = s.touch_online;
+  doc["imu_online"] = s.imu_online;
+  doc["imu_g_lateral"] = s.imu_g_lateral;
+  doc["imu_g_longitudinal"] = s.imu_g_longitudinal;
+  doc["imu_g_total"] = s.imu_g_total;
+  doc["imu_g_peak"] = s.imu_g_peak;
   doc["ui_fps"] = s.ui_fps;
   doc["race_running"] = s.race_running;
   doc["race_quality_percent"] = s.race_quality_percent;
@@ -1145,6 +1167,7 @@ void WebServerManager::tick() {
     doc["gps_fix"] = s.gps_fix;
     doc["battery_voltage"] = s.battery_voltage;
     doc["faults"] = s.fault_flags;
+    doc["meth_fault_flags"] = s.meth_fault_flags;
     doc["can_node_online"] = s.can_online;
 
     // Temperatures

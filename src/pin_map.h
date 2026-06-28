@@ -37,9 +37,9 @@ namespace pins {
 //  Knock ADC     48  (ADC1_CH7)
 //  GPS RX        41  (GP)
 //  GPS TX        42  (GP)
-//  LED strip 1   38  (GP)
-//  LED strip 2   39  (GP)
-//  LED strip 3   40  (GP)
+//  LED strip 1   40  (GP)  RPM addressable strip
+//  LED strip 2   38  (GP)  Upper interior addressable strip
+//  LED strip 3   39  (GP)  Lower interior addressable strip
 //  AUX OUT1      33  ⚠ PSRAM on N8R8/N16R8 boards – unusable on those variants
 //  AUX OUT2      34  ⚠ PSRAM on N8R8/N16R8 boards
 //  Button UP     35  ⚠ PSRAM on N8R8/N16R8 boards
@@ -185,13 +185,13 @@ namespace pins {
 #endif
 
 #ifndef CCM_PIN_LED_DATA1
-#define CCM_PIN_LED_DATA1 38
+#define CCM_PIN_LED_DATA1 40
 #endif
 #ifndef CCM_PIN_LED_DATA2
-#define CCM_PIN_LED_DATA2 39
+#define CCM_PIN_LED_DATA2 38
 #endif
 #ifndef CCM_PIN_LED_DATA3
-#define CCM_PIN_LED_DATA3 40
+#define CCM_PIN_LED_DATA3 39
 #endif
 
 static constexpr uint8_t kLcdCs = CCM_PIN_LCD_CS;

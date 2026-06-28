@@ -3,6 +3,27 @@
 #include <cstring>
 
 namespace storage {
+namespace {
+
+#ifndef CCM_SD_LOGGING_ENABLED
+#define CCM_SD_LOGGING_ENABLED 0
+#endif
+
+#ifndef CCM_SD_LOG_DRAIN_INTERVAL_MS
+#define CCM_SD_LOG_DRAIN_INTERVAL_MS 1000
+#endif
+
+#ifndef CCM_SD_LOG_DRAIN_MAX_WRITES
+#define CCM_SD_LOG_DRAIN_MAX_WRITES 1
+#endif
+
+constexpr bool kSdLoggingEnabled = CCM_SD_LOGGING_ENABLED != 0;
+constexpr uint32_t kSdLogDrainIntervalMs =
+    (CCM_SD_LOG_DRAIN_INTERVAL_MS < 200) ? 200U : static_cast<uint32_t>(CCM_SD_LOG_DRAIN_INTERVAL_MS);
+constexpr uint8_t kSdLogDrainMaxWrites =
+    (CCM_SD_LOG_DRAIN_MAX_WRITES < 1) ? 1U : static_cast<uint8_t>(CCM_SD_LOG_DRAIN_MAX_WRITES);
+
+}  // namespace
 
 bool LogManager::begin(SdManager* sd) {
   sd_ = sd;
@@ -14,6 +35,9 @@ void LogManager::setSessionPrefix(const char* prefix) {
 }
 
 void LogManager::enqueue(const char* category, const char* payload) {
+  if (!kSdLoggingEnabled) {
+    return;
+  }
   if (qCount_ >= kMaxQueueSize) {
     // Drop oldest entry to make room
     qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
@@ -43,12 +67,13 @@ static const char* extractCategory(const char* entry, char* catBuf, size_t catBu
 }
 
 void LogManager::tick(uint32_t nowMs) {
+  if (!kSdLoggingEnabled) return;
   if (!sd_ || !sd_->mounted()) return;
-  if ((nowMs - lastFlushMs_) < 200) return;
+  if ((nowMs - lastFlushMs_) < kSdLogDrainIntervalMs) return;
   lastFlushMs_ = nowMs;
   if (qCount_ == 0) return;
 
-  for (uint8_t i = 0; i < 4 && qCount_ > 0; ++i) {
+  for (uint8_t i = 0; i < kSdLogDrainMaxWrites && qCount_ > 0; ++i) {
     const char* entry = s_queue_[qHead_];
     char catBuf[24];
     extractCategory(entry, catBuf, sizeof(catBuf));
@@ -60,6 +85,7 @@ void LogManager::tick(uint32_t nowMs) {
 }
 
 void LogManager::flushCritical() {
+  if (!kSdLoggingEnabled) return;
   if (!sd_ || !sd_->mounted()) return;
   while (qCount_ > 0) {
     const char* entry = s_queue_[qHead_];

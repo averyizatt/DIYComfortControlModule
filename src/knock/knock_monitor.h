@@ -26,6 +26,7 @@ enum class ResponseMode : uint8_t {
 struct RuntimeConfig {
   bool enabled = true;
   uint8_t adc_pin = 48;
+  float gain = 1.0f;
   float boost_enable_kpa = 120.0f;
   uint16_t rpm_enable_min = 2500;
   float threshold_multiplier = 2.5f;
@@ -57,6 +58,9 @@ class KnockMonitor {
   void updateSharedState(uint32_t nowMs);
   void queueFault(uint8_t faultCode, uint8_t severity, uint8_t data0, uint8_t data1);
   void logKnockEvent(uint32_t nowMs, const state::VehicleState& s, uint8_t faultCode, bool knockEvent);
+  void loadBaselineProfile();
+  void maybeSaveBaselineProfile(uint32_t nowMs);
+  bool saveBaselineProfile(uint32_t nowMs);
 
   state::VehicleStateStore* stateStore_ = nullptr;
   settings::SettingsManager* settingsMgr_ = nullptr;
@@ -70,6 +74,7 @@ class KnockMonitor {
   // Smoothed signal metrics in ADC counts around the midpoint.
   float knockEnergy_ = 0.0f;
   float baseline_ = 12.0f;
+  float savedBaseline_ = 0.0f;
   float threshold_ = 32.0f;
   float activityEma_ = 0.0f;
 
@@ -86,11 +91,13 @@ class KnockMonitor {
   uint8_t lastFaultCode_ = 0;
   uint32_t lastDemoSpikeMs_ = 0;
   uint32_t nextDemoSpikeGapMs_ = 1200;
+  uint32_t lastBaselineSaveMs_ = 0;
   uint16_t clipHighWindowCount_ = 0;
   uint16_t clipLowWindowCount_ = 0;
   uint16_t clipHighTotal_ = 0;
   uint16_t clipLowTotal_ = 0;
   uint32_t baselineSampleCount_ = 0;
+  uint32_t savedBaselineSampleCount_ = 0;
 
   int8_t lastEventIatC_ = 0;
   uint32_t lastEventTimeMs_ = 0;
@@ -102,6 +109,8 @@ class KnockMonitor {
   bool warningActive_ = false;
   bool criticalActive_ = false;
   bool forceDemoSpike_ = false;
+  bool baselineProfileLoaded_ = false;
+  bool baselineProfileDirty_ = false;
 };
 
 }  // namespace knock

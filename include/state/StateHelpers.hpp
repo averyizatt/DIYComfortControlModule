@@ -15,7 +15,7 @@ inline bool methSafetyInputsValid(const VehicleState& s) {
 }
 
 inline bool hasCriticalMethFault(const VehicleState& s) {
-  return (s.fault_flags & 0x0010U) != 0U || s.meth_state == MethState::FAULT;
+  return s.meth_fault_flags != 0U || s.meth_state == MethState::FAULT;
 }
 
 inline bool methCanLossDisarms(const VehicleState& s, uint32_t nowMs, uint32_t timeoutMs) {

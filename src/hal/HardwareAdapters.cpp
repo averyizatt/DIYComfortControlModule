@@ -145,7 +145,7 @@ void UartGpsAdapter::openSerial(uint32_t baud) {
   ubxTuningSent_ = false;
   seenGgaFixQuality_ = false;
   seenGsaFixMode_ = false;
-  Serial0.printf("[GPS] UART baud=%lu RX=%u TX=%u\n",
+  Serial.printf("[GPS] UART baud=%lu RX=%u TX=%u\n",
                  static_cast<unsigned long>(baud),
                  static_cast<unsigned>(config::kGpsRxPin),
                  static_cast<unsigned>(config::kGpsTxPin));
@@ -257,7 +257,7 @@ void UartGpsAdapter::sendOptionalUbxTuning() {
   serial_.flush();
 
   ubxTuningSent_ = true;
-  Serial0.printf("[GPS] NMEA detected at %lu baud; sent UBX automotive+SBAS tuning%s\n",
+  Serial.printf("[GPS] NMEA detected at %lu baud; sent UBX automotive+SBAS tuning%s\n",
                  static_cast<unsigned long>(currentBaud_),
                  currentBaud_ >= 38400U ? " + 5Hz rate" : "");
 }
@@ -283,7 +283,7 @@ void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
     baudProbeIndex_ = static_cast<uint8_t>((baudProbeIndex_ + 1U) % probeCount);
     const uint32_t nextBaud = kGpsProbeBauds[baudProbeIndex_];
     if (nextBaud != currentBaud_) {
-      Serial0.printf("[GPS] no valid NMEA after hold at %lu baud; probing %lu baud\n",
+      Serial.printf("[GPS] no valid NMEA after hold at %lu baud; probing %lu baud\n",
                      static_cast<unsigned long>(currentBaud_),
                      static_cast<unsigned long>(nextBaud));
       openSerial(nextBaud);

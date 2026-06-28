@@ -54,6 +54,7 @@ void SettingsManager::load() {
   settings_.knock_adc_pin = prefs_.getUChar("knock_pin", settings_.knock_adc_pin);
   settings_.knock_boost_enable_kpa = prefs_.getFloat("knock_boost", settings_.knock_boost_enable_kpa);
   settings_.knock_rpm_enable_min = prefs_.getUShort("knock_rpm", settings_.knock_rpm_enable_min);
+  settings_.knock_gain = prefs_.getFloat("knock_gain", settings_.knock_gain);
   settings_.knock_threshold_multiplier = prefs_.getFloat("knock_mult", settings_.knock_threshold_multiplier);
   settings_.knock_threshold_offset = prefs_.getFloat("knock_offs", settings_.knock_threshold_offset);
   settings_.knock_event_cooldown_ms = prefs_.getUShort("knock_cd", settings_.knock_event_cooldown_ms);
@@ -135,6 +136,7 @@ void SettingsManager::loadIntoState(state::VehicleState& s) const {
   s.knock_adc_pin = settings_.knock_adc_pin;
   s.knock_boost_enable_kpa = settings_.knock_boost_enable_kpa;
   s.knock_rpm_enable_min = settings_.knock_rpm_enable_min;
+  s.knock_gain = settings_.knock_gain;
   s.knock_threshold_multiplier = settings_.knock_threshold_multiplier;
   s.knock_threshold_offset = settings_.knock_threshold_offset;
   s.knock_event_cooldown_ms = settings_.knock_event_cooldown_ms;
@@ -207,6 +209,7 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.knock_adc_pin = s.knock_adc_pin;
   settings_.knock_boost_enable_kpa = s.knock_boost_enable_kpa;
   settings_.knock_rpm_enable_min = s.knock_rpm_enable_min;
+  settings_.knock_gain = s.knock_gain;
   settings_.knock_threshold_multiplier = s.knock_threshold_multiplier;
   settings_.knock_threshold_offset = s.knock_threshold_offset;
   settings_.knock_event_cooldown_ms = s.knock_event_cooldown_ms;
@@ -280,6 +283,7 @@ bool SettingsManager::save() {
   prefs_.putUChar("knock_pin", settings_.knock_adc_pin);
   prefs_.putFloat("knock_boost", settings_.knock_boost_enable_kpa);
   prefs_.putUShort("knock_rpm", settings_.knock_rpm_enable_min);
+  prefs_.putFloat("knock_gain", settings_.knock_gain);
   prefs_.putFloat("knock_mult", settings_.knock_threshold_multiplier);
   prefs_.putFloat("knock_offs", settings_.knock_threshold_offset);
   prefs_.putUShort("knock_cd", settings_.knock_event_cooldown_ms);

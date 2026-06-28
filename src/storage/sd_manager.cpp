@@ -12,8 +12,19 @@
 #define CCM_SD_AUTOMOUNT 0
 #endif
 
+#ifndef CCM_SD_MAX_SPI_HZ
+#define CCM_SD_MAX_SPI_HZ 1000000UL
+#endif
+
+#ifndef CCM_SD_CREATE_FOLDERS_ON_BOOT
+#define CCM_SD_CREATE_FOLDERS_ON_BOOT 0
+#endif
+
 namespace storage {
 namespace {
+
+constexpr uint32_t kSdMaxSpiHz = CCM_SD_MAX_SPI_HZ;
+constexpr bool kSdCreateFoldersOnBoot = CCM_SD_CREATE_FOLDERS_ON_BOOT != 0;
 
 const char* baseName(const char* path) {
   if (!path || path[0] == '\0') {
@@ -45,12 +56,12 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
 #if !CCM_SD_ENABLED
   mounted_ = false;
   setStatus("disabled", false);
-  Serial0.printf("[SD] disabled by build flag (cs=%u)\n", static_cast<unsigned>(sdCsPin_));
+  Serial.printf("[SD] disabled by build flag (cs=%u)\n", static_cast<unsigned>(sdCsPin_));
   return false;
 #elif !CCM_SD_AUTOMOUNT
   mounted_ = false;
   setStatus("mount_deferred", false);
-  Serial0.printf("[SD] auto-mount skipped by build flag (cs=%u)\n",
+  Serial.printf("[SD] auto-mount skipped by build flag (cs=%u)\n",
                  static_cast<unsigned>(sdCsPin_));
   return false;
 #else
@@ -64,20 +75,21 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   {
     hal::SharedSpiBusLock spiLock("SD:begin");
     // SD.begin() manages CS internally; start at the safest speed on the
-    // shared SPI bus. We only try faster rates if the card did not answer.
+    // shared SPI bus. Faster retries are capped so SD cannot dominate the
+    // same wires the TFT depends on for stable redraws.
     mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
-    if (!mounted_) {
+    if (!mounted_ && kSdMaxSpiHz >= 1000000UL) {
       delay(50);
       mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
     }
-    if (!mounted_) {
+    if (!mounted_ && kSdMaxSpiHz >= 4000000UL) {
       delay(50);
       mounted_ = SD.begin(sdCsPin_, SPI, 4000000U);
     }
     digitalWrite(lcdCsPin_, HIGH);
     digitalWrite(sdCsPin_, HIGH);
   }
-  Serial0.printf("[SD] mount %s (cs=%u)\n", mounted_ ? "OK" : "FAILED (no card?)", static_cast<unsigned>(sdCsPin_));
+  Serial.printf("[SD] mount %s (cs=%u)\n", mounted_ ? "OK" : "FAILED (no card?)", static_cast<unsigned>(sdCsPin_));
 
   if (!mounted_) {
     setStatus("mount_failed", true);
@@ -91,26 +103,30 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
     cardSize = SD.cardSize();
     digitalWrite(sdCsPin_, HIGH);
   }
-  Serial0.printf("[SD] card size=%lu MB\n",
+  Serial.printf("[SD] card size=%lu MB\n",
                  static_cast<unsigned long>(cardSize / (1024ULL * 1024ULL)));
 
   bool foldersOk = true;
-  foldersOk &= ensureFolder("/logs");
-  foldersOk &= ensureFolder("/logs/can");
-  foldersOk &= ensureFolder("/logs/gps");
-  foldersOk &= ensureFolder("/logs/meth");
-  foldersOk &= ensureFolder("/logs/knock");
-  foldersOk &= ensureFolder("/logs/faults");
-  foldersOk &= ensureFolder("/logs/tach");
-  foldersOk &= ensureFolder("/logs/race");
-  foldersOk &= ensureFolder("/ui");
-  foldersOk &= ensureFolder("/ui/images");
-  foldersOk &= ensureFolder("/ui/icons");
-  foldersOk &= ensureFolder("/ui/themes");
-  foldersOk &= ensureFolder("/ui/splash");
+  if (kSdCreateFoldersOnBoot) {
+    foldersOk &= ensureFolder("/logs");
+    foldersOk &= ensureFolder("/logs/can");
+    foldersOk &= ensureFolder("/logs/gps");
+    foldersOk &= ensureFolder("/logs/meth");
+    foldersOk &= ensureFolder("/logs/knock");
+    foldersOk &= ensureFolder("/logs/faults");
+    foldersOk &= ensureFolder("/logs/tach");
+    foldersOk &= ensureFolder("/logs/race");
+    foldersOk &= ensureFolder("/ui");
+    foldersOk &= ensureFolder("/ui/images");
+    foldersOk &= ensureFolder("/ui/icons");
+    foldersOk &= ensureFolder("/ui/themes");
+    foldersOk &= ensureFolder("/ui/splash");
+    Serial.printf("[SD] folders %s\n", foldersOk ? "ready" : "incomplete");
+  } else {
+    Serial.println("[SD] boot folder scan skipped");
+  }
 
   setStatus(foldersOk ? "mounted" : "folder_failed", !foldersOk);
-  Serial0.printf("[SD] folders %s\n", foldersOk ? "ready" : "incomplete");
   return true;
 #endif
 }
@@ -184,6 +200,53 @@ bool SdManager::appendLine(const char* path, const char* line) {
   digitalWrite(sdCsPin_, HIGH);
   setStatus(ok ? "write_ok" : "write_failed", !ok);
   return ok;
+}
+
+bool SdManager::writeTextFile(const char* path, const char* text) {
+  if (!mounted_ || !path || !text) return false;
+
+  hal::SharedSpiBusLock spiLock("SD:write");
+  digitalWrite(lcdCsPin_, HIGH);
+  digitalWrite(sdCsPin_, LOW);
+  if (SD.exists(path)) {
+    SD.remove(path);
+  }
+
+  File f = SD.open(path, FILE_WRITE);
+  if (!f) {
+    digitalWrite(sdCsPin_, HIGH);
+    setStatus("open_failed", true);
+    return false;
+  }
+
+  const bool ok = f.print(text) > 0;
+  f.close();
+  digitalWrite(sdCsPin_, HIGH);
+  setStatus(ok ? "write_ok" : "write_failed", !ok);
+  return ok;
+}
+
+bool SdManager::readTextFile(const char* path, char* out, size_t outLen) const {
+  if (!mounted_ || !path || !out || outLen == 0) return false;
+  out[0] = '\0';
+
+  hal::SharedSpiBusLock spiLock("SD:read");
+  digitalWrite(lcdCsPin_, HIGH);
+  digitalWrite(sdCsPin_, LOW);
+  File f = SD.open(path, FILE_READ);
+  if (!f) {
+    digitalWrite(sdCsPin_, HIGH);
+    return false;
+  }
+
+  size_t n = 0;
+  while (f.available() && n + 1 < outLen) {
+    out[n++] = static_cast<char>(f.read());
+  }
+  out[n] = '\0';
+  f.close();
+  digitalWrite(sdCsPin_, HIGH);
+  return n > 0;
 }
 
 bool SdManager::listDirectory(const char* path, SdFileEntry* entries, size_t maxEntries,

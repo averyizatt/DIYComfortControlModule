@@ -20,6 +20,8 @@ class TouchManager {
   bool online() const { return online_; }
 
  private:
+  bool probe();
+
   TwoWire* wire_ = nullptr;
   uint8_t address_ = 0x38;
   uint8_t rstPin_ = 255;

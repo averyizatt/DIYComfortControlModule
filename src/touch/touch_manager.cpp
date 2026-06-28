@@ -9,20 +9,24 @@ bool TouchManager::begin(TwoWire& wire, uint8_t sdaPin, uint8_t sclPin, uint8_t 
   intPin_ = intPin;
 
   wire_->begin(sdaPin, sclPin);
-  // FT6x36 is stable at Fast-Mode I2C and responds quicker with a higher bus clock.
   wire_->setClock(400000U);
   if (rstPin_ != 255) {
     pinMode(rstPin_, OUTPUT);
     digitalWrite(rstPin_, LOW);
-    // Reset pulse runs during setup before time-critical tasks start.
     delay(5);
     digitalWrite(rstPin_, HIGH);
+    delay(5);
   }
   if (intPin_ != 255) pinMode(intPin_, INPUT_PULLUP);
 
-  wire_->beginTransmission(address_);
-  online_ = (wire_->endTransmission() == 0);
+  online_ = probe();
   return online_;
+}
+
+bool TouchManager::probe() {
+  if (!wire_) return false;
+  wire_->beginTransmission(address_);
+  return wire_->endTransmission(true) == 0;
 }
 
 TouchSample TouchManager::read() {
@@ -31,17 +35,16 @@ TouchSample TouchManager::read() {
 
   wire_->beginTransmission(address_);
   wire_->write(0x02);
-  // Use endTransmission(true) to always send a STOP condition.
-  // On a NAK the bus is released cleanly; requestFrom() then issues a fresh START.
-  // FT6x36 handles STOP+START just as well as repeated-start.
   if (wire_->endTransmission(true) != 0) {
-    online_ = false;
     return s;
   }
 
-  const uint8_t reqLen = 5;
+  constexpr uint8_t reqLen = 5;
   const uint8_t got = wire_->requestFrom(static_cast<int>(address_), static_cast<int>(reqLen));
-  if (got < reqLen) return s;
+  if (got < reqLen) {
+    while (wire_->available()) wire_->read();
+    return s;
+  }
 
   const uint8_t touches = wire_->read() & 0x0F;
   const uint8_t xh = wire_->read();

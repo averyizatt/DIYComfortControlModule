@@ -168,7 +168,7 @@ SharedSpiBusLock::SharedSpiBusLock(const char* owner) : owner_(owner ? owner : "
     }
     deassertSharedChipSelects();
     if (outerLock && shouldLogSpi(s_spiSeq)) {
-      Serial0.printf("[SPI:LOCK] #%lu owner=%s start depth=%lu CS lcd=%d sd=%d can=%d\n",
+      Serial.printf("[SPI:LOCK] #%lu owner=%s start depth=%lu CS lcd=%d sd=%d can=%d\n",
                      static_cast<unsigned long>(s_spiSeq),
                      owner_,
                      static_cast<unsigned long>(s_spiLockDepth),
@@ -188,7 +188,7 @@ SharedSpiBusLock::~SharedSpiBusLock() {
       const uint32_t guardUs = ownerIsLcd(s_spiOwner)
           ? static_cast<uint32_t>(CCM_SPI_LCD_RELEASE_GUARD_US)
           : static_cast<uint32_t>(CCM_SPI_RELEASE_GUARD_US);
-      Serial0.printf("[SPI:LOCK] #%lu owner=%s end depth=%lu guard=%luus CS lcd=%d sd=%d can=%d\n",
+      Serial.printf("[SPI:LOCK] #%lu owner=%s end depth=%lu guard=%luus CS lcd=%d sd=%d can=%d\n",
                      static_cast<unsigned long>(seq),
                      owner_ ? owner_ : "?",
                      static_cast<unsigned long>(s_spiLockDepth),

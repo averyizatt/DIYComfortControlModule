@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "can/can_manager.h"
 #include "can/can_protocol.h"
@@ -28,6 +29,10 @@ constexpr uint32_t kBaselineLearnMs = 3000;
 constexpr uint32_t kKnockTaskIntervalMs = 5;
 constexpr uint32_t kDemoSpikeMinGapMs = 1200;
 constexpr uint32_t kDemoSpikeJitterMs = 2200;
+constexpr uint32_t kBaselineSaveIntervalMs = 60000;
+constexpr float kBaselineSaveDelta = 1.0f;
+constexpr char kKnockProfileDir[] = "/config";
+constexpr char kKnockProfilePath[] = "/config/knock_profile.txt";
 
 constexpr uint8_t kKnockSeverityInfo = static_cast<uint8_t>(can_protocol::FaultSeverity::INFO);
 constexpr uint8_t kKnockSeverityWarn = static_cast<uint8_t>(can_protocol::FaultSeverity::WARNING);
@@ -51,6 +56,23 @@ uint8_t encodeRpmDiv100(uint16_t rpm) {
   return static_cast<uint8_t>((rpm / 100U) > 255U ? 255U : (rpm / 100U));
 }
 
+bool parseFloatField(const char* text, const char* key, float& out) {
+  const char* pos = strstr(text, key);
+  if (!pos) return false;
+  pos += strlen(key);
+  return sscanf(pos, "%f", &out) == 1;
+}
+
+bool parseU32Field(const char* text, const char* key, uint32_t& out) {
+  const char* pos = strstr(text, key);
+  if (!pos) return false;
+  pos += strlen(key);
+  unsigned long value = 0;
+  if (sscanf(pos, "%lu", &value) != 1) return false;
+  out = static_cast<uint32_t>(value);
+  return true;
+}
+
 }  // namespace
 
 bool KnockMonitor::begin(state::VehicleStateStore* stateStore, settings::SettingsManager* settingsMgr,
@@ -68,6 +90,8 @@ bool KnockMonitor::begin(state::VehicleStateStore* stateStore, settings::Setting
 
   if (sdMgr_->mounted()) {
     sdMgr_->ensureFolder("/logs/knock");
+    sdMgr_->ensureFolder(kKnockProfileDir);
+    loadBaselineProfile();
   }
 
   return true;
@@ -81,8 +105,13 @@ void KnockMonitor::configureAdc() {
 }
 
 void KnockMonitor::loadConfigFromState(const state::VehicleState& s) {
+  const bool profileSettingChanged =
+      fabsf(cfg_.gain - s.knock_gain) > 0.001f ||
+      fabsf(cfg_.threshold_multiplier - s.knock_threshold_multiplier) > 0.001f ||
+      fabsf(cfg_.threshold_offset - s.knock_threshold_offset) > 0.001f;
   cfg_.enabled = s.knock_enabled;
   cfg_.adc_pin = s.knock_adc_pin;
+  cfg_.gain = s.knock_gain;
   cfg_.boost_enable_kpa = s.knock_boost_enable_kpa;
   cfg_.rpm_enable_min = s.knock_rpm_enable_min;
   cfg_.threshold_multiplier = s.knock_threshold_multiplier;
@@ -93,6 +122,9 @@ void KnockMonitor::loadConfigFromState(const state::VehicleState& s) {
   cfg_.baseline_learning_enabled = s.knock_baseline_learning_enabled;
   cfg_.demo_mode_enabled = s.knock_demo_mode_enabled;
   cfg_.response_mode = static_cast<ResponseMode>(s.knock_response_mode);
+  if (profileSettingChanged && baselineLearned_) {
+    baselineProfileDirty_ = true;
+  }
 }
 
 void KnockMonitor::tick(uint32_t nowMs) {
@@ -110,7 +142,7 @@ void KnockMonitor::tick(uint32_t nowMs) {
     configureAdc();
   }
 
-  const float sampledEnergy = sampleEnergy(snapshot, nowMs);
+  const float sampledEnergy = sampleEnergy(snapshot, nowMs) * cfg_.gain;
   knockEnergy_ += kEnergyAlpha * (sampledEnergy - knockEnergy_);
   if (knockEnergy_ < 0.0f) knockEnergy_ = 0.0f;
 
@@ -124,14 +156,19 @@ void KnockMonitor::tick(uint32_t nowMs) {
   if (threshold_ < baseline_ + 1.0f) threshold_ = baseline_ + 1.0f;
 
   handleDetection(snapshot, nowMs, detectActive);
+  maybeSaveBaselineProfile(nowMs);
   updateSharedState(nowMs);
 }
 
 void KnockMonitor::applyStateCommands(state::VehicleState& s) {
   if (s.knock_reset_baseline_request) {
     baseline_ = knockEnergy_;
+    savedBaseline_ = 0.0f;
     baselineSampleCount_ = 0;
+    savedBaselineSampleCount_ = 0;
     baselineLearned_ = false;
+    baselineProfileLoaded_ = false;
+    baselineProfileDirty_ = true;
     s.knock_reset_baseline_request = false;
   }
 
@@ -229,6 +266,7 @@ void KnockMonitor::maybeUpdateBaseline(bool detectActive) {
   ++baselineSampleCount_;
   if (!baselineLearned_ && baselineSampleCount_ > (kBaselineLearnMs / kKnockTaskIntervalMs)) {
     baselineLearned_ = true;
+    baselineProfileDirty_ = true;
   }
 }
 
@@ -410,6 +448,95 @@ void KnockMonitor::logKnockEvent(uint32_t nowMs, const state::VehicleState& s, u
            knockEvent ? 1U : 0U,
            static_cast<unsigned>(faultCode));
   logMgr_->enqueue("knock", line);
+}
+
+void KnockMonitor::loadBaselineProfile() {
+  if (!sdMgr_ || !sdMgr_->mounted()) return;
+
+  char text[256];
+  if (!sdMgr_->readTextFile(kKnockProfilePath, text, sizeof(text))) {
+    return;
+  }
+  if (strstr(text, "CCM_KNOCK_PROFILE_V1") == nullptr) {
+    return;
+  }
+
+  float baseline = 0.0f;
+  float gain = cfg_.gain;
+  float multiplier = cfg_.threshold_multiplier;
+  float offset = cfg_.threshold_offset;
+  uint32_t samples = 0;
+  if (!parseFloatField(text, "baseline=", baseline) ||
+      !parseU32Field(text, "samples=", samples)) {
+    return;
+  }
+  parseFloatField(text, "gain=", gain);
+  parseFloatField(text, "multiplier=", multiplier);
+  parseFloatField(text, "offset=", offset);
+  if (baseline < kMinimumEnergyFloor || baseline > 255.0f || samples == 0U) {
+    return;
+  }
+
+  cfg_.gain = gain;
+  cfg_.threshold_multiplier = multiplier;
+  cfg_.threshold_offset = offset;
+  baseline_ = baseline;
+  savedBaseline_ = baseline;
+  baselineSampleCount_ = samples;
+  savedBaselineSampleCount_ = samples;
+  baselineLearned_ = true;
+  baselineProfileLoaded_ = true;
+  baselineProfileDirty_ = false;
+  lastBaselineSaveMs_ = millis();
+  stateStore_->mutate([&](state::VehicleState& s) {
+    s.knock_gain = cfg_.gain;
+    s.knock_threshold_multiplier = cfg_.threshold_multiplier;
+    s.knock_threshold_offset = cfg_.threshold_offset;
+  });
+
+  Serial.printf("[KNOCK] loaded SD profile baseline=%.2f gain=%.2f samples=%lu\n",
+                 static_cast<double>(baseline_),
+                 static_cast<double>(cfg_.gain),
+                 static_cast<unsigned long>(baselineSampleCount_));
+}
+
+void KnockMonitor::maybeSaveBaselineProfile(uint32_t nowMs) {
+  if (!sdMgr_ || !sdMgr_->mounted() || !baselineLearned_) return;
+
+  const bool firstSave = savedBaselineSampleCount_ == 0U;
+  const bool intervalElapsed = (nowMs - lastBaselineSaveMs_) >= kBaselineSaveIntervalMs;
+  const bool changedEnough = baselineProfileDirty_ ||
+                             fabsf(baseline_ - savedBaseline_) >= kBaselineSaveDelta ||
+                             (baselineSampleCount_ - savedBaselineSampleCount_) >= 5000U;
+  if (!firstSave && (!intervalElapsed || !changedEnough)) return;
+  saveBaselineProfile(nowMs);
+}
+
+bool KnockMonitor::saveBaselineProfile(uint32_t nowMs) {
+  if (!sdMgr_ || !sdMgr_->mounted() || !baselineLearned_) return false;
+
+  char text[256];
+  snprintf(text, sizeof(text),
+           "CCM_KNOCK_PROFILE_V1\nbaseline=%.3f\nsamples=%lu\ngain=%.3f\nmultiplier=%.3f\noffset=%.3f\nadc_pin=%u\nsaved_ms=%lu\n",
+           static_cast<double>(baseline_),
+           static_cast<unsigned long>(baselineSampleCount_),
+           static_cast<double>(cfg_.gain),
+           static_cast<double>(cfg_.threshold_multiplier),
+           static_cast<double>(cfg_.threshold_offset),
+           static_cast<unsigned>(cfg_.adc_pin),
+           static_cast<unsigned long>(nowMs));
+
+  const bool ok = sdMgr_->writeTextFile(kKnockProfilePath, text);
+  if (ok) {
+    lastBaselineSaveMs_ = nowMs;
+    savedBaseline_ = baseline_;
+    savedBaselineSampleCount_ = baselineSampleCount_;
+    baselineProfileDirty_ = false;
+    Serial.printf("[KNOCK] saved SD profile baseline=%.2f samples=%lu\n",
+                   static_cast<double>(baseline_),
+                   static_cast<unsigned long>(baselineSampleCount_));
+  }
+  return ok;
 }
 
 }  // namespace knock

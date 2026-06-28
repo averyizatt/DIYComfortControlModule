@@ -6,6 +6,8 @@
 #include "meth/MethSafetyLogic.hpp"
 #include "state/StateHelpers.hpp"
 
+#include <cmath>
+
 #include <SPI.h>
 
 #ifndef CCM_CAN_TRANSPORT_SPI
@@ -30,6 +32,42 @@
 #define CCM_HAS_TWAI 0
 #endif
 
+#ifndef CCM_CAN_SPI_HZ
+#define CCM_CAN_SPI_HZ 1000000UL
+#endif
+
+#ifndef CCM_CAN_RX_INT_GATED
+#define CCM_CAN_RX_INT_GATED 1
+#endif
+
+#ifndef CCM_CAN_RX_FALLBACK_POLL_MS
+#define CCM_CAN_RX_FALLBACK_POLL_MS 50
+#endif
+
+#ifndef CCM_CAN_RX_MAX_FRAMES_PER_TICK
+#define CCM_CAN_RX_MAX_FRAMES_PER_TICK 4
+#endif
+
+#ifndef CCM_CAN_HEARTBEAT_TX_MS
+#define CCM_CAN_HEARTBEAT_TX_MS 250
+#endif
+
+#ifndef CCM_CAN_TACH_TX_MS
+#define CCM_CAN_TACH_TX_MS 50
+#endif
+
+#ifndef CCM_CAN_GPS_TX_MS
+#define CCM_CAN_GPS_TX_MS 500
+#endif
+
+#ifndef CCM_CAN_SENSOR_EXT_TX_MS
+#define CCM_CAN_SENSOR_EXT_TX_MS 500
+#endif
+
+#ifndef CCM_CAN_METH_CONFIG_TX_MS
+#define CCM_CAN_METH_CONFIG_TX_MS 1000
+#endif
+
 namespace canbus {
 
 namespace {
@@ -40,7 +78,21 @@ constexpr uint32_t kGpsStaleTimeoutMs = 5000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
 // Cooldown to prevent rapid repeated manual pump tests from UI/API retries.
 constexpr uint32_t kManualTestCooldownMs = 3000;
-constexpr uint32_t kMethConfigBroadcastIntervalMs = 500;
+constexpr uint32_t kMethConfigBroadcastIntervalMs =
+    (CCM_CAN_METH_CONFIG_TX_MS < 500) ? 500U : static_cast<uint32_t>(CCM_CAN_METH_CONFIG_TX_MS);
+constexpr uint32_t kCanHeartbeatTxMs =
+    (CCM_CAN_HEARTBEAT_TX_MS < 100) ? 100U : static_cast<uint32_t>(CCM_CAN_HEARTBEAT_TX_MS);
+constexpr uint32_t kCanTachTxMs =
+    (CCM_CAN_TACH_TX_MS < 20) ? 20U : static_cast<uint32_t>(CCM_CAN_TACH_TX_MS);
+constexpr uint32_t kCanGpsTxMs =
+    (CCM_CAN_GPS_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_GPS_TX_MS);
+constexpr uint32_t kCanSensorExtTxMs =
+    (CCM_CAN_SENSOR_EXT_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_SENSOR_EXT_TX_MS);
+constexpr uint8_t kCanRxMaxFramesPerTick =
+    (CCM_CAN_RX_MAX_FRAMES_PER_TICK < 1) ? 1U : static_cast<uint8_t>(CCM_CAN_RX_MAX_FRAMES_PER_TICK);
+constexpr uint32_t kCanRxFallbackPollMs =
+    (CCM_CAN_RX_FALLBACK_POLL_MS < 10) ? 10U : static_cast<uint32_t>(CCM_CAN_RX_FALLBACK_POLL_MS);
+constexpr bool kCanRxIntGated = CCM_CAN_RX_INT_GATED != 0;
 constexpr uint16_t kFaultTaillight = 0x0001;
 constexpr uint16_t kFaultMeth = 0x0010;
 constexpr uint16_t kFaultModuleOffline = 0x0080;
@@ -65,7 +117,7 @@ constexpr uint8_t DUTY_OVER_MAX = 5;
 }  // namespace meth_manual_test_reject_reason
 
 #if CCM_HAS_SPI_CAN
-MCP2515 g_mcp2515(pins::kCanSpiCs);
+MCP2515 g_mcp2515(pins::kCanSpiCs, CCM_CAN_SPI_HZ, &SPI);
 bool g_spiCanOnline = false;
 
 bool initSpiCan() {
@@ -83,6 +135,11 @@ bool initSpiCan() {
     delay(2);
   }
 
+  Serial.printf("[CAN] MCP2515 SPI=%luHz int_gated=%u rx_max=%u fallback=%lums\n",
+                 static_cast<unsigned long>(CCM_CAN_SPI_HZ),
+                 static_cast<unsigned>(kCanRxIntGated ? 1U : 0U),
+                 static_cast<unsigned>(kCanRxMaxFramesPerTick),
+                 static_cast<unsigned long>(kCanRxFallbackPollMs));
   g_mcp2515.reset();
   if (g_mcp2515.setBitrate(CAN_500KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
     g_spiCanOnline = false;
@@ -142,8 +199,10 @@ void CanManager::tick() {
   bool mustStopManualTest = false;
 
   can_protocol::CanFrame frame{};
-  while (receiveFrame(frame)) {
+  uint8_t rxFramesThisTick = 0;
+  while (rxFramesThisTick < kCanRxMaxFramesPerTick && receiveFrame(frame)) {
     dispatchFrame(frame, nowMs);
+    ++rxFramesThisTick;
   }
 
 #if CCM_HAS_SPI_CAN
@@ -161,7 +220,7 @@ void CanManager::tick() {
     const bool txErrPass = (eflg & 0x10) != 0;  // TXEP
     const bool rxOvr     = (eflg & 0xC0) != 0;  // RX0OVR | RX1OVR
     const state::VehicleState snap = state::g_vehicle_state.read();
-    Serial0.printf("[CAN] EFLG=0x%02X INT=%d rx=%lu tx=%lu%s\n",
+    Serial.printf("[CAN] EFLG=0x%02X INT=%d rx=%lu tx=%lu%s\n",
         eflg,
         digitalRead(pins::kCanSpiInt),
         static_cast<unsigned long>(snap.can_rx_count),
@@ -176,10 +235,10 @@ void CanManager::tick() {
       // Full reset + reinit recovers from bus-off.
       g_spiCanOnline = false;
       if (initSpiCan()) {
-        Serial0.println("[CAN] MCP2515 bus-off recovery OK");
+        Serial.println("[CAN] MCP2515 bus-off recovery OK");
         state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = true; });
       } else {
-        Serial0.println("[CAN] MCP2515 bus-off recovery FAILED");
+        Serial.println("[CAN] MCP2515 bus-off recovery FAILED");
         state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = false; });
       }
     }
@@ -189,7 +248,7 @@ void CanManager::tick() {
       (nowMs - canStartMs_) > 10000) {
     const state::VehicleState snap = state::g_vehicle_state.read();
     if (snap.can_tx_count > 5 && snap.can_rx_count == 0) {
-      Serial0.println("[CAN] WARNING: TX active but RX=0 - check wiring, CANH/CANL, and 120ohm termination");
+      Serial.println("[CAN] WARNING: TX active but RX=0 - check wiring, CANH/CANL, and 120ohm termination");
       canRxWarnSent_ = true;
     }
   }
@@ -412,6 +471,13 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
 bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
 #if CCM_HAS_SPI_CAN
   if (hwCanReady_ && g_spiCanOnline) {
+    const uint32_t nowMs = millis();
+    if (kCanRxIntGated && digitalRead(pins::kCanSpiInt) != LOW &&
+        (nowMs - lastCanRxPollMs_) < kCanRxFallbackPollMs) {
+      return false;
+    }
+    lastCanRxPollMs_ = nowMs;
+
     struct can_frame rx{};
     hal::SharedSpiBusLock spiLock("CAN:rx");
     if (g_mcp2515.readMessage(&rx) != MCP2515::ERROR_OK) {
@@ -504,7 +570,12 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       s.engine_bay_temp = msg.engine_bay_c;
       s.intake_temp_valid = true;
       s.engine_bay_temp_valid = true;
-      s.fault_flags = static_cast<uint16_t>((s.fault_flags & 0xFF00U) | msg.fault_flags);
+      s.meth_fault_flags = msg.fault_flags;
+      if (msg.fault_flags != 0U || s.meth_state == state::MethState::FAULT) {
+        s.fault_flags |= kFaultMeth;
+      } else {
+        s.fault_flags &= static_cast<uint16_t>(~kFaultMeth);
+      }
       s.last_meth_ms = nowMs;
       s.meth_online = true;
       s.can_online = true;
@@ -531,6 +602,7 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
         s.meth_state = state::MethState::FAULT;
         s.meth_pump_duty = 0;
         s.meth_desired_armed = false;
+        s.meth_fault_flags = msg.code != 0U ? msg.code : 0xFFU;
         s.manual_test_running = false;
       }
     });
@@ -612,6 +684,8 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
         s.meth_state = state::MethState::FAULT;
         s.meth_pump_duty = 0;
         s.meth_desired_armed = false;
+        s.meth_fault_flags = ack.reject_reason != 0U ? ack.reject_reason : 0xFFU;
+        s.fault_flags |= kFaultMeth;
         s.manual_test_running = false;
       }
     });
@@ -666,21 +740,21 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
 void CanManager::sendScheduledFrames(uint32_t nowMs) {
   state::VehicleState snapshot = state::g_vehicle_state.read();
 
-  if ((nowMs - lastHeartbeatTxMs_) >= 100) {
+  if ((nowMs - lastHeartbeatTxMs_) >= kCanHeartbeatTxMs) {
     can_protocol::CanFrame hb{};
     packMasterHeartbeat(snapshot, hb);
     sendFrame(hb);
     lastHeartbeatTxMs_ = nowMs;
   }
 
-  if ((nowMs - lastTachTxMs_) >= 20) {
+  if ((nowMs - lastTachTxMs_) >= kCanTachTxMs) {
     can_protocol::CanFrame tach{};
     packTachState(snapshot, tach);
     sendFrame(tach);
     lastTachTxMs_ = nowMs;
   }
 
-  if ((nowMs - lastGpsTxMs_) >= 250) {
+  if ((nowMs - lastGpsTxMs_) >= kCanGpsTxMs) {
     can_protocol::CanFrame gps{};
     packGpsState(snapshot, gps);
     sendFrame(gps);
@@ -692,7 +766,7 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
     lastMethConfigTxMs_ = nowMs;
   }
 
-  if ((nowMs - lastSensorExtTxMs_) >= 250) {
+  if ((nowMs - lastSensorExtTxMs_) >= kCanSensorExtTxMs) {
     can_protocol::CanFrame sensorExt{};
     packEngineSensorExt(snapshot, sensorExt);
     sendFrame(sensorExt);
@@ -727,6 +801,7 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
       s.meth_state = state::MethState::OFF;
       s.meth_pump_duty = 0;
       s.meth_desired_armed = false;
+      s.meth_fault_flags = 0;
       s.manual_test_running = false;
     }
   });
@@ -742,7 +817,8 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.taillight_online = true;
     s.meth_online = true;
 
-    s.rpm = static_cast<uint16_t>(1800 + 1200 * (0.5f + 0.5f * sinf(t * 1.8f)));
+    const float rpmWave = 0.5f + 0.5f * sinf(t * 1.8f);
+    s.rpm = static_cast<uint16_t>(1200 + 5800 * rpmWave);
     // generated_tach_hz10 = (RPM / 15) * 10 => preserve scaling in 0.1Hz units.
     s.generated_tach_hz10 = static_cast<uint16_t>((s.rpm * 10U) / 15U);
     s.raw_tach_hz10 = s.generated_tach_hz10;
@@ -770,8 +846,10 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.taillight_thermal_derate = 10;
     s.last_taillight_ms = nowMs;
 
-    s.meth_state = (static_cast<int>(t) % 10 > 6) ? state::MethState::SPRAYING : state::MethState::ARMED;
-    s.meth_pump_duty = (s.meth_state == state::MethState::SPRAYING) ? 140 : 0;
+    const bool demoMethSpraying = (static_cast<int>(t) % 10 > 6);
+    const float methDutyWave = 0.5f + 0.5f * sinf(t * 1.1f);
+    s.meth_state = demoMethSpraying ? state::MethState::SPRAYING : state::MethState::ARMED;
+    s.meth_pump_duty = demoMethSpraying ? static_cast<uint8_t>(25 + 70 * methDutyWave) : 0;
     s.meth_tank_level = static_cast<uint8_t>(60 + 20 * sinf(t * 0.07f));
     s.meth_flow_status = (s.meth_state == state::MethState::SPRAYING) ? 1 : 0;
     s.boost_kpa = static_cast<uint8_t>(95 + 45 * sinf(t * 0.9f));
@@ -801,6 +879,37 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.spare_pressure_2_valid = true;
     s.analog_sensor_fault_flags = 0;
     s.battery_voltage = 12.8f;
+
+    const float knockPhase = fmodf(t, 18.0f);
+    const float knockNoise = 0.5f + 0.5f * sinf(t * 5.2f);
+    const bool knockWarning = knockPhase > 9.0f && knockPhase <= 13.5f;
+    const bool knockCritical = knockPhase > 13.5f && knockPhase <= 15.5f;
+    s.knock_enabled = true;
+    s.knock_online = true;
+    s.last_knock_ms = nowMs;
+    s.knock_signal_valid = true;
+    s.knock_baseline_learned = true;
+    s.knock_sensor_fault = false;
+    s.knock_clipping_detected = knockPhase > 15.0f && knockPhase <= 15.5f;
+    s.knock_signal_clip_high_count = s.knock_clipping_detected ? static_cast<uint16_t>(12 + static_cast<int>(t) % 8) : 0;
+    s.knock_signal_clip_low_count = s.knock_clipping_detected ? static_cast<uint16_t>(4 + static_cast<int>(t) % 5) : 0;
+    s.knock_baseline = 18.0f + 4.0f * sinf(t * 0.42f);
+    s.knock_threshold = s.knock_baseline * s.knock_threshold_multiplier + s.knock_threshold_offset;
+    float knockTarget = s.knock_baseline + 6.0f * knockNoise;
+    if (knockWarning) knockTarget = s.knock_threshold * (0.72f + 0.18f * knockNoise);
+    if (knockCritical) knockTarget = s.knock_threshold * (1.04f + 0.18f * knockNoise);
+    s.knock_energy = knockTarget;
+    s.knock_warning_active = knockWarning || knockCritical;
+    s.knock_critical_active = knockCritical;
+    s.knock_event_count = static_cast<uint8_t>((static_cast<uint32_t>(t) / 6U) % 100U);
+    if (knockWarning || knockCritical) {
+      s.knock_last_event_rpm = s.rpm;
+      s.knock_last_event_boost_kpa = static_cast<uint8_t>(min<float>(255.0f, max<float>(0.0f, s.boost_kpa)));
+      s.knock_last_event_iat_c = static_cast<int8_t>(s.intake_temp);
+      s.knock_last_event_time_ms = nowMs;
+    }
+    s.knock_logging_active = s.sd_mounted;
+
     s.heap_free_bytes = ESP.getFreeHeap();
     s.esp_die_temp_c = static_cast<int8_t>(temperatureRead());
     s.tach_input_frequency_hz = s.raw_tach_hz10 / 10.0f;

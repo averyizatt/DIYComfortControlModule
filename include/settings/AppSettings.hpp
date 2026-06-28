@@ -11,8 +11,8 @@ struct AppSettings {
   uint8_t tach_scaling_mode = 0;
 
   bool led_ch_enabled[3] = {true, true, true};
-  uint32_t led_ch_color[3] = {0x00FF80, 0x0080FF, 0xFF8000};
-  uint8_t led_ch_mode[3] = {1, 1, 1};
+  uint32_t led_ch_color[3] = {0xFFFFFF, 0xFFFFFF, 0xFFFFFF};
+  uint8_t led_ch_mode[3] = {9, 10, 10};
   uint8_t led_ch_brightness[3] = {180, 180, 180};
   uint8_t led_global_brightness = 180;
   uint8_t led_theme = 0;
@@ -22,6 +22,7 @@ struct AppSettings {
   uint8_t knock_adc_pin = 48;
   float knock_boost_enable_kpa = 120.0f;
   uint16_t knock_rpm_enable_min = 2500;
+  float knock_gain = 1.0f;
   float knock_threshold_multiplier = 2.5f;
   float knock_threshold_offset = 8.0f;
   uint16_t knock_event_cooldown_ms = 250;

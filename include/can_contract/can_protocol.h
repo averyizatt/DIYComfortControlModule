@@ -3,7 +3,11 @@
 // Shared CAN protocol contract for comfort, water-meth, and taillight modules.
 // Keep IDs/packing stable across repos and bump CAN_PROTOCOL_SCHEMA_VERSION
 // when a compatibility-breaking schema change is introduced.
+#if defined(ARDUINO_ARCH_AVR)
+#include <stdint.h>
+#else
 #include <cstdint>
+#endif
 
 namespace can_protocol {
 

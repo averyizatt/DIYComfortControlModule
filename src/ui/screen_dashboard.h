@@ -100,8 +100,10 @@ class ScreenDashboard {
   static void onRaceResetClicked(lv_event_t* e);
   static void onKnockEnableClicked(lv_event_t* e);
   static void onKnockResetBaselineClicked(lv_event_t* e);
-  static void onKnockClearEventsClicked(lv_event_t* e);
-  static void onKnockSimulateClicked(lv_event_t* e);
+  static void onKnockGainDownClicked(lv_event_t* e);
+  static void onKnockGainUpClicked(lv_event_t* e);
+  static void onKnockMultiplierDownClicked(lv_event_t* e);
+  static void onKnockMultiplierUpClicked(lv_event_t* e);
   static void onLedMasterSwitchChanged(lv_event_t* e);
   static void onBenchTestClicked(lv_event_t* e);
   static void onSdFileRowClicked(lv_event_t* e);
@@ -133,15 +135,13 @@ class ScreenDashboard {
   char     boostText_[24]         = {};
   char     dashEnvText_[40]       = {};
   char     dashStatusText_[64]    = {};
-  char     dashRaceText_[40]      = {};
+  char     dashRaceText_[64]      = {};
   char     gLiveText_[16]         = {};
   char     gPeakText_[16]         = {};
   int32_t  dashRpmArcLast_        = -999999;
   int32_t  dashSpdArcLast_        = -999999;
   int32_t  dashBoostBarLast_      = -999999;
   int32_t  dashLatBarLast_        = -999999;
-  int32_t  methDutyMeterLast_     = -999999;
-  int32_t  gpsSatMeterLast_       = -999999;
 
   touch::TouchSample lastTouch_ = {};
   portMUX_TYPE        touchMux_  = portMUX_INITIALIZER_UNLOCKED;  // guards lastTouch_ (touchTask writes, screenTask reads)
@@ -166,6 +166,7 @@ class ScreenDashboard {
   // -- DASH page --
   lv_obj_t* rpmArc_          = nullptr;  // unused on the simplified DASH page
   lv_obj_t* spdArc_          = nullptr;  // main MPH gauge
+  lv_meter_indicator_t* spdNeedle_ = nullptr;
   lv_obj_t* rpmValLabel_     = nullptr;  // large RPM number
   lv_obj_t* spdValLabel_     = nullptr;  // large speed number
   lv_obj_t* boostBar_        = nullptr;
@@ -186,12 +187,6 @@ class ScreenDashboard {
   lv_obj_t* methStateLabel_    = nullptr;
   lv_obj_t* methSensorLabel_   = nullptr;
   lv_obj_t* methParamLabel_    = nullptr;
-  lv_obj_t* methOnlineLed_     = nullptr;
-  lv_obj_t* methOfflineSpinner_ = nullptr;
-  lv_obj_t* methDutyMeter_     = nullptr;
-  lv_meter_indicator_t* methDutyNeedle_ = nullptr;
-  lv_obj_t* methTankMeter_     = nullptr;
-  lv_meter_indicator_t* methTankArc_ = nullptr;
   lv_obj_t* methFlowDropdown_  = nullptr;
   lv_obj_t* methArmBtn_        = nullptr;
   lv_obj_t* methArmBtnLabel_   = nullptr;
@@ -216,19 +211,17 @@ class ScreenDashboard {
   uint8_t   tailShowPage_      = 0;
 
   // -- LEDS page --
+  static constexpr uint8_t kInteriorLedUiCount = 3;
+  static constexpr uint8_t kLedModeButtonCount = 5;
   lv_obj_t* ledStatusLabel_  = nullptr;
   lv_obj_t* ledMasterSwitch_ = nullptr;
   lv_obj_t* ledMasterLabel_  = nullptr;
-  lv_obj_t* ledModeBtns_[5]  = {};  // OFF, STATIC, BREATHE, RAINBOW, RPM
+  lv_obj_t* ledStripLabels_[kInteriorLedUiCount] = {};
+  lv_obj_t* ledModeBtns_[kInteriorLedUiCount][kLedModeButtonCount] = {};
 
   // -- GPS page --
   lv_obj_t* gpsSpdLabel_  = nullptr;
   lv_obj_t* gpsInfoLabel_ = nullptr;
-  lv_obj_t* gpsFixLed_    = nullptr;
-  lv_obj_t* gpsSatMeter_  = nullptr;
-  lv_meter_indicator_t* gpsSatNeedle_ = nullptr;
-  float     gpsSpeedFilteredMph_      = 0.0f;
-  bool      gpsSpeedFilterInitialized_ = false;
 
   // -- TEMPS page --
   lv_obj_t* tempsLabel_ = nullptr;
@@ -274,8 +267,10 @@ class ScreenDashboard {
   lv_obj_t* knockEnableBtn_        = nullptr;
   lv_obj_t* knockEnableBtnLabel_   = nullptr;
   lv_obj_t* knockResetBlBtn_       = nullptr;
-  lv_obj_t* knockClearEvtBtn_      = nullptr;
-  lv_obj_t* knockSimulateBtn_      = nullptr;
+  lv_obj_t* knockGainDownBtn_      = nullptr;
+  lv_obj_t* knockGainUpBtn_        = nullptr;
+  lv_obj_t* knockMultDownBtn_      = nullptr;
+  lv_obj_t* knockMultUpBtn_        = nullptr;
   lv_obj_t* knockLogLabel_         = nullptr;
 };
 

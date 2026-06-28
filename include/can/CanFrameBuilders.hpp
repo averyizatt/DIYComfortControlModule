@@ -76,6 +76,10 @@ inline can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) 
   msg.version = s.meth_config_version;
   msg.desired_armed = s.meth_desired_armed ? 1U : 0U;
   msg.ratio_percent = s.meth_selected_ratio_percent > 100U ? 100U : s.meth_selected_ratio_percent;
+  msg.boost_trigger_kpa = 114;  // ~3.5 psi boost above a 90 kPa local baro default
+  msg.iat_threshold_offset40 = can_protocol::tempToOffset40(50);
+  msg.max_pump_duty = 100;
+  msg.failsafe_flags = 0x03;  // low tank + sensor validity required
   return can_protocol::packMethConfigBroadcast(msg);
 }
 

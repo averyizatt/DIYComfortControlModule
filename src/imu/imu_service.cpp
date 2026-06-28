@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "pin_map.h"
 #include "state/vehicle_state.h"
 
 // MPU-6050 register map (minimal subset needed)
@@ -22,48 +23,59 @@ namespace imu {
 
 bool ImuService::begin(TwoWire& wire) {
   wire_ = &wire;
-  // Short timeout: normal transactions complete in <1 ms at 400 kHz.
-  // Capping at 10 ms means a stuck bus is detected quickly and won't
-  // block the touch task for its full 50 ms default.
-  wire_->setTimeout(10);
 
-  // Check WHO_AM_I — should return 0x68 for MPU-6050.
-  // Use sendStop=true so a STOP condition is always sent, even on NAK.
-  // Without it, a missing device leaves the bus held without a STOP,
-  // which can corrupt the next touch-controller transaction.
-  wire_->beginTransmission(kI2cAddr);
-  wire_->write(kRegWhoAmI);
-  if (wire_->endTransmission(true) != 0) {
-    online_ = false;
-    return false;
+  activeAddr_ = 0;
+  const uint8_t candidates[] = {
+      pins::kGyroI2cAddrPrimary,
+      pins::kGyroI2cAddrSecondary,
+  };
+  for (uint8_t addr : candidates) {
+    // Check WHO_AM_I — should return 0x68 for MPU-6050.
+    // Use sendStop=true so a STOP condition is always sent, even on NAK.
+    // Without it, a missing device leaves the bus held without a STOP,
+    // which can corrupt the next touch-controller transaction.
+    wire_->beginTransmission(addr);
+    wire_->write(kRegWhoAmI);
+    if (wire_->endTransmission(true) != 0) {
+      continue;
+    }
+    if (wire_->requestFrom(static_cast<uint8_t>(addr), static_cast<uint8_t>(1)) != 1 ||
+        !wire_->available()) {
+      continue;
+    }
+    const uint8_t whoAmI = static_cast<uint8_t>(wire_->read());
+    // MPU-6050 = 0x68, MPU-6500 = 0x70 — both accepted
+    if (whoAmI == 0x68 || whoAmI == 0x70) {
+      activeAddr_ = addr;
+      break;
+    }
   }
-  wire_->requestFrom(static_cast<uint8_t>(kI2cAddr), static_cast<uint8_t>(1));
-  if (!wire_->available()) {
+
+  if (activeAddr_ == 0) {
     online_ = false;
-    return false;
-  }
-  const uint8_t whoAmI = static_cast<uint8_t>(wire_->read());
-  // MPU-6050 = 0x68, MPU-6500 = 0x70 — both accepted
-  if (whoAmI != 0x68 && whoAmI != 0x70) {
-    online_ = false;
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.imu_online = false;
+    });
     return false;
   }
 
   // Wake the device (clear SLEEP bit in PWR_MGMT_1)
-  wire_->beginTransmission(kI2cAddr);
+  wire_->beginTransmission(activeAddr_);
   wire_->write(kRegPwrMgmt1);
   wire_->write(0x00);
   if (wire_->endTransmission() != 0) {
     online_ = false;
+    activeAddr_ = 0;
     return false;
   }
 
   // Set accelerometer range to ±8 G
-  wire_->beginTransmission(kI2cAddr);
+  wire_->beginTransmission(activeAddr_);
   wire_->write(kRegAccelConfig);
   wire_->write(kAccelFs8G);
   if (wire_->endTransmission() != 0) {
     online_ = false;
+    activeAddr_ = 0;
     return false;
   }
 
@@ -75,15 +87,15 @@ bool ImuService::begin(TwoWire& wire) {
 }
 
 bool ImuService::readAccel(float& ax, float& ay, float& az) {
-  if (!wire_) return false;
+  if (!wire_ || activeAddr_ == 0) return false;
 
-  wire_->beginTransmission(kI2cAddr);
+  wire_->beginTransmission(activeAddr_);
   wire_->write(kRegAccelXoutH);
   // sendStop=true: always terminate cleanly so a failed read
   // cannot leave the bus in a bad state for the touch controller.
   if (wire_->endTransmission(true) != 0) return false;
 
-  if (wire_->requestFrom(static_cast<uint8_t>(kI2cAddr), static_cast<uint8_t>(6)) != 6) return false;
+  if (wire_->requestFrom(static_cast<uint8_t>(activeAddr_), static_cast<uint8_t>(6)) != 6) return false;
 
   const int16_t rawX = static_cast<int16_t>((wire_->read() << 8) | wire_->read());
   const int16_t rawY = static_cast<int16_t>((wire_->read() << 8) | wire_->read());
@@ -97,29 +109,23 @@ bool ImuService::readAccel(float& ax, float& ay, float& az) {
 
 void ImuService::update() {
   if (!wire_) return;
+  const uint32_t nowMs = static_cast<uint32_t>(millis());
 
-  // Rate-limit offline re-init to once per second.  Calling begin()
-  // every 10 ms when the device is absent floods the I2C bus.
   if (!online_) {
-    const uint32_t nowMs = static_cast<uint32_t>(millis());
-    if ((nowMs - lastBeginMs_) < 1000U) {
-      return;  // not time to retry yet
-    }
-    lastBeginMs_ = nowMs;
-    begin(*wire_);
-    if (!online_) {
-      state::g_vehicle_state.mutate([](state::VehicleState& s) {
-        s.imu_online = false;
-      });
-      return;
-    }
+    return;
   }
+
+  if ((nowMs - lastSampleMs_) < kSamplePeriodMs) {
+    return;
+  }
+  lastSampleMs_ = nowMs;
 
   float ax = 0.0f, ay = 0.0f, az = 0.0f;
   if (!readAccel(ax, ay, az)) {
     failCount_++;
     if (failCount_ >= kMaxFails) {
       online_ = false;
+      activeAddr_ = 0;
       state::g_vehicle_state.mutate([](state::VehicleState& s) {
         s.imu_online = false;
       });
