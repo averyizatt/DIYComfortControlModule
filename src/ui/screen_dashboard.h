@@ -26,9 +26,9 @@ class ScreenDashboard {
   // ---- Layout constants -----------------------------------------------
   static constexpr uint16_t kWidth    = 480;
   static constexpr uint16_t kHeight   = 320;
-  static constexpr uint16_t kHdrH     = 36;
+  static constexpr uint16_t kHdrH     = 26;
   static constexpr uint16_t kNavH     = 52;
-  static constexpr uint16_t kContentH = kHeight - kHdrH - kNavH;  // 232
+  static constexpr uint16_t kContentH = kHeight - kHdrH - kNavH;
   static constexpr uint16_t kArcSize  = 180;
   static constexpr uint8_t  kPageCount = 8;
   static constexpr uint32_t kActionFeedbackMs             = 1200;
@@ -84,6 +84,13 @@ class ScreenDashboard {
   // ---- Event handlers -------------------------------------------------
   static void onNavClicked(lv_event_t* e);
   static void onLedModeClicked(lv_event_t* e);
+  static void onLedShowMenuClicked(lv_event_t* e);
+  static void onLedShowBackClicked(lv_event_t* e);
+  static void onLedShowModeClicked(lv_event_t* e);
+  static void onLedShowOnClicked(lv_event_t* e);
+  static void onLedShowOffClicked(lv_event_t* e);
+  static void onLedShowClearClicked(lv_event_t* e);
+  static void onLedColorClicked(lv_event_t* e);
   static void onMethArmClicked(lv_event_t* e);
   static void onMethRatioClicked(lv_event_t* e);
   static void onTailStockClicked(lv_event_t* e);
@@ -129,7 +136,7 @@ class ScreenDashboard {
 #if !LV_TICK_CUSTOM
   uint32_t lastLvTickMs_          = 0;
 #endif
-  char     hdrBatText_[12]        = {};
+  char     hdrTimeText_[12]       = {};
   char     rpmText_[12]           = {};
   char     spdText_[12]           = {};
   char     boostText_[24]         = {};
@@ -149,7 +156,7 @@ class ScreenDashboard {
   // ---- LVGL widget pointers -------------------------------------------
 
   // Header
-  lv_obj_t* hdrBatLabel_      = nullptr;  // left:   "12.6V"
+  lv_obj_t* hdrBatLabel_      = nullptr;  // left:   GPS UTC clock
   lv_obj_t* hdrTitleLabel_    = nullptr;  // center: page name (cyan)
   lv_obj_t* hdrFaultDot_      = nullptr;  // right:  status indicator
   lv_obj_t* hdrFeedbackLabel_ = nullptr;  // far-right: action feedback
@@ -188,6 +195,12 @@ class ScreenDashboard {
   lv_obj_t* methSensorLabel_   = nullptr;
   lv_obj_t* methParamLabel_    = nullptr;
   lv_obj_t* methFlowDropdown_  = nullptr;
+  lv_obj_t* methDutyLabel_     = nullptr;
+  lv_obj_t* methTankLabel_     = nullptr;
+  lv_obj_t* methMapLabel_      = nullptr;
+  lv_obj_t* methPressureLabel_ = nullptr;
+  lv_obj_t* methIatLabel_      = nullptr;
+  lv_obj_t* methBayLabel_      = nullptr;
   lv_obj_t* methArmBtn_        = nullptr;
   lv_obj_t* methArmBtnLabel_   = nullptr;
   lv_obj_t* methRatioBtn_      = nullptr;
@@ -198,6 +211,8 @@ class ScreenDashboard {
   lv_obj_t* tailOnlineLed_     = nullptr;
   lv_obj_t* tailModeDropdown_  = nullptr;
   lv_obj_t* tailModePanel_     = nullptr;
+  lv_obj_t* tailLeftLampLabel_ = nullptr;
+  lv_obj_t* tailRightLampLabel_ = nullptr;
   lv_obj_t* tailStockBtn_      = nullptr;
   lv_obj_t* tailSeqBtn_        = nullptr;
   lv_obj_t* tailShowMenuBtn_   = nullptr;
@@ -211,11 +226,21 @@ class ScreenDashboard {
   uint8_t   tailShowPage_      = 0;
 
   // -- LEDS page --
-  static constexpr uint8_t kInteriorLedUiCount = 3;
-  static constexpr uint8_t kLedModeButtonCount = 5;
-  lv_obj_t* ledStatusLabel_  = nullptr;
+  static constexpr uint8_t kInteriorLedUiCount = 5;
+  static constexpr uint8_t kLedModeButtonCount = 2;
+  static constexpr uint8_t kLedShowModeButtonCount = 5;
+  static constexpr uint8_t kLedColorButtonCount = 6;
   lv_obj_t* ledMasterSwitch_ = nullptr;
   lv_obj_t* ledMasterLabel_  = nullptr;
+  lv_obj_t* ledMainPanel_ = nullptr;
+  lv_obj_t* ledShowPanel_ = nullptr;
+  lv_obj_t* ledShowBtn_ = nullptr;
+  lv_obj_t* ledShowBackBtn_ = nullptr;
+  lv_obj_t* ledShowOnBtn_ = nullptr;
+  lv_obj_t* ledShowOffBtn_ = nullptr;
+  lv_obj_t* ledShowClearBtn_ = nullptr;
+  lv_obj_t* ledShowModeBtns_[kLedShowModeButtonCount] = {};
+  lv_obj_t* ledColorBtns_[kLedColorButtonCount] = {};
   lv_obj_t* ledStripLabels_[kInteriorLedUiCount] = {};
   lv_obj_t* ledModeBtns_[kInteriorLedUiCount][kLedModeButtonCount] = {};
 

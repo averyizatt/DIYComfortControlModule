@@ -35,6 +35,8 @@ enum class RaceMode : uint8_t {
   LAP = 2,
 };
 
+static constexpr uint8_t kLedZoneCount = 4;
+
 struct VehicleState {
   uint16_t rpm = 0;
   float speed = 0.0f;
@@ -126,6 +128,9 @@ struct VehicleState {
   uint8_t gps_fix_quality = 0;
   uint8_t gps_fix_mode = 0;
   uint16_t gps_hdop_x10 = 0;
+  bool gps_time_valid = false;
+  uint32_t gps_utc_seconds_of_day = 0;
+  uint32_t gps_time_sync_ms = 0;
   bool can_online = false;
   uint32_t can_rx_count = 0;
   uint32_t can_tx_count = 0;
@@ -172,19 +177,24 @@ struct VehicleState {
   uint16_t meth_manual_test_cooldown_ms_remaining = 0;
 
   bool led_channel_1_enabled = true;
-  bool led_channel_2_enabled = true;
-  bool led_channel_3_enabled = true;
+  bool led_channel_2_enabled = false;
+  bool led_channel_3_enabled = false;
   uint32_t led_channel_1_color = 0xFFFFFF;
   uint32_t led_channel_2_color = 0xFFFFFF;
   uint32_t led_channel_3_color = 0xFFFFFF;
   LedMode led_channel_1_mode = LedMode::RPM_GAUGE;
-  LedMode led_channel_2_mode = LedMode::LOW_LIGHT;
-  LedMode led_channel_3_mode = LedMode::LOW_LIGHT;
+  LedMode led_channel_2_mode = LedMode::OFF;
+  LedMode led_channel_3_mode = LedMode::OFF;
   uint8_t led_channel_1_brightness = 180;
-  uint8_t led_channel_2_brightness = 180;
-  uint8_t led_channel_3_brightness = 180;
+  uint8_t led_channel_2_brightness = 0;
+  uint8_t led_channel_3_brightness = 0;
   uint8_t led_global_brightness = 180;
   uint8_t led_theme = 0;
+  bool led_zone_enabled[kLedZoneCount] = {false, false, false, false};
+  LedMode led_zone_mode[kLedZoneCount] = {
+      LedMode::OFF, LedMode::OFF, LedMode::OFF, LedMode::OFF};
+  uint8_t led_zone_brightness[kLedZoneCount] = {0, 0, 0, 0};
+  uint32_t led_zone_color[kLedZoneCount] = {0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF};
   bool led_startup_preview = false;
 
   uint8_t display_brightness = 180;

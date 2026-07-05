@@ -637,8 +637,10 @@ bool WebServerManager::begin(state::VehicleStateStore* stateStore, settings::Set
         String colorStr = obj["color"] | "#00FF80";
         const uint32_t color = parseColor(colorStr);
         if (channel == 1) {
-          s.led_channel_1_enabled = enabled; s.led_channel_1_mode = static_cast<state::LedMode>(mode);
-          s.led_channel_1_brightness = br; s.led_channel_1_color = color;
+          s.led_channel_1_enabled = true;
+          s.led_channel_1_mode = state::LedMode::RPM_GAUGE;
+          s.led_channel_1_brightness = 180;
+          s.led_channel_1_color = 0xFFFFFF;
         } else if (channel == 2) {
           s.led_channel_2_enabled = enabled; s.led_channel_2_mode = static_cast<state::LedMode>(mode);
           s.led_channel_2_brightness = br; s.led_channel_2_color = color;

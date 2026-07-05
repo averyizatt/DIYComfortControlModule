@@ -1,5 +1,8 @@
 #include "ui/screen_dashboard.h"
 
+#include "ui/assets/ui_background.h"
+#include "led/led_manager.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -198,11 +201,168 @@ static uint8_t s_nextFlushChunk = 0;
 // Static storage – one ScreenDashboard instance only, set during buildXxxPage().
 struct NavCtx     { ScreenDashboard* self; uint8_t page; };
 struct LedModeCtx { ScreenDashboard* self; uint8_t channel; state::LedMode mode; };
+struct LedShowCtx { ScreenDashboard* self; state::LedMode mode; };
+struct LedColorCtx { ScreenDashboard* self; uint32_t color; };
 struct SdFileRowCtx { ScreenDashboard* self; uint8_t row; };
 
 static NavCtx     s_navCtxs[8];
-static LedModeCtx s_ledModeCtxs[3][5];
+static LedModeCtx s_ledModeCtxs[5][2];
+static LedShowCtx s_ledShowCtxs[5];
+static LedColorCtx s_ledColorCtxs[6];
 static SdFileRowCtx s_sdFileRowCtxs[5];
+
+#ifndef CCM_LED_LOW_WHITE_BRIGHTNESS
+#define CCM_LED_LOW_WHITE_BRIGHTNESS 35
+#endif
+
+#ifndef CCM_LED_HIGH_WHITE_BRIGHTNESS
+#define CCM_LED_HIGH_WHITE_BRIGHTNESS 180
+#endif
+
+const char* ledZoneName(uint8_t row) {
+  switch (row) {
+    case 0: return "ALL";
+    case 1: return "DRIVER";
+    case 2: return "PASS";
+    case 3: return "TOP";
+    case 4: return "BOTTOM";
+    default: return "?";
+  }
+}
+
+const char* ledUiModeName(led::LedUiMode mode) {
+  switch (mode) {
+    case led::LedUiMode::Off: return "OFF";
+    case led::LedUiMode::LowWhite: return "LOW_WHITE";
+    case led::LedUiMode::HighWhite: return "HIGH_WHITE";
+    default: return "UNKNOWN";
+  }
+}
+
+uint8_t ledUiModeBrightness(led::LedUiMode mode) {
+  switch (mode) {
+    case led::LedUiMode::LowWhite: return CCM_LED_LOW_WHITE_BRIGHTNESS;
+    case led::LedUiMode::HighWhite: return CCM_LED_HIGH_WHITE_BRIGHTNESS;
+    case led::LedUiMode::Off:
+    default: return 0;
+  }
+}
+
+bool ledModeToUiMode(state::LedMode mode, led::LedUiMode& out) {
+  switch (mode) {
+    case state::LedMode::OFF:
+      out = led::LedUiMode::Off;
+      return true;
+    case state::LedMode::LOW_LIGHT:
+      out = led::LedUiMode::LowWhite;
+      return true;
+    case state::LedMode::HIGH_LIGHT:
+      out = led::LedUiMode::HighWhite;
+      return true;
+    default:
+      return false;
+  }
+}
+
+void applyLedUiModeToState(state::VehicleState& vs, led::LedUiMode mode) {
+  const bool enabled = mode != led::LedUiMode::Off;
+  const uint8_t brightness = ledUiModeBrightness(mode);
+  const state::LedMode stateMode =
+      (mode == led::LedUiMode::HighWhite)
+          ? state::LedMode::HIGH_LIGHT
+          : ((mode == led::LedUiMode::LowWhite) ? state::LedMode::LOW_LIGHT : state::LedMode::OFF);
+
+  vs.led_channel_1_enabled = true;
+  vs.led_channel_2_enabled = enabled;
+  vs.led_channel_3_enabled = enabled;
+  vs.led_channel_1_mode = state::LedMode::RPM_GAUGE;
+  vs.led_channel_2_mode = stateMode;
+  vs.led_channel_3_mode = stateMode;
+  vs.led_channel_1_brightness = 180;
+  vs.led_channel_2_brightness = brightness;
+  vs.led_channel_3_brightness = brightness;
+  for (uint8_t i = 0; i < state::kLedZoneCount; ++i) {
+    vs.led_zone_enabled[i] = enabled;
+    vs.led_zone_mode[i] = stateMode;
+    vs.led_zone_brightness[i] = brightness;
+  }
+  vs.led_startup_preview = false;
+}
+
+uint8_t brightnessForLedMode(state::LedMode mode) {
+  switch (mode) {
+    case state::LedMode::STATIC_COLOR: return 160;
+    case state::LedMode::LOW_LIGHT: return ledUiModeBrightness(led::LedUiMode::LowWhite);
+    case state::LedMode::HIGH_LIGHT: return ledUiModeBrightness(led::LedUiMode::HighWhite);
+    case state::LedMode::RAINBOW:
+    case state::LedMode::BREATHING:
+    case state::LedMode::RPM_REACTIVE:
+    case state::LedMode::WARNING_FLASH:
+      return 140;
+    case state::LedMode::OFF:
+    default:
+      return 0;
+  }
+}
+
+void applyLedModeToZone(state::VehicleState& vs, uint8_t zone, state::LedMode mode) {
+  if (zone >= state::kLedZoneCount) return;
+  const uint8_t brightness = brightnessForLedMode(mode);
+  const bool enabled = mode != state::LedMode::OFF;
+  vs.led_zone_enabled[zone] = enabled;
+  vs.led_zone_mode[zone] = mode;
+  vs.led_zone_brightness[zone] = brightness;
+  vs.led_startup_preview = false;
+
+  vs.led_channel_1_enabled = true;
+  vs.led_channel_1_mode = state::LedMode::RPM_GAUGE;
+  vs.led_channel_1_brightness = 180;
+  vs.led_channel_2_enabled = false;
+  vs.led_channel_2_mode = state::LedMode::OFF;
+  vs.led_channel_2_brightness = 0;
+  vs.led_channel_3_enabled = false;
+  vs.led_channel_3_mode = state::LedMode::OFF;
+  vs.led_channel_3_brightness = 0;
+  for (uint8_t i = 0; i < state::kLedZoneCount; ++i) {
+    if (!vs.led_zone_enabled[i] || vs.led_zone_mode[i] == state::LedMode::OFF) continue;
+    if (i < 2U) {
+      vs.led_channel_3_enabled = true;
+      vs.led_channel_3_mode = vs.led_zone_mode[i];
+      vs.led_channel_3_brightness = vs.led_zone_brightness[i];
+    } else {
+      vs.led_channel_2_enabled = true;
+      vs.led_channel_2_mode = vs.led_zone_mode[i];
+      vs.led_channel_2_brightness = vs.led_zone_brightness[i];
+    }
+  }
+}
+
+const char* ledModeButtonName(state::LedMode mode) {
+  switch (mode) {
+    case state::LedMode::LOW_LIGHT: return "LOW";
+    case state::LedMode::HIGH_LIGHT: return "HIGH";
+    case state::LedMode::STATIC_COLOR: return "COLOR";
+    case state::LedMode::RAINBOW: return "RAINBOW";
+    case state::LedMode::BREATHING: return "BREATHE";
+    case state::LedMode::RPM_REACTIVE: return "CHASE";
+    case state::LedMode::WARNING_FLASH: return "SPARKLE";
+    case state::LedMode::OFF: return "OFF";
+    default: return "MODE";
+  }
+}
+
+void applyLedModeToAllZones(state::VehicleState& vs, state::LedMode mode) {
+  for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+    applyLedModeToZone(vs, zone, mode);
+  }
+}
+
+void applyLedColorToAllZones(state::VehicleState& vs, uint32_t color) {
+  for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+    vs.led_zone_color[zone] = color;
+    applyLedModeToZone(vs, zone, state::LedMode::STATIC_COLOR);
+  }
+}
 
 constexpr uint32_t kDisplaySpiHz = CCM_DISPLAY_SPI_HZ;
 constexpr bool kDisplayUseGfxDma = CCM_DISPLAY_USE_GFX_DMA != 0;
@@ -242,15 +402,21 @@ constexpr uint8_t kIli9488Invctr = 0xB4;
 constexpr uint8_t kIli9488InvctrValue = static_cast<uint8_t>(CCM_ILI9488_INVCTR);
 constexpr const char* kStatusColorOn  = "#00C853";
 constexpr const char* kStatusColorOff = "#FF3B30";
-constexpr uint32_t kUiColorBg = 0x000000;
-constexpr uint32_t kUiColorPanel = 0x000000;
-constexpr uint32_t kUiColorButton = 0x4A0B0B;
+constexpr uint32_t kUiColorBg = 0x080202;
+constexpr uint32_t kUiColorPanel = 0x160707;
+constexpr uint32_t kUiColorButton = 0x260A0A;
 constexpr uint32_t kUiColorButtonActive = 0xC62828;
-constexpr uint32_t kUiColorButtonBorder = 0x8E1B1B;
-constexpr uint32_t kUiColorDivider = 0x3A1212;
-constexpr uint32_t kUiColorRow = 0x120606;
+constexpr uint32_t kUiColorButtonBorder = 0x6D1A1A;
+constexpr uint32_t kUiColorDivider = 0x351010;
+constexpr uint32_t kUiColorRow = 0x120505;
 constexpr uint32_t kUiColorRowSelected = 0x5B1515;
-constexpr uint32_t kUiColorMeterTrack = 0x1F0808;
+constexpr uint32_t kUiColorMeterTrack = 0x220C0C;
+constexpr uint32_t kUiColorTextMuted = 0xB08686;
+constexpr uint32_t kUiColorText = 0xF6EAEA;
+constexpr uint32_t kUiColorHeroPanel = 0x1E0808;
+constexpr uint32_t kUiColorGood = 0x00C853;
+constexpr uint32_t kUiColorWarn = 0xFF9500;
+constexpr uint32_t kUiColorBad = 0xFF3B30;
 constexpr float kGpsZeroClampMph         = 5.0f;
 constexpr uint8_t kGpsStatusDeadReckoned = 0x20;
 constexpr uint8_t kGpsStatusSpikeRejected = 0x40;
@@ -621,7 +787,7 @@ void flattenNavButtonState(lv_obj_t* btn, lv_state_t state) {
 void styleChip(lv_obj_t* obj) {
   if (!obj) return;
   lv_obj_set_style_radius(obj, 8, LV_PART_MAIN);
-  setBgColor(obj, lv_color_hex(kUiColorButton), LV_PART_MAIN);
+  setNavButtonBg(obj, lv_color_hex(kUiColorPanel));
   lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorButtonBorder), LV_PART_MAIN);
   lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
@@ -633,7 +799,7 @@ void styleChip(lv_obj_t* obj) {
 
 void styleActionButton(lv_obj_t* obj) {
   if (!obj) return;
-  lv_obj_set_style_radius(obj, 10, LV_PART_MAIN);
+  lv_obj_set_style_radius(obj, 8, LV_PART_MAIN);
   lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
   lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorButtonBorder), LV_PART_MAIN);
   setBgColor(obj, lv_color_hex(kUiColorButton), LV_PART_MAIN);
@@ -641,8 +807,96 @@ void styleActionButton(lv_obj_t* obj) {
   setBgColor(obj, lv_color_hex(kUiColorButtonActive), mainSelector(LV_STATE_FOCUSED));
   setBgColor(obj, lv_color_hex(kUiColorButtonActive), mainSelector(LV_STATE_FOCUS_KEY));
   setBgColor(obj, lv_color_hex(kUiColorButtonActive), mainSelector(LV_STATE_CHECKED));
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, mainSelector(LV_STATE_PRESSED));
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, mainSelector(LV_STATE_FOCUSED));
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, mainSelector(LV_STATE_FOCUS_KEY));
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, mainSelector(LV_STATE_CHECKED));
   lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
-  lv_obj_set_style_shadow_color(obj, lv_color_hex(0x050c16), LV_PART_MAIN);
+  lv_obj_set_style_shadow_color(obj, lv_color_hex(kUiColorBg), LV_PART_MAIN);
+}
+
+static lv_obj_t* makeLabel(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                            lv_coord_t w, const char* text,
+                            const lv_font_t* font);
+
+void stylePanel(lv_obj_t* obj, uint32_t color = kUiColorPanel, lv_opa_t opa = LV_OPA_COVER) {
+  if (!obj) return;
+  const lv_color_t panelColor = lv_color_hex(color);
+  lv_obj_set_style_radius(obj, 8, LV_PART_MAIN);
+  lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorDivider), LV_PART_MAIN);
+  setBgColor(obj, panelColor, LV_PART_MAIN);
+  setBgColor(obj, panelColor, mainSelector(LV_STATE_PRESSED));
+  setBgColor(obj, panelColor, mainSelector(LV_STATE_FOCUSED));
+  setBgColor(obj, panelColor, mainSelector(LV_STATE_FOCUS_KEY));
+  setBgColor(obj, panelColor, mainSelector(LV_STATE_CHECKED));
+  lv_obj_set_style_bg_opa(obj, opa, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(obj, opa, mainSelector(LV_STATE_PRESSED));
+  lv_obj_set_style_bg_opa(obj, opa, mainSelector(LV_STATE_FOCUSED));
+  lv_obj_set_style_bg_opa(obj, opa, mainSelector(LV_STATE_FOCUS_KEY));
+  lv_obj_set_style_bg_opa(obj, opa, mainSelector(LV_STATE_CHECKED));
+  lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(obj, 6, LV_PART_MAIN);
+  lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+lv_obj_t* makePanel(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                    lv_coord_t w, lv_coord_t h,
+                    uint32_t color = kUiColorPanel,
+                    lv_opa_t opa = LV_OPA_COVER) {
+  lv_obj_t* panel = lv_obj_create(parent);
+  lv_obj_set_pos(panel, x, y);
+  lv_obj_set_size(panel, w, h);
+  stylePanel(panel, color, opa);
+  return panel;
+}
+
+lv_obj_t* makeSectionTitle(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                           lv_coord_t w, const char* text) {
+  lv_obj_t* label = makeLabel(parent, x, y, w, text, &lv_font_montserrat_16);
+  setTextColor(label, lv_color_hex(kUiColorText), 0);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+  return label;
+}
+
+lv_obj_t* makeStatusPill(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                         lv_coord_t w, const char* text, lv_color_t stateColor) {
+  lv_obj_t* pill = makeLabel(parent, x, y, w, text, &lv_font_montserrat_12);
+  lv_obj_set_height(pill, 24);
+  lv_obj_set_style_text_align(pill, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(pill, LV_LABEL_LONG_DOT);
+  stylePanel(pill, kUiColorRow);
+  lv_obj_set_style_border_color(pill, stateColor, LV_PART_MAIN);
+  setTextColor(pill, stateColor, 0);
+  return pill;
+}
+
+lv_obj_t* makeMetricTile(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                         lv_coord_t w, lv_coord_t h, const char* text,
+                         const lv_font_t* font = &lv_font_montserrat_20) {
+  lv_obj_t* tile = makeLabel(parent, x, y, w, text, font);
+  lv_obj_set_height(tile, h);
+  lv_obj_set_style_text_align(tile, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(tile, LV_LABEL_LONG_WRAP);
+  stylePanel(tile);
+  return tile;
+}
+
+void stylePrimaryButton(lv_obj_t* obj) {
+  styleActionButton(obj);
+  lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorButtonActive), LV_PART_MAIN);
+}
+
+void styleSecondaryButton(lv_obj_t* obj) {
+  styleActionButton(obj);
+  lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorButtonBorder), LV_PART_MAIN);
+}
+
+void styleDangerButton(lv_obj_t* obj) {
+  styleActionButton(obj);
+  setBgColor(obj, lv_color_hex(0x2A1111), LV_PART_MAIN);
+  lv_obj_set_style_border_color(obj, lv_color_hex(kUiColorBad), LV_PART_MAIN);
 }
 
 void styleOpaqueRedrawSurface(lv_obj_t* obj, lv_color_t color = lv_color_hex(kUiColorPanel)) {
@@ -967,6 +1221,7 @@ void ScreenDashboard::lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_
                    transferred ? 1U : 0U);
   }
   lv_disp_flush_ready(drv);
+  taskYIELD();
 }
 
 void ScreenDashboard::lvglRounderCb(lv_disp_drv_t* /*drv*/, lv_area_t* area) {
@@ -1222,14 +1477,17 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
                  static_cast<unsigned long>(kDisplaySpiHz),
                  kDisplayUseGfxDma ? "ESP32SPIDMA" : "HWSPI",
                  static_cast<unsigned>(kDisplayPixelMode));
-  if (!s_gfx || !s_gfx->begin(kDisplaySpiHz)) {
-    Serial.println("[SCREEN] GFX begin FAILED");
-    return false;
+  {
+    hal::SharedSpiBusLock spiLock("LCD:init");
+    if (!s_gfx || !s_gfx->begin(kDisplaySpiHz)) {
+      Serial.println("[SCREEN] GFX begin FAILED");
+      return false;
+    }
+    Serial.println("[SCREEN] GFX begin OK");
+    Serial.println("[SCREEN] clear start");
+    s_gfx->fillScreen(0x0000U);  // clear to black before LVGL builds first frame
+    Serial.println("[SCREEN] clear OK");
   }
-  Serial.println("[SCREEN] GFX begin OK");
-  Serial.println("[SCREEN] clear start");
-  s_gfx->fillScreen(0x0000U);  // clear to black before LVGL builds first frame
-  Serial.println("[SCREEN] clear OK");
 #else
   (void)lcdCs; (void)lcdRst; (void)lcdDc;
   (void)spiSck; (void)spiMosi; (void)spiMiso;
@@ -1291,15 +1549,9 @@ bool ScreenDashboard::begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
     const state::VehicleState initialState = state::g_vehicle_state.read();
     updateHeader(initialState, nowMs);
     updateDashPage(initialState);
-    lv_obj_invalidate(lv_scr_act());
-    Serial.println("[SCREEN] first frame flush start");
-    {
-      hal::SharedSpiBusLock spiLock("LCD:frame");
-      lv_refr_now(disp);
-    }
-    Serial.println("[SCREEN] first frame flush OK");
+    Serial.println("[SCREEN] first frame deferred to screen task");
     lastHeaderUpdateMs_ = nowMs;
-    lastPageUpdateMs_ = nowMs;
+    lastPageUpdateMs_ = 0;
   }
   return true;
 }
@@ -1359,10 +1611,7 @@ void ScreenDashboard::tick(const state::VehicleState& s, uint32_t nowMs) {
 
   s_frameFlushCurrent = 0;
   const uint32_t handlerStartMs = millis();
-  {
-    hal::SharedSpiBusLock spiLock("LCD:frame");
-    lv_task_handler();
-  }
+  lv_task_handler();
   const uint32_t handlerEndMs = millis();
   s_frameFlushLast = s_frameFlushCurrent;
   s_frameFlushSum += s_frameFlushCurrent;
@@ -1447,7 +1696,13 @@ void ScreenDashboard::buildUi() {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-  buildHeader(scr);
+  lv_obj_t* bg = lv_img_create(scr);
+  lv_img_set_src(bg, &ui_background);
+  lv_obj_set_pos(bg, 0, 0);
+  lv_obj_clear_flag(bg, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_move_background(bg);
+
   buildContentArea(scr);
   buildNavBar(scr);
 
@@ -1471,10 +1726,10 @@ void ScreenDashboard::buildHeader(lv_obj_t* scr) {
 
   // Left spacer
   hdrBatLabel_ = lv_label_create(hdr);
-  setLabelTextStatic(hdrBatLabel_, hdrBatText_, sizeof(hdrBatText_), "");
+  setLabelTextStatic(hdrBatLabel_, hdrTimeText_, sizeof(hdrTimeText_), "--:--:--Z");
   lv_obj_set_style_text_font(hdrBatLabel_, &lv_font_montserrat_16, 0);
+  setTextColor(hdrBatLabel_, lv_color_hex(kUiColorText), 0);
   lv_obj_align(hdrBatLabel_, LV_ALIGN_LEFT_MID, 8, 0);
-  setObjHidden(hdrBatLabel_, true);
 
   // Center: active page name
   hdrTitleLabel_ = lv_label_create(hdr);
@@ -1509,7 +1764,7 @@ void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
   lv_obj_set_pos(cont, 0, kHdrH);
   lv_obj_set_size(cont, kWidth, kContentH);
   setBgColor(cont, lv_color_hex(kUiColorBg), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(cont, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(cont, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN);
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
@@ -1561,7 +1816,7 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
   lv_obj_set_pos(bar, 0, static_cast<lv_coord_t>(kHdrH + kContentH));
   lv_obj_set_size(bar, kWidth, kNavH);
   setBgColor(bar, lv_color_hex(kUiColorBg), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(bar, static_cast<lv_opa_t>(150), LV_PART_MAIN);
   lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(bar, 0, LV_PART_MAIN);
   lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -1571,7 +1826,7 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
   lv_obj_set_pos(sep, 0, static_cast<lv_coord_t>(kHdrH + kContentH));
   lv_obj_set_size(sep, kWidth, 1);
   setBgColor(sep, lv_color_hex(kUiColorDivider), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(sep, static_cast<lv_opa_t>(180), LV_PART_MAIN);
   lv_obj_set_style_border_width(sep, 0, LV_PART_MAIN);
 
   // Eight equal buttons span the full nav bar.
@@ -1634,7 +1889,7 @@ void ScreenDashboard::buildNavBar(lv_obj_t* scr) {
 void ScreenDashboard::showPage(uint8_t idx) {
   if (idx >= kPageCount) return;
   static const char* const kNames[8] = {
-    "DASH", "METH", "TAIL", "LEDS", "GPS", "TEMPS", "DIAG", "KNOCK"
+    "DASH", "METH", "TAIL", "LED", "GPS", "TEMP", "DIAG", "KNOCK"
   };
 
   if (idx == activePage_ && pages_[idx] && !lv_obj_has_flag(pages_[idx], LV_OBJ_FLAG_HIDDEN)) {
@@ -1691,6 +1946,29 @@ void ScreenDashboard::showPage(uint8_t idx) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
+  spdValLabel_ = makeLabel(parent, 8, 38, 214, "0\nMPH", &lv_font_montserrat_48);
+  lv_obj_set_height(spdValLabel_, 128);
+  lv_obj_set_style_text_align(spdValLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(spdValLabel_, LV_LABEL_LONG_WRAP);
+  stylePanel(spdValLabel_, kUiColorHeroPanel);
+
+  boostValLabel_ = makeMetricTile(parent, 236, 20, 112, 74, "BOOST\n0.0 PSI");
+  dashStatusLabel_ = makeMetricTile(parent, 356, 20, 112, 74, "METH\nOFFLINE");
+  dashEnvLabel_ = makeMetricTile(parent, 236, 102, 112, 74, "TANK\n100%");
+  dashRaceLabel_ = makeMetricTile(parent, 356, 102, 112, 74, "KNOCK\nOK");
+  lv_label_set_recolor(dashStatusLabel_, true);
+  lv_label_set_recolor(dashRaceLabel_, true);
+
+  rpmValLabel_ = makeMetricTile(parent, 8, 182, 104, 44, "RPM --", &lv_font_montserrat_16);
+  gLiveLabel_ = makeMetricTile(parent, 120, 182, 104, 44, "FUEL --", &lv_font_montserrat_16);
+  gPeakLabel_ = makeMetricTile(parent, 236, 182, 112, 44, "OIL --", &lv_font_montserrat_16);
+  raceAccelBtn_ = makeMetricTile(parent, 356, 182, 112, 44, "CAN --", &lv_font_montserrat_16);
+  boostBar_ = nullptr;
+  spdArc_ = nullptr;
+  spdNeedle_ = nullptr;
+  gLatBar_ = nullptr;
+  return;
+
   // Landscape dual-gauge layout (472×224 inner after 4 px page padding):
   //   LEFT  (x 0–163):   RPM arc 160×160
   //   CENTRE(x 168–303): boost bar, env, status, race stats, race buttons
@@ -1741,7 +2019,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   setLabelText(rpmUnit, "RPM");
   lv_obj_set_width(rpmUnit, arcSz);
   lv_obj_set_style_text_align(rpmUnit, LV_TEXT_ALIGN_CENTER, 0);
-  setTextColor(rpmUnit, lv_color_hex(0x7090a0), 0);
+  setTextColor(rpmUnit, lv_color_hex(kUiColorTextMuted), 0);
   lv_obj_set_style_text_font(rpmUnit, &lv_font_montserrat_14, 0);
   lv_obj_set_pos(rpmUnit, leftX, arcY + 82);
   setObjHidden(rpmArc_, true);
@@ -1759,8 +2037,8 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_obj_clear_flag(spdArc_, LV_OBJ_FLAG_CLICKABLE);
   lv_meter_scale_t* spdScale = lv_meter_add_scale(spdArc_);
   lv_meter_set_scale_range(spdArc_, spdScale, 0, 140, 270, 135);
-  lv_meter_set_scale_ticks(spdArc_, spdScale, 29, 2, 10, lv_color_hex(0x506070));
-  lv_meter_set_scale_major_ticks(spdArc_, spdScale, 4, 4, 15, lv_color_hex(0xD7DEE8), 12);
+  lv_meter_set_scale_ticks(spdArc_, spdScale, 29, 2, 10, lv_color_hex(kUiColorTextMuted));
+  lv_meter_set_scale_major_ticks(spdArc_, spdScale, 4, 4, 15, lv_color_hex(kUiColorText), 12);
   lv_meter_add_arc(spdArc_, spdScale, 8, lv_color_hex(kUiColorMeterTrack), 0);
   lv_meter_add_scale_lines(spdArc_, spdScale, lv_palette_main(LV_PALETTE_GREEN),
                            lv_palette_main(LV_PALETTE_RED), false, 0);
@@ -1778,7 +2056,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   setLabelText(spdUnit, "MPH");
   lv_obj_set_width(spdUnit, arcSz);
   lv_obj_set_style_text_align(spdUnit, LV_TEXT_ALIGN_CENTER, 0);
-  setTextColor(spdUnit, lv_color_hex(0x7090a0), 0);
+  setTextColor(spdUnit, lv_color_hex(kUiColorTextMuted), 0);
   lv_obj_set_style_text_font(spdUnit, &lv_font_montserrat_20, 0);
   lv_obj_set_pos(spdUnit, rightX, arcY + 128);
 
@@ -1788,7 +2066,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_obj_set_width(gLiveLabel_, arcSz);
   lv_obj_set_style_text_font(gLiveLabel_, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_align(gLiveLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  setTextColor(gLiveLabel_, lv_color_hex(0x7090a0), 0);
+  setTextColor(gLiveLabel_, lv_color_hex(kUiColorTextMuted), 0);
   lv_obj_set_pos(gLiveLabel_, rightX, arcY + 96);
 
   gPeakLabel_ = lv_label_create(parent);
@@ -1796,7 +2074,7 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   lv_obj_set_width(gPeakLabel_, arcSz);
   lv_obj_set_style_text_font(gPeakLabel_, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(gPeakLabel_, LV_TEXT_ALIGN_CENTER, 0);
-  setTextColor(gPeakLabel_, lv_color_hex(0x506070), 0);
+  setTextColor(gPeakLabel_, lv_color_hex(kUiColorTextMuted), 0);
   lv_obj_set_pos(gPeakLabel_, rightX, arcY + 120);
 
   // Lateral bar: centred under label, range -100..+100 (maps ±1.5 G → ±100)
@@ -1881,6 +2159,27 @@ void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildMethPage(lv_obj_t* parent) {
+  methBadgeLabel_ = makeStatusPill(parent, 8, 8, 142, "WATER-METH", lv_color_hex(kUiColorBad));
+  methStateLabel_ = makeStatusPill(parent, 158, 8, 94, "OFFLINE", lv_color_hex(kUiColorBad));
+  methSensorLabel_ = makeStatusPill(parent, 260, 8, 96, "EXT OFF", lv_color_hex(kUiColorBad));
+  methParamLabel_ = makeStatusPill(parent, 364, 8, 104, "ARM OFF", lv_color_hex(kUiColorTextMuted));
+
+  methDutyLabel_ = makeMetricTile(parent, 8, 48, 110, 70, "DUTY\n0%", &lv_font_montserrat_20);
+  methTankLabel_ = makeMetricTile(parent, 126, 48, 110, 70, "TANK\n100%", &lv_font_montserrat_20);
+  methMapLabel_ = makeMetricTile(parent, 244, 48, 110, 70, "MAP\n0 kPa", &lv_font_montserrat_20);
+  methPressureLabel_ = makeMetricTile(parent, 362, 48, 106, 70, "METH\n0 psi", &lv_font_montserrat_20);
+
+  methIatLabel_ = makeMetricTile(parent, 8, 128, 226, 34, "IAT -- C", &lv_font_montserrat_16);
+  methBayLabel_ = makeMetricTile(parent, 242, 128, 226, 34, "BAY -- C", &lv_font_montserrat_16);
+
+  methArmBtn_ = makeBtn(parent, "ARM", 8, 178, 226, 44, onMethArmClicked, this);
+  methArmBtnLabel_ = btnLabel(methArmBtn_);
+  methRatioBtn_ = makeBtn(parent, "RATIO 55%", 242, 178, 226, 44, onMethRatioClicked, this);
+  methRatioBtnLabel_ = btnLabel(methRatioBtn_);
+  stylePrimaryButton(methArmBtn_);
+  styleSecondaryButton(methRatioBtn_);
+  return;
+
   methBadgeLabel_ = makeLabel(parent, 0, 0, 472,
       LV_SYMBOL_TINT "  WATER-METH  |  #FF3B30 OFFLINE#", &lv_font_montserrat_20);
   lv_label_set_recolor(methBadgeLabel_, true);
@@ -1911,6 +2210,54 @@ void ScreenDashboard::buildMethPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
+  tailStatusLabel_ = makeStatusPill(parent, 8, 8, 300, "TAILS  OFFLINE  STOCK  BRI 0", lv_color_hex(kUiColorBad));
+  tailOnlineLed_ = lv_led_create(parent);
+  lv_obj_set_pos(tailOnlineLed_, 438, 11);
+  lv_obj_set_size(tailOnlineLed_, 18, 18);
+  lv_led_set_brightness(tailOnlineLed_, 180);
+  lv_led_off(tailOnlineLed_);
+
+  tailModePanel_ = makePanel(parent, 8, 48, 464, 166, kUiColorBg);
+  lv_obj_set_style_pad_all(tailModePanel_, 0, LV_PART_MAIN);
+  constexpr lv_coord_t tailBtnWOem = 224;
+  constexpr lv_coord_t tailBtnHOem = 72;
+  constexpr lv_coord_t tailGapOem = 8;
+  tailStockBtn_ = makeBtn(tailModePanel_, "STOCK", 0, 0, tailBtnWOem, tailBtnHOem, onTailStockClicked, this);
+  tailSeqBtn_ = makeBtn(tailModePanel_, "SEQ", tailBtnWOem + tailGapOem, 0, tailBtnWOem, tailBtnHOem, onTailSeqClicked, this);
+  tailShowMenuBtn_ = makeBtn(tailModePanel_, "SHOW", 0, tailBtnHOem + tailGapOem, tailBtnWOem, tailBtnHOem, onTailShowMenuClicked, this);
+  tailDemoBtn_ = makeBtn(tailModePanel_, "DEMO", tailBtnWOem + tailGapOem, tailBtnHOem + tailGapOem, tailBtnWOem, tailBtnHOem, onTailDemoClicked, this);
+  lv_obj_set_style_text_font(btnLabel(tailStockBtn_), &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(btnLabel(tailSeqBtn_), &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(btnLabel(tailShowMenuBtn_), &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(btnLabel(tailDemoBtn_), &lv_font_montserrat_20, 0);
+  styleSecondaryButton(tailStockBtn_);
+  styleSecondaryButton(tailSeqBtn_);
+  styleSecondaryButton(tailShowMenuBtn_);
+  styleSecondaryButton(tailDemoBtn_);
+
+  tailShowPanel_ = makePanel(parent, 8, 48, 464, 166);
+  lv_obj_add_flag(tailShowPanel_, LV_OBJ_FLAG_HIDDEN);
+  tailShowPageLabel_ = makeSectionTitle(tailShowPanel_, 0, 0, 120, "SHOW 1/4");
+  tailShowBackBtn_ = makeBtn(tailShowPanel_, "BACK", 128, 0, 104, 34, onTailShowBackClicked, this);
+  tailShowPrevBtn_ = makeBtn(tailShowPanel_, "PREV", 240, 0, 104, 34, onTailShowPrevClicked, this);
+  tailShowNextBtn_ = makeBtn(tailShowPanel_, "NEXT", 352, 0, 104, 34, onTailShowNextClicked, this);
+  styleSecondaryButton(tailShowBackBtn_);
+  styleSecondaryButton(tailShowPrevBtn_);
+  styleSecondaryButton(tailShowNextBtn_);
+  const lv_coord_t optWOem = 142;
+  const lv_coord_t optHOem = 38;
+  const lv_coord_t optGapOem = 10;
+  for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
+    const lv_coord_t col = static_cast<lv_coord_t>(i % 3);
+    const lv_coord_t row = static_cast<lv_coord_t>(i / 3);
+    tailShowOptBtns_[i] = makeBtn(tailShowPanel_, "N/A",
+        static_cast<lv_coord_t>(col * (optWOem + optGapOem)),
+        static_cast<lv_coord_t>(46 + row * (optHOem + optGapOem)),
+        optWOem, optHOem, onTailShowOptClicked, this);
+    styleSecondaryButton(tailShowOptBtns_[i]);
+  }
+  return;
+
   tailStatusLabel_ = makeLabel(parent, 0, 0, 402,
       "Taillights: OFFLINE\nBright: 0  L:0  R:0", &lv_font_montserrat_18);
 
@@ -1978,57 +2325,127 @@ void ScreenDashboard::buildTailPage(lv_obj_t* parent) {
 }
 
 // ---------------------------------------------------------------------------
-// buildLedsPage – LED mode selector + per-channel status
+// buildLedsPage – LED mode selector + cabin zone status
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildLedsPage(lv_obj_t* parent) {
-  makeLabel(parent, 0, 0, kWidth, "Interior LEDs", &lv_font_montserrat_20);
+  lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, LV_PART_MAIN);
+
+  makeLabel(parent, 0, 2, 146, "Interior LEDs", &lv_font_montserrat_20);
 
   ledMasterSwitch_ = lv_switch_create(parent);
-  lv_obj_set_pos(ledMasterSwitch_, 374, 2);
-  lv_obj_set_size(ledMasterSwitch_, 88, 34);
+  lv_obj_set_pos(ledMasterSwitch_, 378, 2);
+  lv_obj_set_size(ledMasterSwitch_, 84, 32);
+  setBgColor(ledMasterSwitch_, lv_color_hex(kUiColorButton), LV_PART_MAIN);
+  setBgColor(ledMasterSwitch_, lv_color_hex(kUiColorButtonActive),
+             static_cast<lv_style_selector_t>(LV_PART_INDICATOR) | LV_STATE_CHECKED);
+  setBgColor(ledMasterSwitch_, lv_color_hex(kUiColorRow), LV_PART_INDICATOR);
+  setBgColor(ledMasterSwitch_, lv_color_hex(kUiColorText), LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(ledMasterSwitch_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ledMasterSwitch_, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_border_color(ledMasterSwitch_, lv_color_hex(kUiColorButtonBorder), LV_PART_MAIN);
+  lv_obj_set_style_border_width(ledMasterSwitch_, 1, LV_PART_MAIN);
   lv_obj_add_event_cb(ledMasterSwitch_, onLedMasterSwitchChanged, LV_EVENT_VALUE_CHANGED, this);
 
-  ledMasterLabel_ = makeLabel(parent, 282, 10, 86, "MASTER OFF", &lv_font_montserrat_12);
+  ledMasterLabel_ = makeLabel(parent, 286, 10, 86, "MASTER OFF", &lv_font_montserrat_12);
 
-  ledStatusLabel_ = makeLabel(parent, 0, 32, 472,
-      "1:OFF  2:OFF  3:OFF", &lv_font_montserrat_18);
+  ledShowBtn_ = makeBtn(parent, "SHOW MODE", 156, 2, 118, 30, onLedShowMenuClicked, this);
+  styleActionButton(ledShowBtn_);
 
-  static const char* const kModeNames[5] = { "OFF", "LOW", "HIGH", "RAINBOW", "RPM" };
-  static const state::LedMode kModeValues[5] = {
-    state::LedMode::OFF,
+  ledMainPanel_ = lv_obj_create(parent);
+  lv_obj_set_pos(ledMainPanel_, 0, 38);
+  lv_obj_set_size(ledMainPanel_, 472, 224);
+  lv_obj_set_style_pad_all(ledMainPanel_, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(ledMainPanel_, 0, LV_PART_MAIN);
+  setBgColor(ledMainPanel_, lv_color_hex(kUiColorPanel), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ledMainPanel_, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_clear_flag(ledMainPanel_, LV_OBJ_FLAG_SCROLLABLE);
+
+  static const char* const kModeNames[2] = { "LOW", "HIGH" };
+  static const state::LedMode kModeValues[2] = {
     state::LedMode::LOW_LIGHT,
     state::LedMode::HIGH_LIGHT,
-    state::LedMode::RAINBOW,
-    state::LedMode::RPM_GAUGE,
   };
-  static const char* const kStripNames[kInteriorLedUiCount] = { "RPM", "UPPER", "LOWER" };
-  constexpr lv_coord_t labelW = 58;
-  constexpr lv_coord_t btnW = 75;
-  constexpr lv_coord_t btnH = 28;
-  constexpr lv_coord_t startY = 74;
-  constexpr lv_coord_t rowGap = 48;
-  constexpr lv_coord_t startX = 78;
-  constexpr lv_coord_t gapX = 4;
+
+  lv_obj_t* simpleZonesPanel = makePanel(ledMainPanel_, 236, 8, 232, 148, kUiColorPanel,
+                                         static_cast<lv_opa_t>(145));
+  makeSectionTitle(simpleZonesPanel, 8, 8, 216, "TOP / BOTTOM");
+
+  const lv_coord_t labelX[kInteriorLedUiCount] = { 8, 8, 8, 248, 248 };
+  const lv_coord_t labelY[kInteriorLedUiCount] = { 16, 80, 144, 58, 122 };
+  const lv_coord_t btnX[kInteriorLedUiCount] = { 92, 92, 92, 336, 336 };
+  const lv_coord_t btnY[kInteriorLedUiCount] = { 8, 72, 136, 48, 112 };
+  constexpr lv_coord_t btnW = 60;
+  constexpr lv_coord_t btnH = 42;
+  constexpr lv_coord_t gapX = 8;
   for (uint8_t ch = 0; ch < kInteriorLedUiCount; ++ch) {
-    const lv_coord_t y = static_cast<lv_coord_t>(startY + ch * rowGap);
-    ledStripLabels_[ch] = makeLabel(parent, 0, y + 6, labelW, kStripNames[ch], &lv_font_montserrat_14);
+    ledStripLabels_[ch] = makeLabel(ledMainPanel_, labelX[ch], labelY[ch], 82, ledZoneName(ch), &lv_font_montserrat_14);
     for (uint8_t i = 0; i < kLedModeButtonCount; i++) {
       s_ledModeCtxs[ch][i] = {this, ch, kModeValues[i]};
-      const lv_coord_t bx = static_cast<lv_coord_t>(startX + i * (btnW + gapX));
-      ledModeBtns_[ch][i] = makeBtn(parent, kModeNames[i], bx, y, btnW, btnH,
+      const lv_coord_t bx = static_cast<lv_coord_t>(btnX[ch] + i * (btnW + gapX));
+      ledModeBtns_[ch][i] = makeBtn(ledMainPanel_, kModeNames[i], bx, btnY[ch], btnW, btnH,
                                     onLedModeClicked, &s_ledModeCtxs[ch][i]);
       lv_obj_set_style_text_font(btnLabel(ledModeBtns_[ch][i]), &lv_font_montserrat_12, 0);
       styleActionButton(ledModeBtns_[ch][i]);
-      if (ch == 0U && kModeValues[i] != state::LedMode::RPM_GAUGE) {
-        setObjHidden(ledModeBtns_[ch][i], true);
-      } else if (ch != 0U &&
-                 kModeValues[i] != state::LedMode::OFF &&
-                 kModeValues[i] != state::LedMode::LOW_LIGHT &&
-                 kModeValues[i] != state::LedMode::HIGH_LIGHT) {
-        setObjHidden(ledModeBtns_[ch][i], true);
-      }
     }
+  }
+
+  ledShowPanel_ = lv_obj_create(parent);
+  lv_obj_set_pos(ledShowPanel_, 0, 38);
+  lv_obj_set_size(ledShowPanel_, 472, 224);
+  lv_obj_set_style_pad_all(ledShowPanel_, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(ledShowPanel_, 0, LV_PART_MAIN);
+  setBgColor(ledShowPanel_, lv_color_hex(kUiColorPanel), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ledShowPanel_, static_cast<lv_opa_t>(90), LV_PART_MAIN);
+  lv_obj_clear_flag(ledShowPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(ledShowPanel_, LV_OBJ_FLAG_HIDDEN);
+
+  makeLabel(ledShowPanel_, 0, 0, 140, "SHOW MODE", &lv_font_montserrat_14);
+  ledShowBackBtn_ = makeBtn(ledShowPanel_, "BACK", 362, 0, 110, 28, onLedShowBackClicked, this);
+  ledShowOnBtn_ = makeBtn(ledShowPanel_, "SHOW ON", 0, 34, 112, 32, onLedShowOnClicked, this);
+  ledShowOffBtn_ = makeBtn(ledShowPanel_, "SHOW OFF", 120, 34, 112, 32, onLedShowOffClicked, this);
+  ledShowClearBtn_ = makeBtn(ledShowPanel_, "CLEAR", 240, 34, 112, 32, onLedShowClearClicked, this);
+  styleActionButton(ledShowBackBtn_);
+  styleActionButton(ledShowOnBtn_);
+  styleActionButton(ledShowOffBtn_);
+  styleActionButton(ledShowClearBtn_);
+
+  static const char* const kShowNames[kLedShowModeButtonCount] = {
+    "RAINBOW", "BREATHE", "COLOR", "CHASE", "SPARKLE"
+  };
+  static const state::LedMode kShowModes[kLedShowModeButtonCount] = {
+    state::LedMode::RAINBOW,
+    state::LedMode::BREATHING,
+    state::LedMode::STATIC_COLOR,
+    state::LedMode::RPM_REACTIVE,
+    state::LedMode::WARNING_FLASH,
+  };
+  for (uint8_t i = 0; i < kLedShowModeButtonCount; ++i) {
+    s_ledShowCtxs[i] = {this, kShowModes[i]};
+    const lv_coord_t bx = static_cast<lv_coord_t>((i % 3) * 118);
+    const lv_coord_t by = static_cast<lv_coord_t>(74 + (i / 3) * 34);
+    ledShowModeBtns_[i] = makeBtn(ledShowPanel_, kShowNames[i], bx, by, 110, 28,
+                                  onLedShowModeClicked, &s_ledShowCtxs[i]);
+    styleActionButton(ledShowModeBtns_[i]);
+  }
+
+  static const uint32_t kColors[kLedColorButtonCount] = {
+    0xFFFFFF, 0xFF3030, 0xFFB000, 0x20E060, 0x2080FF, 0xB040FF
+  };
+  static const char* const kColorNames[kLedColorButtonCount] = {
+    "WHITE", "RED", "AMBER", "GREEN", "BLUE", "VIOLET"
+  };
+  makeLabel(ledShowPanel_, 362, 38, 100, "COLOR", &lv_font_montserrat_12);
+  for (uint8_t i = 0; i < kLedColorButtonCount; ++i) {
+    s_ledColorCtxs[i] = {this, kColors[i]};
+    const lv_coord_t bx = static_cast<lv_coord_t>(356 + (i % 2) * 58);
+    const lv_coord_t by = static_cast<lv_coord_t>(58 + (i / 2) * 32);
+    ledColorBtns_[i] = makeBtn(ledShowPanel_, kColorNames[i], bx, by, 56, 28,
+                               onLedColorClicked, &s_ledColorCtxs[i]);
+    lv_obj_set_style_text_font(btnLabel(ledColorBtns_[i]), &lv_font_montserrat_12, 0);
+    styleActionButton(ledColorBtns_[i]);
+    setBgColor(ledColorBtns_[i], lv_color_hex(kColors[i]), LV_PART_MAIN);
+    setTextColor(btnLabel(ledColorBtns_[i]), (i == 0U || i == 2U) ? lv_color_black() : lv_color_white(), 0);
   }
 }
 
@@ -2037,6 +2454,17 @@ void ScreenDashboard::buildLedsPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildGpsPage(lv_obj_t* parent) {
+  gpsSpdLabel_ = makeLabel(parent, 8, 20, 464, "-- mph", &lv_font_montserrat_48);
+  lv_obj_set_height(gpsSpdLabel_, 78);
+  lv_obj_set_style_text_align(gpsSpdLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  stylePanel(gpsSpdLabel_, kUiColorHeroPanel);
+
+  gpsInfoLabel_ = makeMetricTile(parent, 8, 110, 464, 110,
+      "FIX:NO   USED:0   VIEW:0   HDOP:--\nLAT: --\nLON: --",
+      &lv_font_montserrat_20);
+  lv_label_set_recolor(gpsInfoLabel_, true);
+  return;
+
   gpsSpdLabel_ = lv_label_create(parent);
   setLabelText(gpsSpdLabel_, "0 mph");
   lv_obj_set_width(gpsSpdLabel_, 472);
@@ -2061,6 +2489,29 @@ void ScreenDashboard::buildGpsPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildTempsPage(lv_obj_t* parent) {
+  tempsLabel_ = makeStatusPill(parent, 8, 8, 464, "SENSOR BOARD  OK", lv_color_hex(kUiColorGood));
+
+  tempsTable_ = lv_table_create(parent);
+  lv_obj_set_pos(tempsTable_, 8, 44);
+  lv_obj_set_size(tempsTable_, 464, 178);
+  lv_table_set_col_cnt(tempsTable_, 3);
+  lv_table_set_row_cnt(tempsTable_, 7);
+  lv_table_set_col_width(tempsTable_, 0, 138);
+  lv_table_set_col_width(tempsTable_, 1, 168);
+  lv_table_set_col_width(tempsTable_, 2, 126);
+  stylePanel(tempsTable_, kUiColorPanel);
+  lv_obj_set_style_bg_color(tempsTable_, lv_color_hex(kUiColorRow), LV_PART_ITEMS);
+  lv_obj_set_style_bg_opa(tempsTable_, LV_OPA_COVER, LV_PART_ITEMS);
+  lv_obj_set_style_border_color(tempsTable_, lv_color_hex(kUiColorDivider), LV_PART_ITEMS);
+  lv_obj_set_style_text_color(tempsTable_, lv_color_hex(kUiColorText), LV_PART_ITEMS);
+  lv_obj_set_style_text_font(tempsTable_, &lv_font_montserrat_16, LV_PART_ITEMS);
+  lv_obj_set_style_pad_top(tempsTable_, 5, LV_PART_ITEMS);
+  lv_obj_set_style_pad_bottom(tempsTable_, 5, LV_PART_ITEMS);
+  lv_table_set_cell_value(tempsTable_, 0, 0, "SENSOR");
+  lv_table_set_cell_value(tempsTable_, 0, 1, "VALUE");
+  lv_table_set_cell_value(tempsTable_, 0, 2, "STATUS");
+  return;
+
   tempsLabel_ = makeLabel(parent, 0, 0, kWidth - 8,
       LV_SYMBOL_WARNING "  SENSORS", &lv_font_montserrat_16);
 
@@ -2083,6 +2534,24 @@ void ScreenDashboard::buildTempsPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
+  lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_style_pad_right(parent, 4, LV_PART_MAIN);
+
+  diagLabel_ = makeMetricTile(parent, 8, 8, 464, 154,
+      "CAN --     GPS --\nMETH --    TAIL --\nSD --      TOUCH --\nIMU --\n\nSYS --",
+      &lv_font_montserrat_14);
+  lv_obj_set_style_text_align(diagLabel_, LV_TEXT_ALIGN_LEFT, 0);
+  lv_label_set_recolor(diagLabel_, true);
+
+  makeSectionTitle(parent, 8, 170, 120, "TOOLS");
+  benchTestBtn_ = makeBtn(parent, "BENCH: OFF", 342, 164, 130, 36,
+                          onBenchTestClicked, this);
+  styleDangerButton(benchTestBtn_);
+  buildSdBrowser(parent);
+  return;
+
   lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(parent, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
@@ -2160,6 +2629,82 @@ void ScreenDashboard::buildSdBrowser(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildKnockPage(lv_obj_t* parent) {
+  knockStateLabel_ = makeStatusPill(parent, 8, 8, 274, "KNOCK  ONLINE  WARN_ONLY", lv_color_hex(kUiColorGood));
+  knockSensorLabel_ = makeMetricTile(parent, 8, 40, 274, 28, "Sensor OK  Learn YES", &lv_font_montserrat_12);
+  lv_obj_set_style_text_align(knockSensorLabel_, LV_TEXT_ALIGN_LEFT, 0);
+
+  constexpr lv_coord_t knockBarXOem = 8;
+  constexpr lv_coord_t knockBarWOem = 274;
+  constexpr lv_coord_t knockBarHOem = 12;
+  knockEnergyLabel_ = makeLabel(parent, knockBarXOem, 78, knockBarWOem, "ENERGY 0%", &lv_font_montserrat_12);
+  knockEnergyBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockEnergyBar_, knockBarXOem, 96);
+  lv_obj_set_size(knockEnergyBar_, knockBarWOem, knockBarHOem);
+  lv_bar_set_range(knockEnergyBar_, 0, 100);
+  setBgColor(knockEnergyBar_, lv_color_hex(kUiColorMeterTrack), LV_PART_MAIN);
+  setBgColor(knockEnergyBar_, lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR);
+
+  knockBaselineLabel_ = makeLabel(parent, knockBarXOem, 118, knockBarWOem, "BASELINE 0%", &lv_font_montserrat_12);
+  knockBaselineBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockBaselineBar_, knockBarXOem, 136);
+  lv_obj_set_size(knockBaselineBar_, knockBarWOem, knockBarHOem);
+  lv_bar_set_range(knockBaselineBar_, 0, 100);
+  setBgColor(knockBaselineBar_, lv_color_hex(kUiColorMeterTrack), LV_PART_MAIN);
+  setBgColor(knockBaselineBar_, lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR);
+
+  knockThresholdLabel_ = makeLabel(parent, knockBarXOem, 158, knockBarWOem, "THRESHOLD 0.0", &lv_font_montserrat_12);
+  knockThresholdBar_ = lv_bar_create(parent);
+  lv_obj_set_pos(knockThresholdBar_, knockBarXOem, 176);
+  lv_obj_set_size(knockThresholdBar_, knockBarWOem, knockBarHOem);
+  lv_bar_set_range(knockThresholdBar_, 0, 100);
+  lv_bar_set_value(knockThresholdBar_, 100, LV_ANIM_OFF);
+  setBgColor(knockThresholdBar_, lv_color_hex(kUiColorMeterTrack), LV_PART_MAIN);
+  setBgColor(knockThresholdBar_, lv_palette_main(LV_PALETTE_ORANGE), LV_PART_INDICATOR);
+
+  knockGraphLabel_ = makeSectionTitle(parent, 300, 8, 168, LV_SYMBOL_WARNING " TREND");
+  knockGraphChart_ = lv_chart_create(parent);
+  lv_obj_set_pos(knockGraphChart_, 300, 30);
+  lv_obj_set_size(knockGraphChart_, 168, 82);
+  lv_chart_set_type(knockGraphChart_, LV_CHART_TYPE_LINE);
+  lv_chart_set_range(knockGraphChart_, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+  lv_chart_set_point_count(knockGraphChart_, 32);
+  lv_chart_set_div_line_count(knockGraphChart_, 3, 5);
+  stylePanel(knockGraphChart_, kUiColorRow);
+  lv_obj_set_style_line_width(knockGraphChart_, 1, LV_PART_ITEMS);
+  knockGraphEnergySeries_ = lv_chart_add_series(knockGraphChart_, lv_palette_main(LV_PALETTE_RED),
+                                                LV_CHART_AXIS_PRIMARY_Y);
+  knockGraphBaselineSeries_ = lv_chart_add_series(knockGraphChart_, lv_palette_main(LV_PALETTE_GREEN),
+                                                  LV_CHART_AXIS_PRIMARY_Y);
+  knockGraphThresholdSeries_ = lv_chart_add_series(knockGraphChart_, lv_palette_main(LV_PALETTE_ORANGE),
+                                                   LV_CHART_AXIS_PRIMARY_Y);
+  for (uint8_t i = 0; i < 32; ++i) {
+    lv_chart_set_next_value(knockGraphChart_, knockGraphEnergySeries_, 0);
+    lv_chart_set_next_value(knockGraphChart_, knockGraphBaselineSeries_, 0);
+    lv_chart_set_next_value(knockGraphChart_, knockGraphThresholdSeries_, 100);
+  }
+
+  knockEventLabel_ = makeMetricTile(parent, 300, 124, 168, 54, "CLEAN", &lv_font_montserrat_24);
+  lv_label_set_recolor(knockEventLabel_, true);
+  knockLastLabel_ = makeMetricTile(parent, 8, 198, 274, 24, "GAIN 1.00   MULT 2.5", &lv_font_montserrat_12);
+
+  constexpr lv_coord_t btnY = 198;
+  knockEnableBtn_ = makeBtn(parent, "DISABLE", 300, btnY, 80, 32, onKnockEnableClicked, this);
+  knockResetBlBtn_ = makeBtn(parent, "RESET", 388, btnY, 80, 32, onKnockResetBaselineClicked, this);
+  knockGainDownBtn_ = makeBtn(parent, "GAIN-", 8, 230, 72, 32, onKnockGainDownClicked, this);
+  knockGainUpBtn_ = makeBtn(parent, "GAIN+", 86, 230, 72, 32, onKnockGainUpClicked, this);
+  knockMultDownBtn_ = makeBtn(parent, "MULT-", 164, 230, 72, 32, onKnockMultiplierDownClicked, this);
+  knockMultUpBtn_ = makeBtn(parent, "MULT+", 242, 230, 72, 32, onKnockMultiplierUpClicked, this);
+  knockEnableBtnLabel_ = btnLabel(knockEnableBtn_);
+  styleSecondaryButton(knockEnableBtn_);
+  styleSecondaryButton(knockResetBlBtn_);
+  styleSecondaryButton(knockGainDownBtn_);
+  styleSecondaryButton(knockGainUpBtn_);
+  styleSecondaryButton(knockMultDownBtn_);
+  styleSecondaryButton(knockMultUpBtn_);
+  knockLearningSpinner_ = makeLabel(parent, 392, 184, 64, "LEARN", &lv_font_montserrat_12);
+  knockLogLabel_ = nullptr;
+  return;
+
   constexpr lv_coord_t leftW = 286;
   constexpr lv_coord_t barW = 280;
   constexpr lv_coord_t barH = 12;
@@ -2299,7 +2844,24 @@ void ScreenDashboard::buildKnockPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::updateHeader(const state::VehicleState& s, uint32_t nowMs) {
-  setObjHidden(hdrBatLabel_, true);
+  char timeText[12];
+  if (s.gps_time_valid) {
+    const uint32_t elapsedSec = (nowMs - s.gps_time_sync_ms) / 1000UL;
+    const uint32_t secOfDay = (s.gps_utc_seconds_of_day + elapsedSec) % 86400UL;
+    const uint8_t hour = static_cast<uint8_t>(secOfDay / 3600UL);
+    const uint8_t minute = static_cast<uint8_t>((secOfDay / 60UL) % 60UL);
+    const uint8_t second = static_cast<uint8_t>(secOfDay % 60UL);
+    snprintf(timeText, sizeof(timeText), "%02u:%02u:%02uZ",
+             static_cast<unsigned>(hour),
+             static_cast<unsigned>(minute),
+             static_cast<unsigned>(second));
+  } else {
+    snprintf(timeText, sizeof(timeText), "--:--:--Z");
+  }
+  setLabelTextStatic(hdrBatLabel_, hdrTimeText_, sizeof(hdrTimeText_), timeText);
+  setTextColor(hdrBatLabel_,
+      lv_color_hex(s.gps_time_valid ? kUiColorText : kUiColorTextMuted),
+      0);
 
   // Fault indicator (right dot)
   setTextColor(hdrFaultDot_,
@@ -2321,6 +2883,50 @@ void ScreenDashboard::updateHeader(const state::VehicleState& s, uint32_t nowMs)
 
 void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   char buf[64];
+  {
+  const float spdMph = s.speed * 0.621371f;
+  snprintf(buf, sizeof(buf), "%.0f\nMPH", static_cast<double>(spdMph));
+  setLabelTextStatic(spdValLabel_, spdText_, sizeof(spdText_), buf);
+
+  const float boostPsi = s.boost_kpa * 0.145038f;
+  lv_color_t boostColor = lv_color_hex(kUiColorText);
+  if (boostPsi >= 20.0f) boostColor = lv_color_hex(kUiColorBad);
+  else if (boostPsi >= 10.0f) boostColor = lv_color_hex(kUiColorWarn);
+  snprintf(buf, sizeof(buf), "BOOST\n%.1f PSI", static_cast<double>(boostPsi));
+  setLabelTextStatic(boostValLabel_, boostText_, sizeof(boostText_), buf);
+  setTextColor(boostValLabel_, boostColor, 0);
+
+  const uint8_t methDuty = static_cast<uint8_t>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty);
+  snprintf(buf, sizeof(buf), "TANK\n%u%% / %u%%",
+           static_cast<unsigned>(s.meth_tank_level),
+           static_cast<unsigned>(methDuty));
+  setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), buf);
+
+  const bool methActive = (s.meth_state == state::MethState::SPRAYING) || s.manual_test_running;
+  const char* methColor = !s.meth_online ? kStatusColorOff : (methActive ? "#FF9500" : "#00C853");
+  const char* methText = !s.meth_online ? "OFFLINE" : (methActive ? "ACTIVE" : (s.meth_desired_armed ? "ARMED" : "READY"));
+  snprintf(buf, sizeof(buf), "METH\n%s %s#", methColor, methText);
+  setLabelTextStatic(dashStatusLabel_, dashStatusText_, sizeof(dashStatusText_), buf);
+
+  const char* knockDash =
+      s.knock_critical_active ? "#FF3B30 CRIT#" :
+      (s.knock_warning_active ? "#FF9500 WARN#" : "#00C853 OK#");
+  snprintf(buf, sizeof(buf), "KNOCK\n%s", knockDash);
+  setLabelTextStatic(dashRaceLabel_, dashRaceText_, sizeof(dashRaceText_), buf);
+
+  snprintf(buf, sizeof(buf), "RPM %u", static_cast<unsigned>(s.rpm));
+  setLabelTextStatic(rpmValLabel_, rpmText_, sizeof(rpmText_), buf);
+  snprintf(buf, sizeof(buf), "FUEL %.0f psi", static_cast<double>(s.fuel_pressure_psi));
+  setLabelTextStatic(gLiveLabel_, gLiveText_, sizeof(gLiveText_), buf);
+  setTextColor(gLiveLabel_, lv_color_hex(s.fuel_pressure_valid ? kUiColorText : kUiColorBad), 0);
+  snprintf(buf, sizeof(buf), "OIL %.0f psi", static_cast<double>(s.oil_pressure_psi));
+  setLabelTextStatic(gPeakLabel_, gPeakText_, sizeof(gPeakText_), buf);
+  setTextColor(gPeakLabel_, lv_color_hex(s.oil_pressure_valid ? kUiColorText : kUiColorBad), 0);
+  snprintf(buf, sizeof(buf), "CAN %s", s.can_online ? "ON" : "OFF");
+  setLabelText(raceAccelBtn_, buf);
+  return;
+  }
+
   if (rpmArc_ || rpmValLabel_) {
     const int16_t rpmClamped = static_cast<int16_t>(
         (s.rpm > 8000U) ? 8000U : s.rpm);
@@ -2404,7 +3010,7 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
     if (g >= 1.0f)       gColor = lv_palette_main(LV_PALETTE_RED);
     else if (g >= 0.7f)  gColor = lv_palette_main(LV_PALETTE_ORANGE);
     else if (g >= 0.3f)  gColor = lv_palette_main(LV_PALETTE_GREEN);
-    else                 gColor = lv_color_hex(0x7090a0);
+    else                 gColor = lv_color_hex(kUiColorTextMuted);
 
     snprintf(buf, sizeof(buf), "%.2f G", static_cast<double>(g));
     setLabelTextStatic(gLiveLabel_, gLiveText_, sizeof(gLiveText_), buf);
@@ -2420,7 +3026,7 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
     setBgColor(gLatBar_, gColor, LV_PART_INDICATOR);
   } else {
     setLabelTextStatic(gLiveLabel_, gLiveText_, sizeof(gLiveText_), "-- G");
-    setTextColor(gLiveLabel_, lv_color_hex(0x506070), 0);
+    setTextColor(gLiveLabel_, lv_color_hex(kUiColorTextMuted), 0);
     setLabelTextStatic(gPeakLabel_, gPeakText_, sizeof(gPeakText_), "PK --");
     setBarValue(gLatBar_, dashLatBarLast_, 0);
   }
@@ -2433,6 +3039,48 @@ void ScreenDashboard::updateMethPage(const state::VehicleState& s, uint32_t nowM
   const char* moduleLink = s.meth_online ? "ON" : "OFF";
   const char* extLink = extFresh ? "ON" : "OFF";
   const bool methActive = (s.meth_state == state::MethState::SPRAYING) || s.manual_test_running;
+  lv_color_t moduleColor = lv_color_hex(s.meth_online ? kUiColorGood : kUiColorBad);
+  lv_color_t extColor = lv_color_hex(extFresh ? kUiColorGood : kUiColorBad);
+  lv_color_t armColor = lv_color_hex((s.meth_desired_armed || methActive) ? kUiColorButtonActive : kUiColorTextMuted);
+
+  setLabelText(methBadgeLabel_, "WATER-METH");
+  lv_obj_set_style_border_color(methBadgeLabel_, moduleColor, LV_PART_MAIN);
+  setTextColor(methBadgeLabel_, moduleColor, 0);
+  snprintf(buf, sizeof(buf), "%s", s.meth_online ? (methActive ? "ACTIVE" : "ONLINE") : "OFFLINE");
+  setLabelText(methStateLabel_, buf);
+  lv_obj_set_style_border_color(methStateLabel_, moduleColor, LV_PART_MAIN);
+  setTextColor(methStateLabel_, moduleColor, 0);
+  snprintf(buf, sizeof(buf), "EXT %s", extLink);
+  setLabelText(methSensorLabel_, buf);
+  lv_obj_set_style_border_color(methSensorLabel_, extColor, LV_PART_MAIN);
+  setTextColor(methSensorLabel_, extColor, 0);
+  snprintf(buf, sizeof(buf), "%s", (s.meth_desired_armed || methActive) ? "ARMED" : "ARM OFF");
+  setLabelText(methParamLabel_, buf);
+  lv_obj_set_style_border_color(methParamLabel_, armColor, LV_PART_MAIN);
+  setTextColor(methParamLabel_, armColor, 0);
+
+  snprintf(buf, sizeof(buf), "DUTY\n%u%%",
+           static_cast<unsigned>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty));
+  setLabelText(methDutyLabel_, buf);
+  snprintf(buf, sizeof(buf), "TANK\n%u%%", static_cast<unsigned>(s.meth_tank_level));
+  setLabelText(methTankLabel_, buf);
+  snprintf(buf, sizeof(buf), "MAP\n%.0f kPa", static_cast<double>(s.boost_kpa));
+  setLabelText(methMapLabel_, buf);
+  snprintf(buf, sizeof(buf), "METH\n%.0f psi", static_cast<double>(s.meth_pressure_psi));
+  setLabelText(methPressureLabel_, buf);
+  snprintf(buf, sizeof(buf), "IAT %.1f C", static_cast<double>(s.intake_temp));
+  setLabelText(methIatLabel_, buf);
+  snprintf(buf, sizeof(buf), "BAY %.1f C", static_cast<double>(s.engine_bay_temp));
+  setLabelText(methBayLabel_, buf);
+
+  setLabelText(methArmBtnLabel_, s.meth_desired_armed ? "DISARM" : "ARM");
+  snprintf(buf, sizeof(buf), "RATIO %u%%", static_cast<unsigned>(s.meth_selected_ratio_percent));
+  setLabelText(methRatioBtnLabel_, buf);
+  setBgColor(methArmBtn_,
+      methActive ? lv_color_hex(kUiColorWarn) :
+      (s.meth_desired_armed ? lv_color_hex(kUiColorButtonActive) : lv_color_hex(kUiColorButton)),
+      LV_PART_MAIN);
+  return;
 
   if (methBadgeLabel_) {
     if (methActive) {
@@ -2492,6 +3140,42 @@ void ScreenDashboard::updateMethPage(const state::VehicleState& s, uint32_t nowM
 
 void ScreenDashboard::updateTailPage(const state::VehicleState& s) {
   char buf[96];
+  snprintf(buf, sizeof(buf), "TAILS  %s  %s  BRI %u",
+           s.taillight_online ? "ONLINE" : "OFFLINE",
+           tailModeName(s.taillight_mode_commanded),
+           static_cast<unsigned>(s.taillight_brightness));
+  setLabelText(tailStatusLabel_, buf);
+  lv_obj_set_style_border_color(tailStatusLabel_,
+      lv_color_hex(s.taillight_online ? kUiColorGood : kUiColorBad), LV_PART_MAIN);
+  setTextColor(tailStatusLabel_,
+      lv_color_hex(s.taillight_online ? kUiColorGood : kUiColorBad), 0);
+
+  if (tailOnlineLed_) {
+    if (s.taillight_online) lv_led_on(tailOnlineLed_);
+    else lv_led_off(tailOnlineLed_);
+  }
+
+  setBgColor(tailStockBtn_, lv_color_hex(s.taillight_mode_commanded == 0 ? kUiColorButtonActive : kUiColorButton), LV_PART_MAIN);
+  setBgColor(tailSeqBtn_, lv_color_hex(s.taillight_mode_commanded == 1 ? kUiColorButtonActive : kUiColorButton), LV_PART_MAIN);
+  setBgColor(tailDemoBtn_, lv_color_hex(s.taillight_mode_commanded == 2 ? kUiColorButtonActive : kUiColorButton), LV_PART_MAIN);
+  setBgColor(tailShowMenuBtn_, lv_color_hex(s.taillight_mode_commanded > 2 ? kUiColorButtonActive : kUiColorButton), LV_PART_MAIN);
+
+  static constexpr const char* kTailShowNamesOem[kTaillightShowOptionCount] = {
+    "Rainbow", "Chase", "Theater", "Fire", "Meteor", "Police",
+    "Night Rider", "Color Cycle", "Sparkle", "Plasma", "Matrix", "Juggle",
+    "BPM", "Confetti", "Ocean", "Lightning", "Heartbeat", "Ripple",
+    "Sunrise", "Text Scroll", "Colorwaves", "TwinkleFox", "Bounce", "Fireworks",
+    "Drip", "Cylon", "V8", "Drag Launch", "Neon", "Streaks", "Radar", "Aurora", "Glitch"
+  };
+  for (uint8_t i = 0; i < kTaillightShowOptionsPerPage; ++i) {
+    const uint16_t optVal = static_cast<uint16_t>(tailShowPage_) * kTaillightShowOptionsPerPage + i;
+    setLabelText(btnLabel(tailShowOptBtns_[i]), optVal < kTaillightShowOptionCount ? kTailShowNamesOem[optVal] : "N/A");
+  }
+  snprintf(buf, sizeof(buf), "SHOW %u/%u",
+           static_cast<unsigned>(tailShowPage_ + 1U),
+           static_cast<unsigned>(kTaillightShowPageCount));
+  setLabelText(tailShowPageLabel_, buf);
+  return;
 
   snprintf(buf, sizeof(buf),
            LV_SYMBOL_LOOP " %s  %s\nBright:%u  L:%u  R:%u",
@@ -2559,36 +3243,11 @@ void ScreenDashboard::updateTailPage(const state::VehicleState& s) {
 }
 
 void ScreenDashboard::updateLedsPage(const state::VehicleState& s) {
-  static const char* const kModeStr[] = {
-    "OFF", "STATIC", "BREATHE", "RAINBOW", "REACT", "FLASH",
-    "METH", "FAULT", "SWEEP", "RPM", "LOW", "HIGH"
-  };
-  constexpr uint8_t kModeStrCount = 12;
-
-  auto modeName = [&](state::LedMode m) -> const char* {
-    const uint8_t idx = static_cast<uint8_t>(m);
-    return (idx < kModeStrCount) ? kModeStr[idx] : "?";
-  };
-
-  const bool enabled[kInteriorLedUiCount] = {
-    s.led_channel_1_enabled,
-    s.led_channel_2_enabled,
-    s.led_channel_3_enabled,
-  };
-  const state::LedMode modes[kInteriorLedUiCount] = {
-    s.led_channel_1_mode,
-    s.led_channel_2_mode,
-    s.led_channel_3_mode,
-  };
-
-  char buf[96];
-  snprintf(buf, sizeof(buf), LV_SYMBOL_CHARGE " RPM:%s  UPPER:%s  LOWER:%s",
-           enabled[0] ? modeName(modes[0]) : "OFF",
-           enabled[1] ? modeName(modes[1]) : "OFF",
-           enabled[2] ? modeName(modes[2]) : "OFF");
-  setLabelText(ledStatusLabel_, buf);
-
-  const bool allEnabled = enabled[0] && enabled[1] && enabled[2];
+  bool allEnabled = true;
+  for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+    const bool enabled = s.led_zone_enabled[zone] && s.led_zone_mode[zone] != state::LedMode::OFF;
+    allEnabled = allEnabled && enabled;
+  }
   if (ledMasterSwitch_) {
     if (allEnabled) lv_obj_add_state(ledMasterSwitch_, LV_STATE_CHECKED);
     else lv_obj_clear_state(ledMasterSwitch_, LV_STATE_CHECKED);
@@ -2599,16 +3258,56 @@ void ScreenDashboard::updateLedsPage(const state::VehicleState& s) {
 
   for (uint8_t ch = 0; ch < kInteriorLedUiCount; ++ch) {
     if (ledStripLabels_[ch]) {
-      static const char* const kStripNames[kInteriorLedUiCount] = { "RPM", "UPPER", "LOWER" };
-      snprintf(buf, sizeof(buf), "%s", kStripNames[ch]);
-      setLabelText(ledStripLabels_[ch], buf);
+      setLabelText(ledStripLabels_[ch], ledZoneName(ch));
     }
     for (uint8_t i = 0; i < kLedModeButtonCount; i++) {
       const state::LedMode btnMode = s_ledModeCtxs[ch][i].mode;
-      const bool active = (!enabled[ch] && btnMode == state::LedMode::OFF) ||
-                          (enabled[ch] && modes[ch] == btnMode);
+      bool active = false;
+      if (ch == 0U) {
+        active = true;
+        for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+          active = active &&
+                   s.led_zone_enabled[zone] &&
+                   s.led_zone_mode[zone] == btnMode;
+        }
+      } else {
+        const uint8_t zone = ch - 1U;
+        const bool enabled = s.led_zone_enabled[zone] &&
+                             s.led_zone_mode[zone] != state::LedMode::OFF;
+        active = enabled && s.led_zone_mode[zone] == btnMode;
+      }
       setBgColor(ledModeBtns_[ch][i],
           active ? lv_color_hex(kUiColorButtonActive) : lv_color_hex(kUiColorButton),
+          LV_PART_MAIN);
+    }
+  }
+
+  for (uint8_t i = 0; i < kLedShowModeButtonCount; ++i) {
+    const state::LedMode btnMode = s_ledShowCtxs[i].mode;
+    bool active = true;
+    for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+      active = active && s.led_zone_enabled[zone] && s.led_zone_mode[zone] == btnMode;
+    }
+    if (ledShowModeBtns_[i]) {
+      setBgColor(ledShowModeBtns_[i],
+          active ? lv_color_hex(kUiColorButtonActive) : lv_color_hex(kUiColorButton),
+          LV_PART_MAIN);
+    }
+  }
+
+  for (uint8_t i = 0; i < kLedColorButtonCount; ++i) {
+    const uint32_t color = s_ledColorCtxs[i].color;
+    bool active = true;
+    for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+      active = active &&
+               s.led_zone_enabled[zone] &&
+               s.led_zone_mode[zone] == state::LedMode::STATIC_COLOR &&
+               s.led_zone_color[zone] == color;
+    }
+    if (ledColorBtns_[i]) {
+      lv_obj_set_style_border_width(ledColorBtns_[i], active ? 3 : 1, LV_PART_MAIN);
+      lv_obj_set_style_border_color(ledColorBtns_[i],
+          active ? lv_color_white() : lv_color_hex(kUiColorButtonBorder),
           LV_PART_MAIN);
     }
   }
@@ -2631,10 +3330,21 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
   setLabelText(gpsSpdLabel_, spd);
 
   char info[160];
-  const char* gpsModeText = gpsDeadReckoned ? "DR" : (gpsLive ? "LIVE" : "STALE");
-  const char* gpsCleanText =
-      (s.gps_status_flags & kGpsStatusSpikeRejected) ? " SPIKE" :
-      ((s.gps_status_flags & kGpsStatusZeroClamped) ? " ZERO" : "");
+  const char* gpsStateText = gpsDeadReckoned ? "DR" : (gpsLive ? "OK" : "STALE");
+  const char* gpsModeText = gpsStateText;
+  const char* gpsCleanText = "";
+  snprintf(info, sizeof(info),
+           "#%s FIX:%s#   USED:%u   VIEW:%u   HDOP:%.1f\nLAT: %.6f\nLON: %.6f",
+           gpsLive ? "00C853" : "FF3B30",
+           s.gps_fix ? "YES" : "NO",
+           static_cast<unsigned>(s.gps_satellites),
+           static_cast<unsigned>(s.gps_satellites_in_view),
+           static_cast<double>(s.gps_hdop_x10 / 10.0f),
+           s.gps_latitude,
+           s.gps_longitude);
+  setLabelText(gpsInfoLabel_, info);
+  return;
+
   snprintf(info, sizeof(info),
            LV_SYMBOL_GPS " %s%s  FIX:%s  USED:%u VIEW:%u\nQ:%u MODE:%u HDOP:%.1f\nLAT: %.6f\nLON: %.6f",
            gpsModeText,
@@ -2652,6 +3362,42 @@ void ScreenDashboard::updateGpsPage(const state::VehicleState& s) {
 
 void ScreenDashboard::updateTempsPage(const state::VehicleState& s) {
   char v[32];
+  const bool sensorsOk = s.analog_sensor_fault_flags == 0 &&
+                         s.oil_pressure_valid &&
+                         s.fuel_pressure_valid &&
+                         s.intake_temp_valid &&
+                         s.engine_bay_temp_valid &&
+                         s.cabin_temp_valid &&
+                         s.outside_temp_valid;
+  if (tempsLabel_) {
+    if (s.analog_sensor_fault_flags != 0) {
+      snprintf(v, sizeof(v), "SENSOR BOARD  FAULT 0x%04X",
+               static_cast<unsigned>(s.analog_sensor_fault_flags));
+    } else {
+      snprintf(v, sizeof(v), "SENSOR BOARD  %s", sensorsOk ? "OK" : "CHECK");
+    }
+    setLabelText(tempsLabel_, v);
+    lv_obj_set_style_border_color(tempsLabel_,
+        lv_color_hex(sensorsOk ? kUiColorGood : kUiColorBad), LV_PART_MAIN);
+    setTextColor(tempsLabel_, lv_color_hex(sensorsOk ? kUiColorGood : kUiColorBad), 0);
+  }
+  if (!tempsTable_) return;
+
+  auto setRowOem = [&](uint16_t row, const char* name, float value, bool ok, const char* unit) {
+    char valueBuf[24];
+    snprintf(valueBuf, sizeof(valueBuf), "%.1f %s", static_cast<double>(value), unit);
+    lv_table_set_cell_value(tempsTable_, row, 0, name);
+    lv_table_set_cell_value(tempsTable_, row, 1, valueBuf);
+    lv_table_set_cell_value(tempsTable_, row, 2, ok ? "OK" : "BAD");
+  };
+  setRowOem(1, "OIL", s.oil_pressure_psi, s.oil_pressure_valid, "psi");
+  setRowOem(2, "FUEL", s.fuel_pressure_psi, s.fuel_pressure_valid, "psi");
+  setRowOem(3, "IAT", s.intake_temp, s.intake_temp_valid, "C");
+  setRowOem(4, "BAY", s.engine_bay_temp, s.engine_bay_temp_valid, "C");
+  setRowOem(5, "CABIN", s.cabin_temp, s.cabin_temp_valid, "C");
+  setRowOem(6, "AMBIENT", s.outside_temp, s.outside_temp_valid, "C");
+  return;
+
   if (tempsLabel_) {
     snprintf(v, sizeof(v), LV_SYMBOL_WARNING " SENSOR BOARD  |  FaultMask:0x%04X",
              static_cast<unsigned>(s.analog_sensor_fault_flags));
@@ -2717,6 +3463,60 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
   // Heap min watermark — suppress garbage initial value
   const uint32_t heapMin = (s.heap_min_free_bytes == 0xFFFFFFFFUL)
       ? s.heap_free_bytes : s.heap_min_free_bytes;
+
+  char compact[768];
+  snprintf(compact, sizeof(compact),
+      "CAN   %s %s#      GPS   %s %s#\n"
+      "METH  %s %s#      TAIL  %s %s#\n"
+      "SD    %s %s#      TOUCH %s %s#\n"
+      "IMU   %s %s#      G %.2f / %.2f\n\n"
+      "SYS Heap %luK min %luK  Die %dC  Up %lus  Rst %s\n"
+      "CAN RX %lu TX %lu CRC %lu  Last 0x%03X %lus\n"
+      "TACH RPM %u  In %.1fHz  Out %.1fHz  PPR %.1f  ST 0x%02X\n"
+      "METH Duty %u%% Flow %s Tank %s Ratio %u%%\n"
+      "GPS Used:%u View:%u H:%.1f  FPS:%.1f",
+      canCol, canStat,
+      gpsCol, gpsStat,
+      col(s.meth_online), s.meth_online ? "ONLINE" : "OFFLINE",
+      col(s.taillight_online), s.taillight_online ? "ONLINE" : "OFFLINE",
+      col(s.sd_mounted), s.sd_mounted ? "MOUNTED" : "NO CARD",
+      col(s.touch_online), s.touch_online ? "OK" : "OFFLINE",
+      col(s.imu_online), s.imu_online ? "OK" : "OFFLINE",
+      static_cast<double>(s.imu_g_lateral),
+      static_cast<double>(s.imu_g_longitudinal),
+      static_cast<unsigned long>(s.heap_free_bytes / 1024),
+      static_cast<unsigned long>(heapMin / 1024),
+      static_cast<int>(s.esp_die_temp_c),
+      static_cast<unsigned long>(s.uptime_ms / 1000UL),
+      resetStr,
+      static_cast<unsigned long>(s.can_rx_count),
+      static_cast<unsigned long>(s.can_tx_count),
+      static_cast<unsigned long>(s.can_bad_checksum_count),
+      static_cast<unsigned>(s.can_last_rx_id),
+      static_cast<unsigned long>(msAgo(s.can_last_rx_ms)),
+      static_cast<unsigned>(s.rpm),
+      static_cast<double>(s.tach_input_frequency_hz),
+      static_cast<double>(s.tach_generated_frequency_hz),
+      static_cast<double>(s.pulses_per_rev10 / 10.0f),
+      static_cast<unsigned>(s.tach_status_flags),
+      static_cast<unsigned>(s.meth_pump_duty),
+      methFlowName(s.meth_flow_status),
+      (s.meth_tank_level == 0) ? "EMPTY" : "OK",
+      static_cast<unsigned>(s.meth_selected_ratio_percent),
+      static_cast<unsigned>(s.gps_satellites),
+      static_cast<unsigned>(s.gps_satellites_in_view),
+      static_cast<double>(s.gps_hdop_x10 / 10.0f),
+      static_cast<double>(s.ui_fps));
+  setLabelText(diagLabel_, compact);
+  if (benchTestBtn_) {
+    setBgColor(benchTestBtn_,
+        s.bench_test_mode ? lv_color_hex(0xFF8C00) : lv_color_hex(kUiColorButton),
+        LV_PART_MAIN);
+    setLabelText(btnLabel(benchTestBtn_),
+        s.bench_test_mode ? "BENCH: ON" : "BENCH: OFF");
+  }
+  refreshSdBrowser(now, false);
+  return;
 
   constexpr size_t kBuf = 1024;
   char buf[kBuf];
@@ -2987,7 +3787,7 @@ void ScreenDashboard::forceContentRepaint() {
   if (contentArea_) {
     lv_obj_invalidate(contentArea_);
   }
-  if (activePage_ < kPageCount && pages_[activePage_]) {
+  if (activePage_ < kPageCount && pages_[activePage_] && activePage_ != 0U) {
     lv_obj_invalidate(pages_[activePage_]);
   }
 }
@@ -3328,56 +4128,207 @@ void ScreenDashboard::onNavClicked(lv_event_t* e) {
   ctx->self->showPage(ctx->page);
 }
 
-void ScreenDashboard::onLedModeClicked(lv_event_t* e) {
-  auto* ctx = static_cast<LedModeCtx*>(lv_event_get_user_data(e));
+void ScreenDashboard::onLedShowMenuClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) return;
+  if (self->ledMainPanel_) lv_obj_add_flag(self->ledMainPanel_, LV_OBJ_FLAG_HIDDEN);
+  if (self->ledShowPanel_) lv_obj_clear_flag(self->ledShowPanel_, LV_OBJ_FLAG_HIDDEN);
+  self->setActionFeedback("LED SHOW MENU", millis());
+}
+
+void ScreenDashboard::onLedShowBackClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) return;
+  if (self->ledMainPanel_) lv_obj_clear_flag(self->ledMainPanel_, LV_OBJ_FLAG_HIDDEN);
+  if (self->ledShowPanel_) lv_obj_add_flag(self->ledShowPanel_, LV_OBJ_FLAG_HIDDEN);
+  self->setActionFeedback("LED ZONES", millis());
+}
+
+void ScreenDashboard::onLedShowModeClicked(lv_event_t* e) {
+  auto* ctx = static_cast<LedShowCtx*>(lv_event_get_user_data(e));
   if (!ctx || !ctx->self) return;
-  const uint8_t channel = ctx->channel;
-  state::LedMode mode = (channel == 0U) ? state::LedMode::RPM_GAUGE : ctx->mode;
-  if (channel != 0U &&
-      mode != state::LedMode::OFF &&
-      mode != state::LedMode::LOW_LIGHT &&
-      mode != state::LedMode::HIGH_LIGHT) {
-    mode = state::LedMode::LOW_LIGHT;
+  const state::VehicleState before = state::g_vehicle_state.read();
+  bool alreadyActive = true;
+  for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+    alreadyActive = alreadyActive &&
+                    before.led_zone_enabled[zone] &&
+                    before.led_zone_mode[zone] == ctx->mode;
   }
-  state::g_vehicle_state.mutate([channel, mode](state::VehicleState& vs) {
-    switch (channel) {
-      case 0:
-        vs.led_channel_1_mode = state::LedMode::RPM_GAUGE;
-        vs.led_channel_1_enabled = true;
-        break;
-      case 1:
-        vs.led_channel_2_mode = mode;
-        vs.led_channel_2_enabled = mode != state::LedMode::OFF;
-        break;
-      case 2:
-        vs.led_channel_3_mode = mode;
-        vs.led_channel_3_enabled = mode != state::LedMode::OFF;
-        break;
-      default:
-        break;
-    }
+  const state::LedMode mode = alreadyActive ? state::LedMode::OFF : ctx->mode;
+  state::g_vehicle_state.mutate([mode](state::VehicleState& vs) {
+    applyLedModeToAllZones(vs, mode);
   });
   if (ctx->self->settingsMgr_) {
     ctx->self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
     ctx->self->settingsMgr_->save();
   }
-  static const char* const kStripNames[kInteriorLedUiCount] = { "RPM", "UPPER", "LOWER" };
-  const char* modeName = "UNKNOWN";
-  switch (mode) {
-    case state::LedMode::OFF: modeName = "OFF"; break;
-    case state::LedMode::LOW_LIGHT: modeName = "LOW"; break;
-    case state::LedMode::HIGH_LIGHT: modeName = "HIGH"; break;
-    case state::LedMode::RAINBOW: modeName = "RAINBOW"; break;
-    case state::LedMode::RPM_GAUGE: modeName = "RPM"; break;
-    default: break;
+  Serial.printf("[LED_UI] show mode=%s\n", ledModeButtonName(mode));
+  ctx->self->setActionFeedback(ledModeButtonName(mode), millis());
+}
+
+void ScreenDashboard::onLedShowOnClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) return;
+  const state::VehicleState before = state::g_vehicle_state.read();
+  state::LedMode mode = state::LedMode::RAINBOW;
+  for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+    const state::LedMode candidate = before.led_zone_mode[zone];
+    if (candidate == state::LedMode::STATIC_COLOR ||
+        candidate == state::LedMode::RAINBOW ||
+        candidate == state::LedMode::BREATHING ||
+        candidate == state::LedMode::RPM_REACTIVE ||
+        candidate == state::LedMode::WARNING_FLASH) {
+      mode = candidate;
+      break;
+    }
   }
-  Serial.printf("[LED:UI] channel=%u name=%s mode=%s enabled=%u\n",
-                static_cast<unsigned>(channel + 1U),
-                kStripNames[channel],
-                modeName,
-                mode != state::LedMode::OFF ? 1U : 0U);
+  state::g_vehicle_state.mutate([mode](state::VehicleState& vs) {
+    applyLedModeToAllZones(vs, mode);
+  });
+  if (self->settingsMgr_) {
+    self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    self->settingsMgr_->save();
+  }
+  self->setActionFeedback("SHOW ON", millis());
+}
+
+void ScreenDashboard::onLedShowOffClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) return;
+  state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+    applyLedModeToAllZones(vs, state::LedMode::OFF);
+  });
+  if (self->settingsMgr_) {
+    self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    self->settingsMgr_->save();
+  }
+  self->setActionFeedback("SHOW OFF", millis());
+}
+
+void ScreenDashboard::onLedShowClearClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (!self) return;
+  state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+    for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+      vs.led_zone_color[zone] = 0xFFFFFF;
+    }
+    applyLedModeToAllZones(vs, state::LedMode::OFF);
+  });
+  if (self->settingsMgr_) {
+    self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    self->settingsMgr_->save();
+  }
+  self->setActionFeedback("SHOW CLEARED", millis());
+}
+
+void ScreenDashboard::onLedColorClicked(lv_event_t* e) {
+  auto* ctx = static_cast<LedColorCtx*>(lv_event_get_user_data(e));
+  if (!ctx || !ctx->self) return;
+  const uint32_t color = ctx->color;
+  state::g_vehicle_state.mutate([color](state::VehicleState& vs) {
+    applyLedColorToAllZones(vs, color);
+  });
+  if (ctx->self->settingsMgr_) {
+    ctx->self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    ctx->self->settingsMgr_->save();
+  }
+  Serial.printf("[LED_UI] color=#%06lX\n", static_cast<unsigned long>(color));
+  ctx->self->setActionFeedback("COLOR SET", millis());
+}
+
+void ScreenDashboard::onLedModeClicked(lv_event_t* e) {
+  auto* ctx = static_cast<LedModeCtx*>(lv_event_get_user_data(e));
+  if (!ctx || !ctx->self) return;
+  const uint8_t row = ctx->channel;
+
+  led::LedUiMode uiMode = led::LedUiMode::Off;
+  const bool isGlobalUiMode = ledModeToUiMode(ctx->mode, uiMode);
+  const state::VehicleState before = state::g_vehicle_state.read();
+  bool alreadyActive = false;
+  if (row == 0U) {
+    alreadyActive = true;
+    for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+      alreadyActive = alreadyActive &&
+                      before.led_zone_enabled[zone] &&
+                      before.led_zone_mode[zone] == ctx->mode;
+    }
+  } else {
+    const uint8_t zone = row - 1U;
+    alreadyActive = zone < state::kLedZoneCount &&
+                    before.led_zone_enabled[zone] &&
+                    before.led_zone_mode[zone] == ctx->mode;
+  }
+  const state::LedMode selectedMode = alreadyActive ? state::LedMode::OFF : ctx->mode;
+
+  if (row == 0U && isGlobalUiMode && selectedMode != state::LedMode::OFF) {
+    const uint8_t brightness = ledUiModeBrightness(uiMode);
+    Serial.printf("[LED_UI] %s pressed\n",
+                  uiMode == led::LedUiMode::Off ? "OFF" :
+                  (uiMode == led::LedUiMode::LowWhite ? "LOW" : "HIGH"));
+
+    state::g_vehicle_state.mutate([uiMode](state::VehicleState& vs) {
+      applyLedUiModeToState(vs, uiMode);
+    });
+    if (ctx->self->settingsMgr_) {
+      ctx->self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+      ctx->self->settingsMgr_->save();
+    }
+    Serial.printf("[LED_UI] diag mode=%s brightness=%u animations=0 show_called=queued_for_led_task\n",
+                  ledUiModeName(uiMode),
+                  static_cast<unsigned>(brightness));
+    char msg[24];
+    snprintf(msg, sizeof(msg), "LEDS %s", ledUiModeName(uiMode));
+    ctx->self->setActionFeedback(msg, millis());
+    return;
+  }
+
+  const bool animation = selectedMode == state::LedMode::RAINBOW ||
+                         selectedMode == state::LedMode::BREATHING;
+  const uint8_t brightness = brightnessForLedMode(selectedMode);
+  const char* selectedName =
+      selectedMode == state::LedMode::OFF ? "OFF" :
+      selectedMode == state::LedMode::LOW_LIGHT ? "LOW" :
+      selectedMode == state::LedMode::HIGH_LIGHT ? "HIGH" :
+      selectedMode == state::LedMode::RAINBOW ? "RAINBOW" :
+      selectedMode == state::LedMode::BREATHING ? "BREATHE" : "MODE";
+
+  if (row == 0U) {
+    Serial.printf("[LED_UI] %s zone=ALL pressed\n", selectedName);
+    state::g_vehicle_state.mutate([selectedMode](state::VehicleState& vs) {
+      for (uint8_t zone = 0; zone < state::kLedZoneCount; ++zone) {
+        applyLedModeToZone(vs, zone, selectedMode);
+      }
+    });
+    if (ctx->self->settingsMgr_) {
+      ctx->self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+      ctx->self->settingsMgr_->save();
+    }
+    Serial.printf("[LED_UI] diag mode=%s zone=ALL brightness=%u animations=%u show_called=queued_for_led_task\n",
+                  selectedName,
+                  static_cast<unsigned>(brightness),
+                  animation ? 1U : 0U);
+    char msg[24];
+    snprintf(msg, sizeof(msg), "ALL %s", selectedName);
+    ctx->self->setActionFeedback(msg, millis());
+    return;
+  }
+
+  const uint8_t zone = row - 1U;
+  Serial.printf("[LED_UI] %s zone=%s pressed\n", selectedName, ledZoneName(row));
+  state::g_vehicle_state.mutate([zone, selectedMode](state::VehicleState& vs) {
+    applyLedModeToZone(vs, zone, selectedMode);
+  });
+  if (ctx->self->settingsMgr_) {
+    ctx->self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
+    ctx->self->settingsMgr_->save();
+  }
+  Serial.printf("[LED_UI] diag mode=%s zone=%s brightness=%u animations=%u show_called=queued_for_led_task\n",
+                selectedName,
+                ledZoneName(row),
+                static_cast<unsigned>(brightness),
+                animation ? 1U : 0U);
   char msg[24];
-  snprintf(msg, sizeof(msg), "%s MODE SET", kStripNames[channel]);
+  snprintf(msg, sizeof(msg), "%s %s", ledZoneName(row), selectedName);
   ctx->self->setActionFeedback(msg, millis());
 }
 
@@ -3386,16 +4337,19 @@ void ScreenDashboard::onLedMasterSwitchChanged(lv_event_t* e) {
   if (!self) return;
   lv_obj_t* sw = lv_event_get_target(e);
   const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
-  state::g_vehicle_state.mutate([enabled](state::VehicleState& vs) {
-    vs.led_channel_1_enabled = true;
-    vs.led_channel_1_mode = state::LedMode::RPM_GAUGE;
-    vs.led_channel_2_enabled = enabled;
-    vs.led_channel_3_enabled = enabled;
+  const led::LedUiMode uiMode = enabled ? led::LedUiMode::HighWhite : led::LedUiMode::Off;
+  const uint8_t brightness = ledUiModeBrightness(uiMode);
+  Serial.printf("[LED_UI] %s pressed\n", enabled ? "HIGH" : "OFF");
+  state::g_vehicle_state.mutate([uiMode](state::VehicleState& vs) {
+    applyLedUiModeToState(vs, uiMode);
   });
   if (self->settingsMgr_) {
     self->settingsMgr_->updateFromState(state::g_vehicle_state.read());
     self->settingsMgr_->save();
   }
+  Serial.printf("[LED_UI] diag mode=%s brightness=%u animations=0 show_called=queued_for_led_task\n",
+                ledUiModeName(uiMode),
+                static_cast<unsigned>(brightness));
   self->setActionFeedback(enabled ? "LED MASTER ON" : "LED MASTER OFF", millis());
 }
 

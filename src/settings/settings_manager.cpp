@@ -48,6 +48,16 @@ void SettingsManager::load() {
     settings_.led_ch_brightness[i] = prefs_.getUChar(brK.c_str(), settings_.led_ch_brightness[i]);
     settings_.led_ch_color[i] = prefs_.getULong(colK.c_str(), settings_.led_ch_color[i]);
   }
+  for (int i = 0; i < 4; ++i) {
+    const String enK = String("ledz") + i + "_en";
+    const String modeK = String("ledz") + i + "_mode";
+    const String brK = String("ledz") + i + "_br";
+    const String colK = String("ledz") + i + "_col";
+    settings_.led_zone_enabled[i] = prefs_.getBool(enK.c_str(), settings_.led_zone_enabled[i]);
+    settings_.led_zone_mode[i] = prefs_.getUChar(modeK.c_str(), settings_.led_zone_mode[i]);
+    settings_.led_zone_brightness[i] = prefs_.getUChar(brK.c_str(), settings_.led_zone_brightness[i]);
+    settings_.led_zone_color[i] = prefs_.getULong(colK.c_str(), settings_.led_zone_color[i]);
+  }
 
   settings_.meth_selected_ratio_percent = prefs_.getUChar("meth_ratio", settings_.meth_selected_ratio_percent);
   settings_.knock_enabled = prefs_.getBool("knock_en", settings_.knock_enabled);
@@ -116,20 +126,26 @@ void SettingsManager::loadIntoState(state::VehicleState& s) const {
   s.pulses_per_rev10 = settings_.tach_pulses_per_rev10;
   s.tach_scaling_mode = settings_.tach_scaling_mode;
 
-  s.led_channel_1_enabled = settings_.led_ch_enabled[0];
+  s.led_channel_1_enabled = true;
   s.led_channel_2_enabled = settings_.led_ch_enabled[1];
   s.led_channel_3_enabled = settings_.led_ch_enabled[2];
-  s.led_channel_1_color = settings_.led_ch_color[0];
+  s.led_channel_1_color = 0xFFFFFF;
   s.led_channel_2_color = settings_.led_ch_color[1];
   s.led_channel_3_color = settings_.led_ch_color[2];
-  s.led_channel_1_mode = static_cast<state::LedMode>(settings_.led_ch_mode[0]);
+  s.led_channel_1_mode = state::LedMode::RPM_GAUGE;
   s.led_channel_2_mode = static_cast<state::LedMode>(settings_.led_ch_mode[1]);
   s.led_channel_3_mode = static_cast<state::LedMode>(settings_.led_ch_mode[2]);
-  s.led_channel_1_brightness = settings_.led_ch_brightness[0];
+  s.led_channel_1_brightness = 180;
   s.led_channel_2_brightness = settings_.led_ch_brightness[1];
   s.led_channel_3_brightness = settings_.led_ch_brightness[2];
   s.led_global_brightness = settings_.led_global_brightness;
   s.led_theme = settings_.led_theme;
+  for (uint8_t i = 0; i < state::kLedZoneCount; ++i) {
+    s.led_zone_enabled[i] = settings_.led_zone_enabled[i];
+    s.led_zone_mode[i] = static_cast<state::LedMode>(settings_.led_zone_mode[i]);
+    s.led_zone_brightness[i] = settings_.led_zone_brightness[i];
+    s.led_zone_color[i] = settings_.led_zone_color[i];
+  }
 
   s.meth_selected_ratio_percent = settings_.meth_selected_ratio_percent;
   s.knock_enabled = settings_.knock_enabled;
@@ -189,20 +205,26 @@ void SettingsManager::updateFromState(const state::VehicleState& s) {
   settings_.tach_pulses_per_rev10 = s.pulses_per_rev10;
   settings_.tach_scaling_mode = s.tach_scaling_mode;
 
-  settings_.led_ch_enabled[0] = s.led_channel_1_enabled;
+  settings_.led_ch_enabled[0] = true;
   settings_.led_ch_enabled[1] = s.led_channel_2_enabled;
   settings_.led_ch_enabled[2] = s.led_channel_3_enabled;
-  settings_.led_ch_color[0] = s.led_channel_1_color;
+  settings_.led_ch_color[0] = 0xFFFFFF;
   settings_.led_ch_color[1] = s.led_channel_2_color;
   settings_.led_ch_color[2] = s.led_channel_3_color;
-  settings_.led_ch_mode[0] = static_cast<uint8_t>(s.led_channel_1_mode);
+  settings_.led_ch_mode[0] = static_cast<uint8_t>(state::LedMode::RPM_GAUGE);
   settings_.led_ch_mode[1] = static_cast<uint8_t>(s.led_channel_2_mode);
   settings_.led_ch_mode[2] = static_cast<uint8_t>(s.led_channel_3_mode);
-  settings_.led_ch_brightness[0] = s.led_channel_1_brightness;
+  settings_.led_ch_brightness[0] = 180;
   settings_.led_ch_brightness[1] = s.led_channel_2_brightness;
   settings_.led_ch_brightness[2] = s.led_channel_3_brightness;
   settings_.led_global_brightness = s.led_global_brightness;
   settings_.led_theme = s.led_theme;
+  for (uint8_t i = 0; i < state::kLedZoneCount; ++i) {
+    settings_.led_zone_enabled[i] = s.led_zone_enabled[i];
+    settings_.led_zone_mode[i] = static_cast<uint8_t>(s.led_zone_mode[i]);
+    settings_.led_zone_brightness[i] = s.led_zone_brightness[i];
+    settings_.led_zone_color[i] = s.led_zone_color[i];
+  }
 
   settings_.meth_selected_ratio_percent = s.meth_selected_ratio_percent;
   settings_.knock_enabled = s.knock_enabled;
@@ -276,6 +298,16 @@ bool SettingsManager::save() {
     prefs_.putUChar(modeK.c_str(), settings_.led_ch_mode[i]);
     prefs_.putUChar(brK.c_str(), settings_.led_ch_brightness[i]);
     prefs_.putULong(colK.c_str(), settings_.led_ch_color[i]);
+  }
+  for (int i = 0; i < 4; ++i) {
+    const String enK = String("ledz") + i + "_en";
+    const String modeK = String("ledz") + i + "_mode";
+    const String brK = String("ledz") + i + "_br";
+    const String colK = String("ledz") + i + "_col";
+    prefs_.putBool(enK.c_str(), settings_.led_zone_enabled[i]);
+    prefs_.putUChar(modeK.c_str(), settings_.led_zone_mode[i]);
+    prefs_.putUChar(brK.c_str(), settings_.led_zone_brightness[i]);
+    prefs_.putULong(colK.c_str(), settings_.led_zone_color[i]);
   }
 
   prefs_.putUChar("meth_ratio", settings_.meth_selected_ratio_percent);

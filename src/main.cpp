@@ -1,10 +1,5 @@
 #include <Arduino.h>
 #include <SPI.h>
-#include <esp_bt.h>
-
-#ifndef CCM_WEB_ENABLED
-#define CCM_WEB_ENABLED 0
-#endif
 
 #ifndef CCM_SCREEN_TASK_PERIOD_MS
 #define CCM_SCREEN_TASK_PERIOD_MS 17
@@ -30,6 +25,10 @@
 #define CCM_LED_TASK_PERIOD_MS 33
 #endif
 
+#ifndef CCM_LED_TASK_STACK_BYTES
+#define CCM_LED_TASK_STACK_BYTES 49152
+#endif
+
 #ifndef CCM_SD_LOGGING_ENABLED
 #define CCM_SD_LOGGING_ENABLED 0
 #endif
@@ -48,6 +47,26 @@
 
 #ifndef CCM_KNOCK_TASK_PERIOD_MS
 #define CCM_KNOCK_TASK_PERIOD_MS 5
+#endif
+
+#ifndef CCM_TACH_INPUT_ENABLED
+#define CCM_TACH_INPUT_ENABLED 1
+#endif
+
+#ifndef CCM_TACH_INPUT_EDGE
+#define CCM_TACH_INPUT_EDGE RISING
+#endif
+
+#ifndef CCM_TACH_INPUT_MIN_PERIOD_US
+#define CCM_TACH_INPUT_MIN_PERIOD_US 1000UL
+#endif
+
+#ifndef CCM_TACH_INPUT_STALE_MS
+#define CCM_TACH_INPUT_STALE_MS 250
+#endif
+
+#ifndef CCM_TACH_INPUT_TASK_PERIOD_MS
+#define CCM_TACH_INPUT_TASK_PERIOD_MS 50
 #endif
 
 #ifndef CCM_GPS_ZERO_CLAMP_MPH
@@ -102,9 +121,6 @@
 #define CCM_IMU_ENABLED 0
 #endif
 
-#if CCM_WEB_ENABLED
-#include <WiFi.h>
-#endif
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 
@@ -128,9 +144,6 @@
 #include "touch/touch_manager.h"
 #include "ui/asset_manager.h"
 #include "ui/screen_dashboard.h"
-#if CCM_WEB_ENABLED
-#include "web/web_server.h"
-#endif
 #include "imu/imu_service.h"
 
 namespace {
@@ -181,6 +194,13 @@ constexpr uint8_t kGpsStatusFixQuality = 0x10;
 constexpr uint8_t kGpsStatusDeadReckoned = 0x20;
 constexpr uint8_t kGpsStatusSpikeRejected = 0x40;
 constexpr uint8_t kGpsStatusZeroClamped = 0x80;
+constexpr uint32_t kTachInputMinPeriodUs = CCM_TACH_INPUT_MIN_PERIOD_US;
+constexpr uint32_t kTachInputStaleMs = CCM_TACH_INPUT_STALE_MS;
+constexpr uint32_t kTachInputTaskPeriodMs =
+    (CCM_TACH_INPUT_TASK_PERIOD_MS < 10) ? 10U : static_cast<uint32_t>(CCM_TACH_INPUT_TASK_PERIOD_MS);
+constexpr uint8_t kTachStatusInputLive = 0x01;
+constexpr uint8_t kTachStatusSignalStale = 0x02;
+constexpr uint8_t kTachStatusNoiseRejected = 0x04;
 
 float clampFloat(float value, float lo, float hi) {
   if (value < lo) return lo;
@@ -363,10 +383,33 @@ static ccm::hal::UartGpsAdapter g_gpsHal(Serial2);
 static ccm::gps::GpsService     g_gps(g_gpsHal);
 GpsSpeedConditioner g_gpsSpeedConditioner;
 
+portMUX_TYPE g_tachMux = portMUX_INITIALIZER_UNLOCKED;
+volatile uint32_t g_tachLastEdgeUs = 0;
+volatile uint32_t g_tachLastPeriodUs = 0;
+volatile uint32_t g_tachPulseCount = 0;
+volatile uint32_t g_tachRejectCount = 0;
+
+void IRAM_ATTR tachInputIsr() {
+  const uint32_t nowUs = micros();
+  portENTER_CRITICAL_ISR(&g_tachMux);
+  const uint32_t prevUs = g_tachLastEdgeUs;
+  const uint32_t periodUs = nowUs - prevUs;
+
+  if (prevUs != 0U && periodUs < kTachInputMinPeriodUs) {
+    ++g_tachRejectCount;
+    portEXIT_CRITICAL_ISR(&g_tachMux);
+    return;
+  }
+
+  g_tachLastEdgeUs = nowUs;
+  if (prevUs != 0U) {
+    g_tachLastPeriodUs = periodUs;
+  }
+  ++g_tachPulseCount;
+  portEXIT_CRITICAL_ISR(&g_tachMux);
+}
+
 led::LedManager g_led;
-#if CCM_WEB_ENABLED
-web::WebServerManager g_web;
-#endif
 storage::SdManager g_sd;
 storage::LogManager g_logs;
 race::RacePerformanceManager g_race;
@@ -590,25 +633,6 @@ void configureAnalogSensorsFromState(const state::VehicleState& cfg) {
   g_sparePressure2Sensor.begin();
 }
 
-#if CCM_WEB_ENABLED
-void setupWifiFromSettings() {
-  const auto& cfg = g_settings.data();
-  if (cfg.wifi_ap_mode || cfg.wifi_ssid[0] == '\0') {
-    WiFi.mode(WIFI_AP);
-    const char* pass = cfg.wifi_password[0] ? cfg.wifi_password : nullptr;
-    WiFi.softAP("FoxbodyCabinMaster", pass);
-    state::g_vehicle_state.mutate([](state::VehicleState& s) {
-      s.wifi_ap_mode = true;
-      s.wifi_connected = true;
-    });
-  } else {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(cfg.wifi_ssid, cfg.wifi_password);
-    state::g_vehicle_state.mutate([](state::VehicleState& s) { s.wifi_ap_mode = false; });
-  }
-}
-#endif  // CCM_WEB_ENABLED
-
 void canTask(void*) {
   registerTaskWatchdog();
   constexpr uint32_t kCanTaskPeriodMs =
@@ -618,6 +642,79 @@ void canTask(void*) {
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(kCanTaskPeriodMs));
   }
+}
+
+void tachInputTask(void*) {
+#if !CCM_TACH_INPUT_ENABLED
+  vTaskDelete(nullptr);
+#else
+  registerTaskWatchdog();
+  pinMode(pins::kTachIn, INPUT);
+  attachInterrupt(digitalPinToInterrupt(pins::kTachIn), tachInputIsr, CCM_TACH_INPUT_EDGE);
+  Serial.printf("[TACH] input GPIO=%u edge=%u min_period=%luus stale=%lums\n",
+                static_cast<unsigned>(pins::kTachIn),
+                static_cast<unsigned>(CCM_TACH_INPUT_EDGE),
+                static_cast<unsigned long>(kTachInputMinPeriodUs),
+                static_cast<unsigned long>(kTachInputStaleMs));
+
+  uint32_t lastRejectCount = 0;
+  while (true) {
+    uint32_t lastEdgeUs = 0;
+    uint32_t lastPeriodUs = 0;
+    uint32_t pulseCount = 0;
+    uint32_t rejectCount = 0;
+    portENTER_CRITICAL(&g_tachMux);
+    lastEdgeUs = g_tachLastEdgeUs;
+    lastPeriodUs = g_tachLastPeriodUs;
+    pulseCount = g_tachPulseCount;
+    rejectCount = g_tachRejectCount;
+    portEXIT_CRITICAL(&g_tachMux);
+
+    const uint32_t nowMs = millis();
+    const uint32_t nowUs = micros();
+    const bool noiseRejected = rejectCount != lastRejectCount;
+    lastRejectCount = rejectCount;
+    const bool live = lastEdgeUs != 0U && ((nowUs - lastEdgeUs) / 1000UL) <= kTachInputStaleMs;
+    (void)pulseCount;
+
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      if (s.bench_test_mode) return;
+
+      const uint8_t ppr10 = s.pulses_per_rev10 == 0U ? 20U : s.pulses_per_rev10;
+      uint16_t rawHz10 = 0;
+      uint16_t rpm = 0;
+      uint8_t status = 0;
+
+      if (live && lastPeriodUs > 0U) {
+        const uint32_t hz10 = (10000000UL + (lastPeriodUs / 2UL)) / lastPeriodUs;
+        const uint32_t rpmCalc = (hz10 * 60UL + (ppr10 / 2U)) / ppr10;
+        rawHz10 = static_cast<uint16_t>(hz10 > 65535UL ? 65535UL : hz10);
+        rpm = static_cast<uint16_t>(rpmCalc > 9000UL ? 9000UL : rpmCalc);
+        status |= kTachStatusInputLive;
+      } else {
+        status |= kTachStatusSignalStale;
+      }
+
+      if (noiseRejected) {
+        status |= kTachStatusNoiseRejected;
+      }
+
+      s.rpm = rpm;
+      s.raw_tach_hz10 = rawHz10;
+      const uint16_t tachDivisor = s.tach_scaling_mode == 0U ? 15U : 30U;
+      s.generated_tach_hz10 =
+          static_cast<uint16_t>((static_cast<uint32_t>(rpm) * 10UL) / tachDivisor);
+      s.tach_source = static_cast<uint8_t>(can_protocol::TachSource::GPIO_INPUT);
+      s.tach_status_flags = status;
+      s.tach_input_frequency_hz = rawHz10 / 10.0f;
+      s.tach_generated_frequency_hz = s.generated_tach_hz10 / 10.0f;
+      s.uptime_ms = nowMs;
+    });
+
+    feedTaskWatchdog();
+    vTaskDelay(pdMS_TO_TICKS(kTachInputTaskPeriodMs));
+  }
+#endif
 }
 
 void ledTask(void*) {
@@ -656,17 +753,6 @@ void ledTask(void*) {
   }
 #endif
 }
-
-#if CCM_WEB_ENABLED
-void webTask(void*) {
-  registerTaskWatchdog();
-  while (true) {
-    g_web.tick();
-    feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
-}
-#endif  // CCM_WEB_ENABLED
 
 void raceTask(void*) {
   registerTaskWatchdog();
@@ -1038,6 +1124,14 @@ void gpsTask(void*) {
       s.gps_fix_quality = d.fixQuality;
       s.gps_fix_mode = d.fixMode;
       s.gps_hdop_x10 = static_cast<uint16_t>((d.hdopHundredths + 5U) / 10U);
+      if (!s.gps_time_valid && fixLive && d.utcTimeValid) {
+        s.gps_time_valid = true;
+        s.gps_utc_seconds_of_day =
+            static_cast<uint32_t>(d.utcHour) * 3600UL +
+            static_cast<uint32_t>(d.utcMinute) * 60UL +
+            static_cast<uint32_t>(d.utcSecond);
+        s.gps_time_sync_ms = d.lastTimeMs != 0U ? d.lastTimeMs : nowMs;
+      }
       s.gps_fix_type = fixLive
           ? (d.fixQuality > 0U ? d.fixQuality : (d.fixMode > 0U ? d.fixMode : 2U))
           : (d.passedChecksum > 0 ? 1U : 0U);
@@ -1104,20 +1198,7 @@ void setup() {
   if (pins::kLcdBacklight != 255) {
     pinMode(pins::kLcdBacklight, OUTPUT);
   }
-
-  // Release BT heap before anything else allocates. ESP32-S3 has BLE only,
-  // while classic ESP32 can release the combined BTDM reservation.
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
-  esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
-#else
-  esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
-#endif
   hal::initSharedSpiBusLock();
-
-#if !CCM_WEB_ENABLED
-  // Web/WiFi disabled — WiFi was never started so no explicit shutdown needed.
-  // Heap is not claimed by the radio unless WiFi.begin()/WiFi.mode() is called.
-#endif
 
   state::g_vehicle_state.begin();
   g_settings.begin();
@@ -1127,9 +1208,6 @@ void setup() {
   if (pins::kLcdBacklight != 255) {
     analogWrite(pins::kLcdBacklight, state::g_vehicle_state.read().display_brightness);
   }
-#if CCM_WEB_ENABLED
-  setupWifiFromSettings();
-#endif
 
   pinMode(pins::kCanSpiCs, OUTPUT);
   pinMode(pins::kSdCs, OUTPUT);
@@ -1210,18 +1288,12 @@ void setup() {
 #else
   Serial.println("[LED] disabled by build flag");
 #endif
-#if CCM_WEB_ENABLED
-  g_web.begin(&state::g_vehicle_state, &g_settings, &g_can, &g_race);
-#endif
-
   Serial.println("[TASK] core0=CAN/GPS/sensors/storage/race/hb core1=screen/touch/LED");
   createPinnedTask(canTask, "can_task", 6144, kPrioHighIo, kCoreIo);
+  createPinnedTask(tachInputTask, "tach_in_task", 4096, kPrioHighIo, kCoreIo);
   createPinnedTask(gpsTask, "gps_task", 6144, kPrioSensors, kCoreIo);
 #if CCM_LED_ENABLED
-  createPinnedTask(ledTask, "led_task", 12288, kPrioBackground, kCoreUi);
-#endif
-#if CCM_WEB_ENABLED
-  createPinnedTask(webTask, "web_task", 8192, kPrioBackground, kCoreIo);
+  createPinnedTask(ledTask, "led_task", CCM_LED_TASK_STACK_BYTES, kPrioSensors, kCoreIo);
 #endif
   createPinnedTask(storageTask, "storage_task", 6144, kPrioBackground, kCoreIo);
   createPinnedTask(analogSensorTask, "analog_sensor_task", 6144, kPrioSensors, kCoreIo);

@@ -40,6 +40,7 @@ struct EnvironmentData {
 
 struct GpsData {
   bool validFix = false;
+  bool utcTimeValid = false;
   float speedKph = 0.0f;
   double latitude = 0.0;
   double longitude = 0.0;
@@ -54,8 +55,16 @@ struct GpsData {
   uint32_t passedChecksum = 0;
   uint32_t failedChecksum = 0;
   uint32_t sentencesWithFix = 0;
+  uint8_t utcHour = 0;
+  uint8_t utcMinute = 0;
+  uint8_t utcSecond = 0;
+  uint8_t utcCentisecond = 0;
+  uint8_t utcDay = 0;
+  uint8_t utcMonth = 0;
+  uint16_t utcYear = 0;
   uint32_t lastRxMs = 0;
   uint32_t lastFixMs = 0;
+  uint32_t lastTimeMs = 0;
 };
 
 struct PowerData {

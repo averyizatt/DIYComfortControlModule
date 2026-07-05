@@ -10,12 +10,16 @@ struct AppSettings {
   uint8_t tach_pulses_per_rev10 = 20;
   uint8_t tach_scaling_mode = 0;
 
-  bool led_ch_enabled[3] = {true, true, true};
+  bool led_ch_enabled[3] = {true, false, false};
   uint32_t led_ch_color[3] = {0xFFFFFF, 0xFFFFFF, 0xFFFFFF};
-  uint8_t led_ch_mode[3] = {9, 10, 10};
-  uint8_t led_ch_brightness[3] = {180, 180, 180};
+  uint8_t led_ch_mode[3] = {9, 0, 0};
+  uint8_t led_ch_brightness[3] = {180, 0, 0};
   uint8_t led_global_brightness = 180;
   uint8_t led_theme = 0;
+  bool led_zone_enabled[4] = {false, false, false, false};
+  uint8_t led_zone_mode[4] = {0, 0, 0, 0};
+  uint8_t led_zone_brightness[4] = {0, 0, 0, 0};
+  uint32_t led_zone_color[4] = {0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF};
 
   uint8_t meth_selected_ratio_percent = 50;
   bool knock_enabled = true;

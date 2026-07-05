@@ -332,6 +332,19 @@ void UartGpsAdapter::poll() {
   latest_.hdopHundredths = parser_.hdop.isValid()
       ? static_cast<uint16_t>(parser_.hdop.value() > 65535UL ? 65535UL : parser_.hdop.value())
       : 0U;
+  const bool hasFreshUtcTime =
+      parser_.time.isValid() && parser_.date.isValid() && parser_.time.age() < 2000UL;
+  if (hasFreshUtcTime) {
+    latest_.utcTimeValid = true;
+    latest_.utcHour = parser_.time.hour();
+    latest_.utcMinute = parser_.time.minute();
+    latest_.utcSecond = parser_.time.second();
+    latest_.utcCentisecond = parser_.time.centisecond();
+    latest_.utcDay = parser_.date.day();
+    latest_.utcMonth = parser_.date.month();
+    latest_.utcYear = parser_.date.year();
+    latest_.lastTimeMs = nowMs;
+  }
   const bool hasCurrentNmeaFix =
       (seenGgaFixQuality_ && latest_.fixQuality > 0U) ||
       (seenGsaFixMode_ && latest_.fixMode >= 2U);
