@@ -21,12 +21,16 @@ class TouchManager {
 
  private:
   bool probe();
+  void markOffline(const char* reason);
 
   TwoWire* wire_ = nullptr;
   uint8_t address_ = 0x38;
   uint8_t rstPin_ = 255;
   uint8_t intPin_ = 255;
   bool online_ = false;
+  uint8_t readFailCount_ = 0;
+  uint32_t lastProbeMs_ = 0;
+  uint32_t lastStateLogMs_ = 0;
 };
 
 }  // namespace touch

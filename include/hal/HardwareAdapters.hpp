@@ -57,6 +57,7 @@ class UartGpsAdapter : public GpsHal {
   TinyGPSCustom ggaFixQuality_[2];
   TinyGPSCustom gsvSatsInView_[6];
   TinyGPSCustom gsaFixMode_[6];
+  TinyGPSCustom rmcStatus_[2];
   core::GpsData latest_{};
   uint32_t preferredBaud_ = 0;
   uint32_t currentBaud_ = 0;
@@ -64,9 +65,13 @@ class UartGpsAdapter : public GpsHal {
   uint32_t lastGoodSentenceMs_ = 0;
   uint32_t lastPassedChecksum_ = 0;
   uint8_t baudProbeIndex_ = 0;
+  uint8_t noRxProbePhase_ = 0;
   bool seenGgaFixQuality_ = false;
   bool seenGsaFixMode_ = false;
+  bool seenRmcStatus_ = false;
+  bool rmcStatusValid_ = false;
   bool ubxTuningSent_ = false;
+  bool activePinsSwapped_ = false;
 };
 
 class GpioButtonAdapter : public ButtonHal {

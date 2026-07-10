@@ -115,6 +115,16 @@ constexpr uint8_t BASELINE_NOT_LEARNED = 0x05;
 constexpr uint8_t ADC_FAULT = 0x06;
 }  // namespace knock_fault_code
 
+namespace knock_status_flag {
+constexpr uint8_t ENABLED = 1U << 0;
+constexpr uint8_t SIGNAL_VALID = 1U << 1;
+constexpr uint8_t WARNING_ACTIVE = 1U << 2;
+constexpr uint8_t CRITICAL_ACTIVE = 1U << 3;
+constexpr uint8_t BASELINE_LEARNED = 1U << 4;
+constexpr uint8_t SENSOR_FAULT = 1U << 5;
+constexpr uint8_t CLIPPING_DETECTED = 1U << 6;
+}  // namespace knock_status_flag
+
 struct CanFrame {
   uint16_t id = 0;
   uint8_t dlc = 0;
@@ -280,14 +290,14 @@ inline CanFrame packEngineSensorExt(const EngineSensorExt& ext) {
 }
 
 struct EngineKnockState {
-  uint8_t status_flags = 0;
-  uint8_t energy = 0;
-  uint8_t baseline = 0;
-  uint8_t threshold = 0;
-  uint8_t event_count = 0;
-  uint8_t last_event_rpm_div100 = 0;
-  uint8_t last_event_boost_kpa = 0;
-  uint8_t reserved = 0;
+  uint8_t status_flags = 0;          // knock_status_flag bitfield
+  uint8_t energy = 0;                // processed knock energy, 0..255
+  uint8_t baseline = 0;              // learned noise floor, 0..255
+  uint8_t threshold = 0;             // active warning/critical threshold, 0..255
+  uint8_t event_count = 0;           // wraps at 255
+  uint8_t last_event_rpm_div100 = 0; // RPM / 100
+  uint8_t last_event_boost_kpa = 0;  // boost/manifold pressure near event
+  uint8_t reserved = 0;              // keep 0 for now
 };
 
 inline bool unpackEngineKnockState(const CanFrame& frame, EngineKnockState& out) {

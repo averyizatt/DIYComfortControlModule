@@ -434,7 +434,7 @@ If the README and code ever disagree, **trust the code**.
 | Touch SCL / SDA / RST / INT | 47 / 48 / 14 / 15 |
 | CAN TX / RX | 5 / 4 |
 | MCP2515 CS / INT / RST | 17 / 18 / 21 |
-| GPS RX / TX | 41 / 42 |
+| GPS RX / TX | 42 / 41 |
 | Tach out / in | 6 / 2 |
 | Buttons up / down / select | 35 / 36 / 37 |
 | Aux outputs | 33 / 34 |

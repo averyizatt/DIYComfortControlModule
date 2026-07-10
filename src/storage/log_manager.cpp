@@ -17,11 +17,17 @@ namespace {
 #define CCM_SD_LOG_DRAIN_MAX_WRITES 1
 #endif
 
+#ifndef CCM_SD_LOG_MIN_FREE_HEAP
+#define CCM_SD_LOG_MIN_FREE_HEAP 24000
+#endif
+
 constexpr bool kSdLoggingEnabled = CCM_SD_LOGGING_ENABLED != 0;
 constexpr uint32_t kSdLogDrainIntervalMs =
     (CCM_SD_LOG_DRAIN_INTERVAL_MS < 200) ? 200U : static_cast<uint32_t>(CCM_SD_LOG_DRAIN_INTERVAL_MS);
 constexpr uint8_t kSdLogDrainMaxWrites =
     (CCM_SD_LOG_DRAIN_MAX_WRITES < 1) ? 1U : static_cast<uint8_t>(CCM_SD_LOG_DRAIN_MAX_WRITES);
+constexpr uint32_t kSdLogMinFreeHeap =
+    (CCM_SD_LOG_MIN_FREE_HEAP < 8000) ? 8000U : static_cast<uint32_t>(CCM_SD_LOG_MIN_FREE_HEAP);
 
 }  // namespace
 
@@ -72,6 +78,10 @@ void LogManager::tick(uint32_t nowMs) {
   if ((nowMs - lastFlushMs_) < kSdLogDrainIntervalMs) return;
   lastFlushMs_ = nowMs;
   if (qCount_ == 0) return;
+  if (ESP.getFreeHeap() < kSdLogMinFreeHeap) {
+    ++droppedCount_;
+    return;
+  }
 
   for (uint8_t i = 0; i < kSdLogDrainMaxWrites && qCount_ > 0; ++i) {
     const char* entry = s_queue_[qHead_];

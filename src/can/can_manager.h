@@ -48,7 +48,10 @@ class CanManager {
   uint32_t lastSensorExtTxMs_ = 0;
   uint32_t lastCanErrCheckMs_ = 0;   // last MCP2515 EFLG read
   uint32_t lastCanRxPollMs_ = 0;     // fallback poll when MCP2515 INT is idle
+  uint32_t canNoAckBackoffUntilMs_ = 0;
+  uint32_t lastCanNoAckLogMs_ = 0;
   bool     canRxWarnSent_ = false;   // one-shot "silent bus" warning
+  bool     canNoAckBackoffLogged_ = false;
 };
 
 }  // namespace canbus

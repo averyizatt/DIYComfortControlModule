@@ -35,8 +35,8 @@ namespace pins {
 //  Gyro INT       4  (ADC1_CH3)  moved from 14; shares old legacy CAN RX pin
 //  Battery ADC    1  (ADC1_CH0)  was 46; 46 is LCD_DC
 //  Knock ADC     48  (ADC1_CH7)
-//  GPS RX        41  (GP)
-//  GPS TX        42  (GP)
+//  GPS RX        42  (GP)  firmware auto-probes alternate RX/TX if no bytes arrive
+//  GPS TX        41  (GP)
 //  LED strip 1   40  (GP)  RPM addressable strip
 //  LED strip 2   38  (GP)  Upper interior addressable strip
 //  LED strip 3   39  (GP)  Lower interior addressable strip
@@ -110,10 +110,10 @@ namespace pins {
 #define CCM_PIN_GPS_UART_PORT 1
 #endif
 #ifndef CCM_PIN_GPS_RX
-#define CCM_PIN_GPS_RX 41
+#define CCM_PIN_GPS_RX 42
 #endif
 #ifndef CCM_PIN_GPS_TX
-#define CCM_PIN_GPS_TX 42
+#define CCM_PIN_GPS_TX 41
 #endif
 #ifndef CCM_GPS_BAUD
 #define CCM_GPS_BAUD 9600

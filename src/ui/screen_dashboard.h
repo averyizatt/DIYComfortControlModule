@@ -37,6 +37,65 @@ class ScreenDashboard {
   static constexpr uint8_t  kTaillightShowPageCount       =
       static_cast<uint8_t>((kTaillightShowOptionCount + kTaillightShowOptionsPerPage - 1U)
                            / kTaillightShowOptionsPerPage);
+  static constexpr uint8_t  kUiActionQueueSize = 16;
+  static constexpr uint8_t  kTouchCalPointCount = 9;
+
+  enum class UiActionType : uint8_t {
+    None,
+    Nav,
+    MethArm,
+    MethRatio,
+    TailMode,
+    TailShowMenu,
+    TailShowPrev,
+    TailShowNext,
+    TailShowBack,
+    TailShowOption,
+    LedShowMenu,
+    LedShowBack,
+    LedShowMode,
+    LedShowOn,
+    LedShowOff,
+    LedShowClear,
+    LedColor,
+    LedMode,
+    LedMaster,
+    KnockEnable,
+    KnockResetBaseline,
+    KnockGainDown,
+    KnockGainUp,
+    KnockMultiplierDown,
+    KnockMultiplierUp,
+    BenchTest,
+    DiagInfo,
+    DiagTools,
+    FaultPage,
+    FaultClose,
+    LedOutputTest,
+    CanPing,
+    Restart,
+    RaceStartAccel,
+    RaceStartLap,
+    RaceStop,
+    RaceReset,
+    RaceSetStartFinish,
+    RaceMarkLap,
+    SdFileRow,
+    SdUp,
+    SdPrev,
+    SdNext,
+    SdTest,
+    TouchCalStart,
+    TouchCalClose,
+    TouchCalSample,
+  };
+
+  struct UiAction {
+    UiActionType type = UiActionType::None;
+    uint8_t arg0 = 0;
+    uint8_t arg1 = 0;
+    uint32_t value = 0;
+  };
 
   // ---- UI construction ------------------------------------------------
   void buildUi();
@@ -75,6 +134,21 @@ class ScreenDashboard {
   bool enterSdDirectory(const char* name, uint32_t nowMs);
   void setSdPathRoot();
   void setSdPathParent();
+  void queueSettingsSave(uint32_t nowMs);
+  void serviceQueuedSettingsSave(uint32_t nowMs);
+  bool enqueueAction(const UiAction& action, uint32_t nowMs);
+  void serviceUiActions(uint32_t nowMs);
+  void performUiAction(const UiAction& action, uint32_t nowMs);
+  bool shouldAcceptUiTap(lv_obj_t* target, uint32_t nowMs);
+  bool confirmOrEnqueue(const UiAction& action, const char* prompt, uint32_t nowMs);
+  void serviceTouchGestures(uint32_t nowMs);
+  void buildTouchCalibrationOverlay(lv_obj_t* scr);
+  void buildFaultOverlay(lv_obj_t* scr);
+  void showTouchCalibration(bool show);
+  void showFaultOverlay(bool show);
+  void updateTouchCalibrationPrompt();
+  void recordTouchCalibrationSample(uint32_t nowMs);
+  void runLedOutputTest(uint32_t nowMs);
 
   // ---- LVGL callbacks -------------------------------------------------
   static void lvglFlushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* colors);
@@ -101,10 +175,6 @@ class ScreenDashboard {
   static void onTailShowNextClicked(lv_event_t* e);
   static void onTailShowBackClicked(lv_event_t* e);
   static void onTailShowOptClicked(lv_event_t* e);
-  static void onRaceAccelClicked(lv_event_t* e);
-  static void onRaceLapClicked(lv_event_t* e);
-  static void onRaceStopClicked(lv_event_t* e);
-  static void onRaceResetClicked(lv_event_t* e);
   static void onKnockEnableClicked(lv_event_t* e);
   static void onKnockResetBaselineClicked(lv_event_t* e);
   static void onKnockGainDownClicked(lv_event_t* e);
@@ -113,11 +183,26 @@ class ScreenDashboard {
   static void onKnockMultiplierUpClicked(lv_event_t* e);
   static void onLedMasterSwitchChanged(lv_event_t* e);
   static void onBenchTestClicked(lv_event_t* e);
+  static void onDiagInfoClicked(lv_event_t* e);
+  static void onDiagToolsClicked(lv_event_t* e);
+  static void onFaultPageClicked(lv_event_t* e);
+  static void onFaultCloseClicked(lv_event_t* e);
+  static void onLedOutputTestClicked(lv_event_t* e);
+  static void onCanPingClicked(lv_event_t* e);
+  static void onRestartClicked(lv_event_t* e);
+  static void onRaceAccelClicked(lv_event_t* e);
+  static void onRaceLapClicked(lv_event_t* e);
+  static void onRaceStopClicked(lv_event_t* e);
+  static void onRaceResetClicked(lv_event_t* e);
+  static void onRaceSetStartClicked(lv_event_t* e);
+  static void onRaceMarkLapClicked(lv_event_t* e);
   static void onSdFileRowClicked(lv_event_t* e);
   static void onSdUpClicked(lv_event_t* e);
   static void onSdPrevClicked(lv_event_t* e);
   static void onSdNextClicked(lv_event_t* e);
   static void onSdTestClicked(lv_event_t* e);
+  static void onTouchCalStartClicked(lv_event_t* e);
+  static void onTouchCalCloseClicked(lv_event_t* e);
 
   // ---- Dependencies ---------------------------------------------------
   canbus::CanManager*           canMgr_      = nullptr;
@@ -130,9 +215,34 @@ class ScreenDashboard {
   char     actionFeedback_[48]    = {};
   uint8_t  activePage_            = 0;
   bool     pageSwitchPending_      = false;
+  bool     settingsSaveQueued_     = false;
+  bool     suppressLedMasterEvent_ = false;
+  bool     filteredTouchDown_      = false;
+  bool     gestureTouchWasDown_    = false;
+  uint8_t  touchPressStableCount_  = 0;
+  uint8_t  touchReleaseStableCount_ = 0;
+  uint8_t  uiActionHead_           = 0;
+  uint8_t  uiActionTail_           = 0;
+  uint8_t  uiActionCount_          = 0;
+  uint8_t  touchCalIndex_          = 0;
+  uint8_t  ledOutputTestStep_      = 0;
+  UiActionType pendingConfirmType_ = UiActionType::None;
   uint32_t lastStressPageSwitchMs_ = 0;
   uint32_t lastHeaderUpdateMs_    = 0;
   uint32_t lastPageUpdateMs_      = 0;
+  uint32_t settingsSaveDueMs_     = 0;
+  uint32_t filteredTouchSampleMs_ = 0;
+  uint32_t filteredTouchPressStartMs_ = 0;
+  uint32_t lastAcceptedTapMs_ = 0;
+  uint32_t pendingConfirmUntilMs_ = 0;
+  uint32_t gestureStartMs_ = 0;
+  uint32_t lastHeaderTapMs_ = 0;
+  int16_t  touchCalOffsetX_ = 0;
+  int16_t  touchCalOffsetY_ = 0;
+  int16_t  touchCalAccumX_ = 0;
+  int16_t  touchCalAccumY_ = 0;
+  uint16_t gestureStartX_ = 0;
+  uint16_t gestureStartY_ = 0;
 #if !LV_TICK_CUSTOM
   uint32_t lastLvTickMs_          = 0;
 #endif
@@ -145,13 +255,13 @@ class ScreenDashboard {
   char     dashRaceText_[64]      = {};
   char     gLiveText_[16]         = {};
   char     gPeakText_[16]         = {};
-  int32_t  dashRpmArcLast_        = -999999;
-  int32_t  dashSpdArcLast_        = -999999;
-  int32_t  dashBoostBarLast_      = -999999;
-  int32_t  dashLatBarLast_        = -999999;
 
-  touch::TouchSample lastTouch_ = {};
-  portMUX_TYPE        touchMux_  = portMUX_INITIALIZER_UNLOCKED;  // guards lastTouch_ (touchTask writes, screenTask reads)
+  UiAction uiActions_[kUiActionQueueSize] = {};
+  UiAction pendingConfirmAction_ = {};
+  lv_obj_t* lastAcceptedTapTarget_ = nullptr;
+  touch::TouchSample rawTouch_ = {};
+  touch::TouchSample filteredTouch_ = {};
+  portMUX_TYPE        touchMux_  = portMUX_INITIALIZER_UNLOCKED;  // guards touch samples (touchTask writes, screenTask reads)
 
   // ---- LVGL widget pointers -------------------------------------------
 
@@ -164,6 +274,7 @@ class ScreenDashboard {
   // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG 7=KNOCK)
   lv_obj_t* navBtns_[8]     = {};
   lv_obj_t* navBtnIcons_[8] = {};
+  lv_obj_t* topContentEdgeGuard_ = nullptr;
   lv_obj_t* bottomEdgeGuard_ = nullptr;
 
   // Page content panels (one visible at a time)
@@ -171,30 +282,21 @@ class ScreenDashboard {
   lv_obj_t* pages_[8] = {};
 
   // -- DASH page --
-  lv_obj_t* rpmArc_          = nullptr;  // unused on the simplified DASH page
-  lv_obj_t* spdArc_          = nullptr;  // main MPH gauge
-  lv_meter_indicator_t* spdNeedle_ = nullptr;
   lv_obj_t* rpmValLabel_     = nullptr;  // large RPM number
   lv_obj_t* spdValLabel_     = nullptr;  // large speed number
-  lv_obj_t* boostBar_        = nullptr;
   lv_obj_t* boostValLabel_   = nullptr;
   lv_obj_t* dashEnvLabel_    = nullptr;  // meth duty / tank
   lv_obj_t* dashStatusLabel_ = nullptr;  // meth activation state
   lv_obj_t* dashRaceLabel_   = nullptr;  // compact voltage / GPS / IAT row
   lv_obj_t* raceAccelBtn_    = nullptr;
-  lv_obj_t* raceLapBtn_      = nullptr;
-  lv_obj_t* raceStopBtn_     = nullptr;
-  lv_obj_t* raceResetBtn_    = nullptr;
   lv_obj_t* gLiveLabel_      = nullptr;  // "X.XX G" current G
   lv_obj_t* gPeakLabel_      = nullptr;  // "PK X.XX" peak G
-  lv_obj_t* gLatBar_         = nullptr;  // lateral G bar (-100..+100)
 
   // -- METH page --
   lv_obj_t* methBadgeLabel_    = nullptr;
   lv_obj_t* methStateLabel_    = nullptr;
   lv_obj_t* methSensorLabel_   = nullptr;
   lv_obj_t* methParamLabel_    = nullptr;
-  lv_obj_t* methFlowDropdown_  = nullptr;
   lv_obj_t* methDutyLabel_     = nullptr;
   lv_obj_t* methTankLabel_     = nullptr;
   lv_obj_t* methMapLabel_      = nullptr;
@@ -209,10 +311,7 @@ class ScreenDashboard {
   // -- TAIL page --
   lv_obj_t* tailStatusLabel_   = nullptr;
   lv_obj_t* tailOnlineLed_     = nullptr;
-  lv_obj_t* tailModeDropdown_  = nullptr;
   lv_obj_t* tailModePanel_     = nullptr;
-  lv_obj_t* tailLeftLampLabel_ = nullptr;
-  lv_obj_t* tailRightLampLabel_ = nullptr;
   lv_obj_t* tailStockBtn_      = nullptr;
   lv_obj_t* tailSeqBtn_        = nullptr;
   lv_obj_t* tailShowMenuBtn_   = nullptr;
@@ -253,8 +352,31 @@ class ScreenDashboard {
   lv_obj_t* tempsTable_ = nullptr;
 
   // -- DIAG page --
+  lv_obj_t* diagInfoBtn_  = nullptr;
+  lv_obj_t* diagToolsBtn_ = nullptr;
+  lv_obj_t* diagInfoPanel_ = nullptr;
+  lv_obj_t* diagToolsPanel_ = nullptr;
   lv_obj_t* diagLabel_     = nullptr;
+  lv_obj_t* faultOverlay_  = nullptr;
+  lv_obj_t* faultLabel_    = nullptr;
+  lv_obj_t* faultCloseBtn_ = nullptr;
+  lv_obj_t* faultPageBtn_  = nullptr;
+  lv_obj_t* ledOutputTestBtn_ = nullptr;
+  lv_obj_t* canPingBtn_    = nullptr;
+  lv_obj_t* restartBtn_    = nullptr;
+  lv_obj_t* diagRaceStatusLabel_ = nullptr;
+  lv_obj_t* diagRaceAccelBtn_  = nullptr;
+  lv_obj_t* diagRaceLapBtn_    = nullptr;
+  lv_obj_t* diagRaceMarkBtn_   = nullptr;
+  lv_obj_t* diagRaceStopBtn_   = nullptr;
+  lv_obj_t* diagRaceResetBtn_  = nullptr;
+  lv_obj_t* diagRaceSetStartBtn_ = nullptr;
   lv_obj_t* benchTestBtn_  = nullptr;
+  lv_obj_t* touchCalBtn_   = nullptr;
+  lv_obj_t* touchCalOverlay_ = nullptr;
+  lv_obj_t* touchCalPromptLabel_ = nullptr;
+  lv_obj_t* touchCalTargetLabel_ = nullptr;
+  lv_obj_t* touchCalCloseBtn_ = nullptr;
   static constexpr uint8_t kSdFileRowCount = 5;
   lv_obj_t* sdPathLabel_ = nullptr;
   lv_obj_t* sdFileRows_[kSdFileRowCount] = {};
@@ -284,8 +406,6 @@ class ScreenDashboard {
   lv_chart_series_t* knockGraphEnergySeries_ = nullptr;
   lv_chart_series_t* knockGraphBaselineSeries_ = nullptr;
   lv_chart_series_t* knockGraphThresholdSeries_ = nullptr;
-  lv_obj_t* knockWarnLed_          = nullptr;
-  lv_obj_t* knockCritLed_          = nullptr;
   lv_obj_t* knockLearningSpinner_  = nullptr;
   lv_obj_t* knockEventLabel_       = nullptr;
   lv_obj_t* knockLastLabel_        = nullptr;
@@ -296,7 +416,6 @@ class ScreenDashboard {
   lv_obj_t* knockGainUpBtn_        = nullptr;
   lv_obj_t* knockMultDownBtn_      = nullptr;
   lv_obj_t* knockMultUpBtn_        = nullptr;
-  lv_obj_t* knockLogLabel_         = nullptr;
 };
 
 }  // namespace ui

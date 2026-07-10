@@ -13,6 +13,26 @@
 #define CCM_DISPLAY_LCD_ONLY_TEST 0
 #endif
 
+#ifndef CCM_CAN_ONLY_DEBUG
+#define CCM_CAN_ONLY_DEBUG 0
+#endif
+
+#ifndef CCM_SCREEN_SERIAL_LOGS
+#define CCM_SCREEN_SERIAL_LOGS 1
+#endif
+
+#ifndef CCM_GPS_SERIAL_LOGS
+#define CCM_GPS_SERIAL_LOGS 1
+#endif
+
+#ifndef CCM_HEAP_SERIAL_LOGS
+#define CCM_HEAP_SERIAL_LOGS 1
+#endif
+
+#ifndef CCM_SCREEN_SETUP_FIRST_PAINT_MS
+#define CCM_SCREEN_SETUP_FIRST_PAINT_MS 0
+#endif
+
 #ifndef CCM_LED_ENABLED
 #define CCM_LED_ENABLED 1
 #endif
@@ -47,6 +67,10 @@
 
 #ifndef CCM_KNOCK_TASK_PERIOD_MS
 #define CCM_KNOCK_TASK_PERIOD_MS 5
+#endif
+
+#ifndef CCM_LOCAL_KNOCK_ENABLED
+#define CCM_LOCAL_KNOCK_ENABLED 1
 #endif
 
 #ifndef CCM_TACH_INPUT_ENABLED
@@ -378,7 +402,7 @@ class GpsSpeedConditioner {
   uint8_t spikeRejectStreak_ = 0;
 };
 
-// GPS: UartGpsAdapter owns Serial2 (GPIO41=RX, GPIO42=TX @ 9600 baud)
+// GPS: UartGpsAdapter owns Serial2 (GPIO42=RX, GPIO41=TX @ 9600 baud)
 static ccm::hal::UartGpsAdapter g_gpsHal(Serial2);
 static ccm::gps::GpsService     g_gps(g_gpsHal);
 GpsSpeedConditioner g_gpsSpeedConditioner;
@@ -773,7 +797,6 @@ void knockTask(void*) {
 }
 
 void touchTask(void*) {
-  registerTaskWatchdog();
   constexpr uint32_t kTouchTaskPeriodMs = 10;
   while (true) {
     const uint32_t nowMs = millis();
@@ -791,7 +814,6 @@ void touchTask(void*) {
         s.input_flags |= can_protocol::input_flag::TOUCH;
       }
     });
-    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(kTouchTaskPeriodMs));
   }
 }
@@ -911,14 +933,15 @@ void analogSensorTask(void*) {
 }
 
 void screenTask(void*) {
-  registerTaskWatchdog();
   uint32_t lastFpsMs = millis();
   uint32_t frameCount = 0;
   constexpr uint32_t kScreenTaskPeriodMs =
       (CCM_SCREEN_TASK_PERIOD_MS < 1) ? 1 : CCM_SCREEN_TASK_PERIOD_MS;
-  Serial.printf("[SCREEN] task period=%lu ms fps_cap=%.1f\n",
-                 static_cast<unsigned long>(kScreenTaskPeriodMs),
-                 static_cast<double>(1000.0f / static_cast<float>(kScreenTaskPeriodMs)));
+  if (CCM_SCREEN_SERIAL_LOGS) {
+    Serial.printf("[SCREEN] task period=%lu ms fps_cap=%.1f\n",
+                   static_cast<unsigned long>(kScreenTaskPeriodMs),
+                   static_cast<double>(1000.0f / static_cast<float>(kScreenTaskPeriodMs)));
+  }
   TickType_t lastWake = xTaskGetTickCount();
 
   while (true) {
@@ -938,7 +961,6 @@ void screenTask(void*) {
       });
     }
 
-    feedTaskWatchdog();
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(kScreenTaskPeriodMs));
   }
 }
@@ -1048,12 +1070,14 @@ void storageTask(void*) {
       const state::VehicleState heapState = state::g_vehicle_state.read();
       const uint32_t psramTotal = ESP.getPsramSize();
       const uint32_t psramFree = psramTotal == 0 ? 0 : ESP.getFreePsram();
-      Serial.printf("[HEAP] free=%lu min=%lu max_block=%lu psram=%lu/%lu\n",
-        static_cast<unsigned long>(heapState.heap_free_bytes),
-        static_cast<unsigned long>(heapState.heap_min_free_bytes),
-        static_cast<unsigned long>(ESP.getMaxAllocHeap()),
-        static_cast<unsigned long>(psramFree),
-        static_cast<unsigned long>(psramTotal));
+      if (CCM_HEAP_SERIAL_LOGS) {
+        Serial.printf("[HEAP] free=%lu min=%lu max_block=%lu psram=%lu/%lu\n",
+          static_cast<unsigned long>(heapState.heap_free_bytes),
+          static_cast<unsigned long>(heapState.heap_min_free_bytes),
+          static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+          static_cast<unsigned long>(psramFree),
+          static_cast<unsigned long>(psramTotal));
+      }
     }
 
     feedTaskWatchdog();
@@ -1064,7 +1088,7 @@ void storageTask(void*) {
 void gpsTask(void*) {
   registerTaskWatchdog();
 
-  Serial.println("[GPS] task started - waiting for fix");
+  if (CCM_GPS_SERIAL_LOGS) Serial.println("[GPS] task started - waiting for fix");
 
   bool lastFix = false;
   uint32_t lastSearchMs = 0;
@@ -1084,33 +1108,55 @@ void gpsTask(void*) {
     if (fixLive != lastFix) {
       lastFix = fixLive;
       if (fixLive) {
-        Serial.printf("[GPS] fix acquired - baud=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f lat=%.6f lon=%.6f\n",
-          static_cast<unsigned long>(d.baud),
-          static_cast<unsigned long>(d.satellites),
-          static_cast<unsigned long>(d.satellitesInView),
-          static_cast<unsigned>(d.fixQuality),
-          static_cast<unsigned>(d.fixMode),
-          static_cast<double>(d.hdopHundredths / 100.0f),
-          d.latitude, d.longitude);
+        if (CCM_GPS_SERIAL_LOGS) {
+          Serial.printf("[GPS] fix acquired - baud=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f lat=%.6f lon=%.6f\n",
+            static_cast<unsigned long>(d.baud),
+            static_cast<unsigned long>(d.satellites),
+            static_cast<unsigned long>(d.satellitesInView),
+            static_cast<unsigned>(d.fixQuality),
+            static_cast<unsigned>(d.fixMode),
+            static_cast<double>(d.hdopHundredths / 100.0f),
+            d.latitude, d.longitude);
+        }
       } else {
-        Serial.println("[GPS] fix lost - searching...");
+        if (CCM_GPS_SERIAL_LOGS) Serial.println("[GPS] fix lost - searching...");
       }
     } else if (!fixLive && (nowMs - lastSearchMs) >= 10000U) {
       lastSearchMs = nowMs;
       const uint32_t rxAge = d.lastRxMs == 0 ? 0xFFFFFFFFUL : (nowMs - d.lastRxMs);
-      Serial.printf("[GPS] searching baud=%lu rx=%u rx_age=%lu chars=%lu ok=%lu err=%lu fix_sent=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f\n",
-        static_cast<unsigned long>(d.baud),
-        rxLive ? 1U : 0U,
-        static_cast<unsigned long>(rxAge),
-        static_cast<unsigned long>(d.charsProcessed),
-        static_cast<unsigned long>(d.passedChecksum),
-        static_cast<unsigned long>(d.failedChecksum),
-        static_cast<unsigned long>(d.sentencesWithFix),
-        static_cast<unsigned long>(d.satellites),
-        static_cast<unsigned long>(d.satellitesInView),
-        static_cast<unsigned>(d.fixQuality),
-        static_cast<unsigned>(d.fixMode),
-        static_cast<double>(d.hdopHundredths / 100.0f));
+      char rawHex[sizeof(d.rawSample) * 3U + 1U] = {};
+      size_t rawHexPos = 0;
+      for (uint8_t i = 0; i < d.rawSampleLen && rawHexPos + 3U < sizeof(rawHex); ++i) {
+        rawHexPos += snprintf(rawHex + rawHexPos, sizeof(rawHex) - rawHexPos,
+                              "%s%02X", i == 0 ? "" : " ", d.rawSample[i]);
+      }
+      const char* gpsSearchStatus =
+          !rxLive ? "NO_UART_RX" :
+          (d.passedChecksum == 0U && d.failedChecksum == 0U) ? "RX_NO_NMEA" :
+          (d.failedChecksum > d.passedChecksum && d.passedChecksum == 0U) ? "BAD_NMEA" :
+          (d.satellitesInView == 0U && d.satellites == 0U) ? "NMEA_NO_SATS" :
+          "NMEA_NO_FIX";
+      if (CCM_GPS_SERIAL_LOGS) {
+        Serial.printf("[GPS] searching status=%s baud=%lu rx=%u rx_idle=%u rx_age=%lu raw=%lu printable=%lu dollar=%lu sample=%s chars=%lu ok=%lu err=%lu fix_sent=%lu sats=%lu view=%lu q=%u mode=%u hdop=%.1f\n",
+          gpsSearchStatus,
+          static_cast<unsigned long>(d.baud),
+          rxLive ? 1U : 0U,
+          static_cast<unsigned>(d.rxIdleLevel),
+          static_cast<unsigned long>(rxAge),
+          static_cast<unsigned long>(d.rawBytes),
+          static_cast<unsigned long>(d.rawPrintableBytes),
+          static_cast<unsigned long>(d.rawDollarBytes),
+          d.rawSampleLen == 0 ? "-" : rawHex,
+          static_cast<unsigned long>(d.charsProcessed),
+          static_cast<unsigned long>(d.passedChecksum),
+          static_cast<unsigned long>(d.failedChecksum),
+          static_cast<unsigned long>(d.sentencesWithFix),
+          static_cast<unsigned long>(d.satellites),
+          static_cast<unsigned long>(d.satellitesInView),
+          static_cast<unsigned>(d.fixQuality),
+          static_cast<unsigned>(d.fixMode),
+          static_cast<double>(d.hdopHundredths / 100.0f));
+      }
     }
 
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
@@ -1193,14 +1239,48 @@ void setup() {
 
   pinMode(pins::kLcdRst, OUTPUT);
   pinMode(pins::kLcdDc, OUTPUT);
+#if CCM_CAN_ONLY_DEBUG
+  digitalWrite(pins::kLcdRst, LOW);
+  digitalWrite(pins::kLcdDc, LOW);
+#else
   digitalWrite(pins::kLcdRst, HIGH);
   digitalWrite(pins::kLcdDc, HIGH);
+#endif
   if (pins::kLcdBacklight != 255) {
     pinMode(pins::kLcdBacklight, OUTPUT);
+#if CCM_CAN_ONLY_DEBUG
+    digitalWrite(pins::kLcdBacklight, LOW);
+#endif
   }
   hal::initSharedSpiBusLock();
 
   state::g_vehicle_state.begin();
+
+#if CCM_CAN_ONLY_DEBUG
+  pinMode(pins::kCanSpiCs, OUTPUT);
+  pinMode(pins::kSdCs, OUTPUT);
+  pinMode(pins::kLcdCs, OUTPUT);
+  digitalWrite(pins::kCanSpiCs, HIGH);
+  digitalWrite(pins::kSdCs, HIGH);
+  digitalWrite(pins::kLcdCs, HIGH);
+
+  Serial.printf("[CAN-ONLY] SPI SCK=%u MISO=%u MOSI=%u CAN_CS=%u CAN_INT=%u CAN_RST=%u\n",
+                 static_cast<unsigned>(pins::kSpiSck),
+                 static_cast<unsigned>(pins::kSpiMiso),
+                 static_cast<unsigned>(pins::kSpiMosi),
+                 static_cast<unsigned>(pins::kCanSpiCs),
+                 static_cast<unsigned>(pins::kCanSpiInt),
+                 static_cast<unsigned>(pins::kCanSpiRst));
+  SPI.begin(pins::kSpiSck, pins::kSpiMiso, pins::kSpiMosi, -1);
+  delay(5);
+  Serial.println("[CAN-ONLY] screen/GPS/touch/SD/LED/sensors disabled");
+  g_can.begin(true);
+  Serial.println("[TASK] core0=CAN/hb only");
+  createPinnedTask(canTask, "can_task", 3584, kPrioHighIo, kCoreIo);
+  createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
+  return;
+#endif
+
   g_settings.begin();
   applySettingsToState();
   configureAnalogSensorsFromState(state::g_vehicle_state.read());
@@ -1234,15 +1314,29 @@ void setup() {
   feedTaskWatchdog();
 
   g_screen.attach(&g_can, &g_race, &g_settings, &g_sd);
-  Serial.printf("[SETUP] heap free before screen init: %lu bytes\n",
-    static_cast<unsigned long>(ESP.getFreeHeap()));
-  Serial.printf("[SCREEN] pins  CS=%d RST=%d DC=%d SCK=%d MOSI=%d MISO=%d\n",
-    pins::kLcdCs, pins::kLcdRst, pins::kLcdDc,
-    pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
+  if (CCM_SCREEN_SERIAL_LOGS) {
+    Serial.printf("[SETUP] heap free before screen init: %lu bytes\n",
+      static_cast<unsigned long>(ESP.getFreeHeap()));
+    Serial.printf("[SCREEN] pins  CS=%d RST=%d DC=%d SCK=%d MOSI=%d MISO=%d\n",
+      pins::kLcdCs, pins::kLcdRst, pins::kLcdDc,
+      pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
+  }
   const bool screenOk = g_screen.begin(
     pins::kLcdCs, pins::kLcdRst, pins::kLcdDc,
     pins::kSpiSck, pins::kSpiMosi, pins::kSpiMiso);
-  Serial.printf("[SCREEN] begin() -> %s\n", screenOk ? "OK" : "FAILED");
+  if (CCM_SCREEN_SERIAL_LOGS) Serial.printf("[SCREEN] begin() -> %s\n", screenOk ? "OK" : "FAILED");
+  if (screenOk && CCM_SCREEN_SETUP_FIRST_PAINT_MS > 0) {
+    Serial.println("[SCREEN] first paint start");
+    const uint32_t firstPaintStartMs = millis();
+    while ((millis() - firstPaintStartMs) < static_cast<uint32_t>(CCM_SCREEN_SETUP_FIRST_PAINT_MS)) {
+      const state::VehicleState s = state::g_vehicle_state.read();
+      g_screen.tick(s, millis());
+      feedTaskWatchdog();
+      delay(5);
+    }
+    Serial.printf("[SCREEN] first paint done in %lums\n",
+                  static_cast<unsigned long>(millis() - firstPaintStartMs));
+  }
   feedTaskWatchdog();
 
 #if CCM_DISPLAY_LCD_ONLY_TEST
@@ -1267,9 +1361,11 @@ void setup() {
                  imuStatus,
                  static_cast<unsigned>(pins::kTouchSda),
                  static_cast<unsigned>(pins::kTouchScl));
+  createPinnedTask(touchTask, "touch_task", 4096, kPrioTouch, kCoreUi);
+  createPinnedTask(screenTask, "screen_task", 10240, kPrioUi, kCoreUi);
   g_can.begin(true);
   // GPS starts at the configured baud and auto-probes common NMEA baud rates.
-  g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO41 RX / GPIO42 TX
+  g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO42 RX / GPIO41 TX
   Serial.println("[SD] begin start");
   g_sd.begin(pins::kLcdCs, pins::kSdCs);
   Serial.println("[SD] begin done");
@@ -1277,7 +1373,20 @@ void setup() {
   g_logs.begin(&g_sd);
   { char pfx[32]; snprintf(pfx, sizeof(pfx), "boot_%lu", static_cast<unsigned long>(millis())); g_logs.setSessionPrefix(pfx); }
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
+#if CCM_LOCAL_KNOCK_ENABLED
   g_knock.begin(&state::g_vehicle_state, &g_settings, &g_logs, &g_sd, &g_can);
+#else
+  Serial.println("[KNOCK] local ADC disabled; waiting for CAN knock state");
+  state::g_vehicle_state.mutate([](state::VehicleState& s) {
+    s.knock_online = false;
+    s.last_knock_ms = 0;
+    s.knock_signal_valid = false;
+    s.knock_warning_active = false;
+    s.knock_critical_active = false;
+    s.knock_sensor_fault = false;
+    s.knock_clipping_detected = false;
+  });
+#endif
   feedTaskWatchdog();
 
   // Channel 1 is the RPM strip. Channels 2/3 are solid interior strips, so they
@@ -1289,28 +1398,30 @@ void setup() {
   Serial.println("[LED] disabled by build flag");
 #endif
   Serial.println("[TASK] core0=CAN/GPS/sensors/storage/race/hb core1=screen/touch/LED");
-  createPinnedTask(canTask, "can_task", 6144, kPrioHighIo, kCoreIo);
-  createPinnedTask(tachInputTask, "tach_in_task", 4096, kPrioHighIo, kCoreIo);
-  createPinnedTask(gpsTask, "gps_task", 6144, kPrioSensors, kCoreIo);
+  createPinnedTask(canTask, "can_task", 3584, kPrioHighIo, kCoreIo);
+  createPinnedTask(tachInputTask, "tach_in_task", 3072, kPrioHighIo, kCoreIo);
+  createPinnedTask(gpsTask, "gps_task", 3584, kPrioSensors, kCoreIo);
 #if CCM_LED_ENABLED
   createPinnedTask(ledTask, "led_task", CCM_LED_TASK_STACK_BYTES, kPrioSensors, kCoreIo);
 #endif
-  createPinnedTask(storageTask, "storage_task", 6144, kPrioBackground, kCoreIo);
-  createPinnedTask(analogSensorTask, "analog_sensor_task", 6144, kPrioSensors, kCoreIo);
-  createPinnedTask(knockTask, "knock_task", 4096, kPrioSensors, kCoreIo);
-  createPinnedTask(raceTask, "race_task", 4096, kPrioBackground, kCoreIo);
-  createPinnedTask(touchTask, "touch_task", 5120, kPrioTouch, kCoreUi);
-  createPinnedTask(screenTask, "screen_task", 12288, kPrioUi, kCoreUi);
+#if CCM_SD_ENABLED
+  createPinnedTask(storageTask, "storage_task", 4096, kPrioBackground, kCoreIo);
+#endif
+  createPinnedTask(analogSensorTask, "analog_sensor_task", 3584, kPrioSensors, kCoreIo);
+#if CCM_LOCAL_KNOCK_ENABLED
+  createPinnedTask(knockTask, "knock_task", 3584, kPrioSensors, kCoreIo);
+#endif
+  createPinnedTask(raceTask, "race_task", 3072, kPrioBackground, kCoreIo);
   createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
 
   // setup() can block on peripheral bring-up; register loopTask only once loop() starts.
 }
 
 void loop() {
-  static bool loopWdtRegistered = false;
-  if (!loopWdtRegistered) {
-    loopWdtRegistered = registerTaskWatchdog();
-  }
-  feedTaskWatchdog();
+  // loopTask is intentionally not part of TWDT. The functional work in this
+  // firmware happens in pinned FreeRTOS tasks that already register and feed
+  // the watchdog themselves. Registering loopTask adds a low-priority CPU1
+  // observer that can be starved by normal UI activity and cause false resets
+  // while the real tasks are still healthy.
   vTaskDelay(pdMS_TO_TICKS(1000));
 }

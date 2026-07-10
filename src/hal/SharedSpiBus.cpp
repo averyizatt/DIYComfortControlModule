@@ -148,15 +148,16 @@ const char* sharedSpiBusOwner() {
   return s_spiOwner ? s_spiOwner : "none";
 }
 
-SharedSpiBusLock::SharedSpiBusLock(const char* owner) : owner_(owner ? owner : "?") {
+SharedSpiBusLock::SharedSpiBusLock(const char* owner, TickType_t waitTicks)
+    : owner_(owner ? owner : "?") {
   SemaphoreHandle_t mutex = spiMutex();
   if (mutex == nullptr) {
     return;
   }
 
-  const TickType_t waitTicks =
-      (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) ? portMAX_DELAY : 0;
-  locked_ = (xSemaphoreTakeRecursive(mutex, waitTicks) == pdTRUE);
+  const TickType_t effectiveWaitTicks =
+      (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) ? waitTicks : 0;
+  locked_ = (xSemaphoreTakeRecursive(mutex, effectiveWaitTicks) == pdTRUE);
   if (locked_) {
     const bool outerLock = (s_spiLockDepth == 0);
     ++s_spiLockDepth;

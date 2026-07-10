@@ -25,7 +25,7 @@
    MEMORY SETTINGS
  *====================*/
 #define LV_MEM_CUSTOM          0
-#define LV_MEM_SIZE            (80U * 1024U)   /* 80 KB LVGL internal heap */
+#define LV_MEM_SIZE            (128U * 1024U)  /* 128 KB LVGL internal heap for dense dashboard UI */
 #define LV_MEM_ADR             0               /* 0 = place in normal BSS  */
 #define LV_MEM_POOL_INCLUDE    "stdlib.h"
 #define LV_MEM_POOL_ALLOC      malloc

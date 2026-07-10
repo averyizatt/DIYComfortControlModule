@@ -52,9 +52,15 @@ struct GpsData {
   uint16_t hdopHundredths = 0;
   uint32_t baud = 0;
   uint32_t charsProcessed = 0;
+  uint32_t rawBytes = 0;
+  uint32_t rawDollarBytes = 0;
+  uint32_t rawPrintableBytes = 0;
   uint32_t passedChecksum = 0;
   uint32_t failedChecksum = 0;
   uint32_t sentencesWithFix = 0;
+  uint8_t rxIdleLevel = 0;
+  uint8_t rawSampleLen = 0;
+  uint8_t rawSample[12] = {};
   uint8_t utcHour = 0;
   uint8_t utcMinute = 0;
   uint8_t utcSecond = 0;

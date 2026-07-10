@@ -14,7 +14,7 @@ const char* sharedSpiBusOwner();
 
 class SharedSpiBusLock {
  public:
-  explicit SharedSpiBusLock(const char* owner = nullptr);
+  explicit SharedSpiBusLock(const char* owner = nullptr, TickType_t waitTicks = portMAX_DELAY);
   ~SharedSpiBusLock();
 
   SharedSpiBusLock(const SharedSpiBusLock&) = delete;

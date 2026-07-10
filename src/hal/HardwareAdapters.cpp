@@ -15,6 +15,14 @@
 
 #include "config/SystemConfig.hpp"
 
+#ifndef CCM_IMU_ENABLED
+#define CCM_IMU_ENABLED 0
+#endif
+
+#ifndef CCM_GPS_SERIAL_LOGS
+#define CCM_GPS_SERIAL_LOGS 1
+#endif
+
 namespace ccm::hal {
 
 namespace {
@@ -26,6 +34,7 @@ constexpr uint32_t kGpsNoGoodSentenceProbeMs = 15000;
 constexpr uint32_t kGpsPreferredBaudHoldMs = 30000;
 constexpr uint32_t kGpsProbeBauds[] = {9600, 38400, 57600, 115200, 4800};
 constexpr const char* kGpsGgaTalkers[] = {"GPGGA", "GNGGA"};
+constexpr const char* kGpsRmcTalkers[] = {"GPRMC", "GNRMC"};
 constexpr const char* kGpsGsvTalkers[] = {"GPGSV", "GNGSV", "GLGSV", "GAGSV", "GBGSV", "BDGSV"};
 constexpr const char* kGpsGsaTalkers[] = {"GPGSA", "GNGSA", "GLGSA", "GAGSA", "GBGSA", "BDGSA"};
 
@@ -127,9 +136,13 @@ bool TwaiCanAdapter::receive(can::CanFrame& frame) {
 }
 
 void UartGpsAdapter::openSerial(uint32_t baud) {
+  const uint8_t rxPin = activePinsSwapped_ ? config::kGpsTxPin : config::kGpsRxPin;
+  const uint8_t txPin = activePinsSwapped_ ? config::kGpsRxPin : config::kGpsTxPin;
   serial_.end();
   serial_.setRxBufferSize(2048);
-  serial_.begin(baud, SERIAL_8N1, config::kGpsRxPin, config::kGpsTxPin);
+  pinMode(rxPin, INPUT);
+  const uint8_t rxIdleBeforeBegin = static_cast<uint8_t>(digitalRead(rxPin));
+  serial_.begin(baud, SERIAL_8N1, rxPin, txPin);
   while (serial_.available() > 0) {
     (void)serial_.read();
   }
@@ -137,6 +150,7 @@ void UartGpsAdapter::openSerial(uint32_t baud) {
   parser_ = TinyGPSPlus();
   attachCustomNmeaFields();
   latest_ = {};
+  latest_.rxIdleLevel = rxIdleBeforeBegin;
   latest_.baud = baud;
   currentBaud_ = baud;
   lastBaudOpenMs_ = millis();
@@ -145,15 +159,22 @@ void UartGpsAdapter::openSerial(uint32_t baud) {
   ubxTuningSent_ = false;
   seenGgaFixQuality_ = false;
   seenGsaFixMode_ = false;
-  Serial.printf("[GPS] UART baud=%lu RX=%u TX=%u\n",
+  seenRmcStatus_ = false;
+  rmcStatusValid_ = false;
+  if (CCM_GPS_SERIAL_LOGS) {
+    Serial.printf("[GPS] UART baud=%lu RX=%u TX=%u rx_idle=%u pinmap=%s\n",
                  static_cast<unsigned long>(baud),
-                 static_cast<unsigned>(config::kGpsRxPin),
-                 static_cast<unsigned>(config::kGpsTxPin));
+                 static_cast<unsigned>(rxPin),
+                 static_cast<unsigned>(txPin),
+                 static_cast<unsigned>(rxIdleBeforeBegin),
+                 activePinsSwapped_ ? "alternate" : "configured");
+  }
 }
 
 void UartGpsAdapter::attachCustomNmeaFields() {
   for (uint8_t i = 0; i < 2; ++i) {
     ggaFixQuality_[i].begin(parser_, kGpsGgaTalkers[i], 6);
+    rmcStatus_[i].begin(parser_, kGpsRmcTalkers[i], 2);
   }
   for (uint8_t i = 0; i < 6; ++i) {
     gsvSatsInView_[i].begin(parser_, kGpsGsvTalkers[i], 3);
@@ -164,6 +185,8 @@ void UartGpsAdapter::attachCustomNmeaFields() {
 bool UartGpsAdapter::begin(uint32_t baud) {
   preferredBaud_ = baud;
   baudProbeIndex_ = 0;
+  noRxProbePhase_ = 0;
+  activePinsSwapped_ = false;
   for (uint8_t i = 0; i < sizeof(kGpsProbeBauds) / sizeof(kGpsProbeBauds[0]); ++i) {
     if (kGpsProbeBauds[i] == baud) {
       baudProbeIndex_ = i;
@@ -257,9 +280,11 @@ void UartGpsAdapter::sendOptionalUbxTuning() {
   serial_.flush();
 
   ubxTuningSent_ = true;
-  Serial.printf("[GPS] NMEA detected at %lu baud; sent UBX automotive+SBAS tuning%s\n",
+  if (CCM_GPS_SERIAL_LOGS) {
+    Serial.printf("[GPS] NMEA detected at %lu baud; sent UBX automotive+SBAS tuning%s\n",
                  static_cast<unsigned long>(currentBaud_),
                  currentBaud_ >= 38400U ? " + 5Hz rate" : "");
+  }
 }
 
 void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
@@ -278,14 +303,28 @@ void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
     return;
   }
 
+  if (noRx && noRxProbePhase_ == 0U) {
+    noRxProbePhase_ = 1U;
+    activePinsSwapped_ = !activePinsSwapped_;
+    if (CCM_GPS_SERIAL_LOGS) {
+      Serial.printf("[GPS] no UART bytes at %lu baud; trying alternate GPS RX/TX pin orientation\n",
+                   static_cast<unsigned long>(currentBaud_));
+    }
+    openSerial(currentBaud_);
+    return;
+  }
+
   const uint8_t probeCount = sizeof(kGpsProbeBauds) / sizeof(kGpsProbeBauds[0]);
   for (uint8_t tries = 0; tries < probeCount; ++tries) {
     baudProbeIndex_ = static_cast<uint8_t>((baudProbeIndex_ + 1U) % probeCount);
     const uint32_t nextBaud = kGpsProbeBauds[baudProbeIndex_];
     if (nextBaud != currentBaud_) {
-      Serial.printf("[GPS] no valid NMEA after hold at %lu baud; probing %lu baud\n",
+      if (CCM_GPS_SERIAL_LOGS) {
+        Serial.printf("[GPS] no valid NMEA after hold at %lu baud; probing %lu baud\n",
                      static_cast<unsigned long>(currentBaud_),
                      static_cast<unsigned long>(nextBaud));
+      }
+      noRxProbePhase_ = 0;
       openSerial(nextBaud);
       return;
     }
@@ -297,7 +336,23 @@ void UartGpsAdapter::poll() {
   bool sawByte = false;
   while (serial_.available() > 0) {
     sawByte = true;
-    parser_.encode(static_cast<char>(serial_.read()));
+    const uint8_t b = static_cast<uint8_t>(serial_.read());
+    if (latest_.rawSampleLen < sizeof(latest_.rawSample)) {
+      latest_.rawSample[latest_.rawSampleLen++] = b;
+    } else {
+      for (uint8_t i = 1; i < sizeof(latest_.rawSample); ++i) {
+        latest_.rawSample[i - 1] = latest_.rawSample[i];
+      }
+      latest_.rawSample[sizeof(latest_.rawSample) - 1] = b;
+    }
+    ++latest_.rawBytes;
+    if (b == '$') {
+      ++latest_.rawDollarBytes;
+    }
+    if (b >= 0x20U && b <= 0x7EU) {
+      ++latest_.rawPrintableBytes;
+    }
+    parser_.encode(static_cast<char>(b));
   }
 
   if (sawByte) {
@@ -314,6 +369,13 @@ void UartGpsAdapter::poll() {
     if (ggaFixQuality_[i].isUpdated() && parseUnsignedField(ggaFixQuality_[i].value(), parsed)) {
       latest_.fixQuality = static_cast<uint8_t>(parsed > 255U ? 255U : parsed);
       seenGgaFixQuality_ = true;
+    }
+    if (rmcStatus_[i].isUpdated()) {
+      const char* status = rmcStatus_[i].value();
+      if (status && status[0] != '\0') {
+        seenRmcStatus_ = true;
+        rmcStatusValid_ = (status[0] == 'A');
+      }
     }
   }
   for (uint8_t i = 0; i < 6; ++i) {
@@ -348,7 +410,8 @@ void UartGpsAdapter::poll() {
   const bool hasCurrentNmeaFix =
       (seenGgaFixQuality_ && latest_.fixQuality > 0U) ||
       (seenGsaFixMode_ && latest_.fixMode >= 2U);
-  latest_.validFix = parser_.location.isValid() && hasCurrentNmeaFix;
+  const bool hasCurrentRmcFix = seenRmcStatus_ && rmcStatusValid_;
+  latest_.validFix = parser_.location.isValid() && (hasCurrentNmeaFix || hasCurrentRmcFix);
   if (latest_.passedChecksum != lastPassedChecksum_) {
     lastPassedChecksum_ = latest_.passedChecksum;
     lastGoodSentenceMs_ = nowMs;
@@ -434,6 +497,7 @@ bool BoardSensorAdapter::begin() {
   analogReadResolution(12);
   analogSetPinAttenuation(config::kBatterySensePin, ADC_11db);
 
+#if CCM_IMU_ENABLED
   if (config::kGyroAddrSelPin != 255) {
     pinMode(config::kGyroAddrSelPin, OUTPUT);
     digitalWrite(config::kGyroAddrSelPin, LOW);
@@ -447,6 +511,9 @@ bool BoardSensorAdapter::begin() {
     Wire.beginTransmission(config::kGyroI2cAddrSecondary);
     gyroOnline_ = (Wire.endTransmission() == 0);
   }
+#else
+  gyroOnline_ = false;
+#endif
   return true;
 }
 

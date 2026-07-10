@@ -502,6 +502,7 @@ void KnockMonitor::loadBaselineProfile() {
 
 void KnockMonitor::maybeSaveBaselineProfile(uint32_t nowMs) {
   if (!sdMgr_ || !sdMgr_->mounted() || !baselineLearned_) return;
+  if (ESP.getFreeHeap() < 24000U) return;
 
   const bool firstSave = savedBaselineSampleCount_ == 0U;
   const bool intervalElapsed = (nowMs - lastBaselineSaveMs_) >= kBaselineSaveIntervalMs;

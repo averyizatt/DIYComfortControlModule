@@ -110,7 +110,7 @@ struct VehicleState {
   int8_t knock_last_event_iat_c = 0;
   uint32_t knock_last_event_time_ms = 0;
   bool knock_logging_active = false;
-  bool knock_online = true;
+  bool knock_online = false;
   uint32_t last_knock_ms = 0;
 
   bool knock_reset_baseline_request = false;

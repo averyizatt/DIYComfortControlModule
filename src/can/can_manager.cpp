@@ -36,6 +36,10 @@
 #define CCM_CAN_SPI_HZ 1000000UL
 #endif
 
+#ifndef CCM_CAN_MCP_CLOCK_MHZ
+#define CCM_CAN_MCP_CLOCK_MHZ 16
+#endif
+
 #ifndef CCM_CAN_RX_INT_GATED
 #define CCM_CAN_RX_INT_GATED 1
 #endif
@@ -88,6 +92,18 @@ constexpr uint32_t kCanGpsTxMs =
     (CCM_CAN_GPS_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_GPS_TX_MS);
 constexpr uint32_t kCanSensorExtTxMs =
     (CCM_CAN_SENSOR_EXT_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_SENSOR_EXT_TX_MS);
+constexpr uint32_t kCanNoAckBackoffMs = 2000;
+constexpr uint32_t kCanNoAckLogMs = 30000;
+#if CCM_CAN_MCP_CLOCK_MHZ == 8
+constexpr auto kCanMcpClock = MCP_8MHZ;
+constexpr uint8_t kCanMcpClockMhz = 8;
+#elif CCM_CAN_MCP_CLOCK_MHZ == 20
+constexpr auto kCanMcpClock = MCP_20MHZ;
+constexpr uint8_t kCanMcpClockMhz = 20;
+#else
+constexpr auto kCanMcpClock = MCP_16MHZ;
+constexpr uint8_t kCanMcpClockMhz = 16;
+#endif
 constexpr uint8_t kCanRxMaxFramesPerTick =
     (CCM_CAN_RX_MAX_FRAMES_PER_TICK < 1) ? 1U : static_cast<uint8_t>(CCM_CAN_RX_MAX_FRAMES_PER_TICK);
 constexpr uint32_t kCanRxFallbackPollMs =
@@ -120,6 +136,29 @@ constexpr uint8_t DUTY_OVER_MAX = 5;
 MCP2515 g_mcp2515(pins::kCanSpiCs, CCM_CAN_SPI_HZ, &SPI);
 bool g_spiCanOnline = false;
 
+bool configureSpiCanAtClock(CAN_CLOCK clock, uint8_t clockMhz) {
+  Serial.printf("[CAN] try clock=%uMHz\n", static_cast<unsigned>(clockMhz));
+  const MCP2515::ERROR bitrateErr = g_mcp2515.setBitrate(CAN_500KBPS, clock);
+  if (bitrateErr != MCP2515::ERROR_OK) {
+    Serial.printf("[CAN] setBitrate failed clock=%uMHz err=%d\n",
+                  static_cast<unsigned>(clockMhz),
+                  static_cast<int>(bitrateErr));
+    return false;
+  }
+
+  const MCP2515::ERROR modeErr = g_mcp2515.setNormalMode();
+  if (modeErr != MCP2515::ERROR_OK) {
+    Serial.printf("[CAN] setNormalMode failed clock=%uMHz err=%d\n",
+                  static_cast<unsigned>(clockMhz),
+                  static_cast<int>(modeErr));
+    return false;
+  }
+
+  Serial.printf("[CAN] MCP2515 online clock=%uMHz normal\n",
+                static_cast<unsigned>(clockMhz));
+  return true;
+}
+
 bool initSpiCan() {
   hal::SharedSpiBusLock spiLock("CAN:init");
   // The shared SPI bus is initialized once in setup(). Re-running SPI.begin()
@@ -135,23 +174,40 @@ bool initSpiCan() {
     delay(2);
   }
 
-  Serial.printf("[CAN] MCP2515 SPI=%luHz int_gated=%u rx_max=%u fallback=%lums\n",
+  Serial.printf("[CAN] MCP2515 bitrate=500k clock=%uMHz SPI=%luHz int_gated=%u rx_max=%u fallback=%lums\n",
+                 static_cast<unsigned>(kCanMcpClockMhz),
                  static_cast<unsigned long>(CCM_CAN_SPI_HZ),
                  static_cast<unsigned>(kCanRxIntGated ? 1U : 0U),
                  static_cast<unsigned>(kCanRxMaxFramesPerTick),
                  static_cast<unsigned long>(kCanRxFallbackPollMs));
+
   g_mcp2515.reset();
-  if (g_mcp2515.setBitrate(CAN_500KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
-    g_spiCanOnline = false;
-    return false;
-  }
-  if (g_mcp2515.setNormalMode() != MCP2515::ERROR_OK) {
-    g_spiCanOnline = false;
-    return false;
+  delay(2);
+  if (configureSpiCanAtClock(kCanMcpClock, kCanMcpClockMhz)) {
+    g_spiCanOnline = true;
+    return true;
   }
 
-  g_spiCanOnline = true;
-  return true;
+#if CCM_CAN_MCP_CLOCK_MHZ != 16
+  g_mcp2515.reset();
+  delay(2);
+  if (configureSpiCanAtClock(MCP_16MHZ, 16)) {
+    g_spiCanOnline = true;
+    return true;
+  }
+#endif
+
+#if CCM_CAN_MCP_CLOCK_MHZ != 8
+  g_mcp2515.reset();
+  delay(2);
+  if (configureSpiCanAtClock(MCP_8MHZ, 8)) {
+    g_spiCanOnline = true;
+    return true;
+  }
+#endif
+
+  g_spiCanOnline = false;
+  return false;
 }
 #endif
 
@@ -163,6 +219,7 @@ bool CanManager::begin(bool tryHardwareCan) {
 #if CCM_HAS_SPI_CAN
   if (tryHardwareCan) {
     hwCanReady_ = initSpiCan();
+    Serial.printf("[CAN] begin SPI -> %s\n", hwCanReady_ ? "OK" : "FAILED");
   }
 #endif
 
@@ -212,21 +269,60 @@ void CanManager::tick() {
   if (hwCanReady_ && g_spiCanOnline && (nowMs - lastCanErrCheckMs_) >= 3000) {
     lastCanErrCheckMs_ = nowMs;
     uint8_t eflg = 0;
+    uint8_t rec = 0;
+    uint8_t tec = 0;
     {
       hal::SharedSpiBusLock spiLock("CAN:eflg");
       eflg = g_mcp2515.getErrorFlags();
+      rec = g_mcp2515.errorCountRX();
+      tec = g_mcp2515.errorCountTX();
     }
     const bool busOff    = (eflg & 0x20) != 0;  // TXBO
     const bool txErrPass = (eflg & 0x10) != 0;  // TXEP
+    const bool rxErrPass = (eflg & 0x08) != 0;  // RXEP
+    const bool txWarn    = (eflg & 0x04) != 0;  // TXWAR
+    const bool rxWarn    = (eflg & 0x02) != 0;  // RXWAR
+    const bool errWarn   = (eflg & 0x01) != 0;  // EWARN
     const bool rxOvr     = (eflg & 0xC0) != 0;  // RX0OVR | RX1OVR
     const state::VehicleState snap = state::g_vehicle_state.read();
-    Serial.printf("[CAN] EFLG=0x%02X INT=%d rx=%lu tx=%lu%s\n",
-        eflg,
-        digitalRead(pins::kCanSpiInt),
-        static_cast<unsigned long>(snap.can_rx_count),
-        static_cast<unsigned long>(snap.can_tx_count),
-        busOff    ? " BUSOFF-REINIT" :
-        txErrPass ? " TX-ERR-PASSIVE" : "");
+    const bool emptyBenchBus = snap.can_rx_count == 0 && (txErrPass || busOff);
+    const bool rxErrorNoFrames = snap.can_rx_count == 0 && (rxErrPass || rxWarn);
+    const bool noAckBackoffActive =
+        canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_;
+    const bool shouldLogCanStatus = true;
+    if (shouldLogCanStatus) {
+      Serial.printf("[CAN] EFLG=0x%02X REC=%u TEC=%u INT=%d rx=%lu tx=%lu%s%s%s%s%s%s%s%s\n",
+          eflg,
+          static_cast<unsigned>(rec),
+          static_cast<unsigned>(tec),
+          digitalRead(pins::kCanSpiInt),
+          static_cast<unsigned long>(snap.can_rx_count),
+          static_cast<unsigned long>(snap.can_tx_count),
+          busOff    ? " BUSOFF-REINIT" :
+          txErrPass ? " TX-ERR-PASSIVE" : "",
+          rxErrPass ? " RX-ERR-PASSIVE" : "",
+          txWarn    ? " TX-WARN" : "",
+          rxWarn    ? " RX-WARN" : "",
+          errWarn   ? " WARN" : "",
+          emptyBenchBus ? " NO-ACK-BENCH" : "",
+          rxErrorNoFrames ? " RX-BAD-FRAMES" : "",
+          rxOvr ? " RX-OVR" : "");
+      if (rxErrorNoFrames) {
+        Serial.println("[CAN] RX errors but no frames decoded - check bitrate, MCP crystal clock, CANH/CANL, ground, and termination");
+      }
+      if (emptyBenchBus) {
+        lastCanNoAckLogMs_ = nowMs;
+      }
+    }
+    if (emptyBenchBus) {
+      if (!noAckBackoffActive) {
+        canNoAckBackoffUntilMs_ = nowMs + kCanNoAckBackoffMs;
+      }
+      if (!canNoAckBackoffLogged_) {
+        Serial.println("[CAN] no ACK detected; bench bus has no other node, pausing TX and retrying periodically");
+        canNoAckBackoffLogged_ = true;
+      }
+    }
     if (rxOvr) {
       hal::SharedSpiBusLock spiLock("CAN:clear");
       g_mcp2515.clearRXnOVRFlags();
@@ -424,6 +520,11 @@ bool CanManager::sendMethConfigBroadcast() {
 
 bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
   bool sent = false;
+  const uint32_t nowMs = millis();
+
+  if (canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_) {
+    return false;
+  }
 
 #if CCM_HAS_SPI_CAN
   if (hwCanReady_ && g_spiCanOnline) {
@@ -462,7 +563,7 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
       s.can_tx_count++;
       s.can_last_tx_id = frame.id;
-      s.can_last_tx_ms = millis();
+      s.can_last_tx_ms = nowMs;
     });
   }
   return sent;
@@ -480,8 +581,17 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
 
     struct can_frame rx{};
     hal::SharedSpiBusLock spiLock("CAN:rx");
-    if (g_mcp2515.readMessage(&rx) != MCP2515::ERROR_OK) {
-      return false;
+    MCP2515::ERROR readErr = g_mcp2515.readMessage(&rx);
+    if (readErr != MCP2515::ERROR_OK) {
+      const uint8_t eflg = g_mcp2515.getErrorFlags();
+      if ((eflg & 0xC0U) != 0U) {
+        g_mcp2515.clearRXnOVRFlags();
+        g_mcp2515.clearERRIF();
+        readErr = g_mcp2515.readMessage(&rx);
+      }
+      if (readErr != MCP2515::ERROR_OK) {
+        return false;
+      }
     }
     frame.id = static_cast<uint16_t>(rx.can_id & 0x7FFU);
     frame.dlc = rx.can_dlc;
@@ -494,6 +604,9 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
       s.can_last_rx_ms = millis();
       s.can_online = true;
     });
+    canNoAckBackoffUntilMs_ = 0;
+    lastCanNoAckLogMs_ = 0;
+    canNoAckBackoffLogged_ = false;
     return true;
   }
 #endif
@@ -515,6 +628,9 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
       s.can_last_rx_ms = millis();
       s.can_online = true;
     });
+    canNoAckBackoffUntilMs_ = 0;
+    lastCanNoAckLogMs_ = 0;
+    canNoAckBackoffLogged_ = false;
     return true;
   }
 #endif
@@ -697,13 +813,13 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     can_protocol::EngineKnockState ks{};
     if (!can_protocol::unpackEngineKnockState(frame, ks)) return;
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-      s.knock_enabled         = (ks.status_flags & (1U << 0)) != 0;
-      s.knock_signal_valid    = (ks.status_flags & (1U << 1)) != 0;
-      s.knock_warning_active  = (ks.status_flags & (1U << 2)) != 0;
-      s.knock_critical_active = (ks.status_flags & (1U << 3)) != 0;
-      s.knock_baseline_learned = (ks.status_flags & (1U << 4)) != 0;
-      s.knock_sensor_fault    = (ks.status_flags & (1U << 5)) != 0;
-      s.knock_clipping_detected = (ks.status_flags & (1U << 6)) != 0;
+      s.knock_enabled         = (ks.status_flags & can_protocol::knock_status_flag::ENABLED) != 0;
+      s.knock_signal_valid    = (ks.status_flags & can_protocol::knock_status_flag::SIGNAL_VALID) != 0;
+      s.knock_warning_active  = (ks.status_flags & can_protocol::knock_status_flag::WARNING_ACTIVE) != 0;
+      s.knock_critical_active = (ks.status_flags & can_protocol::knock_status_flag::CRITICAL_ACTIVE) != 0;
+      s.knock_baseline_learned = (ks.status_flags & can_protocol::knock_status_flag::BASELINE_LEARNED) != 0;
+      s.knock_sensor_fault    = (ks.status_flags & can_protocol::knock_status_flag::SENSOR_FAULT) != 0;
+      s.knock_clipping_detected = (ks.status_flags & can_protocol::knock_status_flag::CLIPPING_DETECTED) != 0;
       s.knock_energy          = static_cast<float>(ks.energy);
       s.knock_baseline        = static_cast<float>(ks.baseline);
       s.knock_threshold       = static_cast<float>(ks.threshold);

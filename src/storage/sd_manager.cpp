@@ -20,11 +20,21 @@
 #define CCM_SD_CREATE_FOLDERS_ON_BOOT 0
 #endif
 
+#ifndef CCM_SD_MIN_FILEOP_HEAP
+#define CCM_SD_MIN_FILEOP_HEAP 24000
+#endif
+
 namespace storage {
 namespace {
 
 constexpr uint32_t kSdMaxSpiHz = CCM_SD_MAX_SPI_HZ;
 constexpr bool kSdCreateFoldersOnBoot = CCM_SD_CREATE_FOLDERS_ON_BOOT != 0;
+constexpr uint32_t kSdMinFileOpHeap =
+    (CCM_SD_MIN_FILEOP_HEAP < 8000) ? 8000U : static_cast<uint32_t>(CCM_SD_MIN_FILEOP_HEAP);
+
+bool heapAllowsFileOp() {
+  return ESP.getFreeHeap() >= kSdMinFileOpHeap;
+}
 
 const char* baseName(const char* path) {
   if (!path || path[0] == '\0') {
@@ -174,6 +184,7 @@ bool SdManager::ensureFolder(const char* path) {
 
 bool SdManager::exists(const char* path) const {
   if (!mounted_ || !path) return false;
+  if (!heapAllowsFileOp()) return false;
   hal::SharedSpiBusLock spiLock("SD:exists");
   digitalWrite(lcdCsPin_, HIGH);
   const bool ok = SD.exists(path);
@@ -183,6 +194,10 @@ bool SdManager::exists(const char* path) const {
 
 bool SdManager::appendLine(const char* path, const char* line) {
   if (!mounted_ || !path) return false;
+  if (!heapAllowsFileOp()) {
+    setStatus("low_heap", true);
+    return false;
+  }
 
   hal::SharedSpiBusLock spiLock("SD:append");
   digitalWrite(lcdCsPin_, HIGH);
@@ -204,6 +219,10 @@ bool SdManager::appendLine(const char* path, const char* line) {
 
 bool SdManager::writeTextFile(const char* path, const char* text) {
   if (!mounted_ || !path || !text) return false;
+  if (!heapAllowsFileOp()) {
+    setStatus("low_heap", true);
+    return false;
+  }
 
   hal::SharedSpiBusLock spiLock("SD:write");
   digitalWrite(lcdCsPin_, HIGH);
@@ -228,6 +247,7 @@ bool SdManager::writeTextFile(const char* path, const char* text) {
 
 bool SdManager::readTextFile(const char* path, char* out, size_t outLen) const {
   if (!mounted_ || !path || !out || outLen == 0) return false;
+  if (!heapAllowsFileOp()) return false;
   out[0] = '\0';
 
   hal::SharedSpiBusLock spiLock("SD:read");
@@ -253,6 +273,7 @@ bool SdManager::listDirectory(const char* path, SdFileEntry* entries, size_t max
                               size_t offset, size_t& totalEntriesOut) const {
   totalEntriesOut = 0;
   if (!mounted_ || !path || !entries) return false;
+  if (!heapAllowsFileOp()) return false;
   for (size_t i = 0; i < maxEntries; ++i) {
     entries[i] = SdFileEntry{};
   }
