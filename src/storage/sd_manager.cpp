@@ -62,6 +62,7 @@ void copyEntryName(char* dst, size_t dstLen, const char* src) {
 bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   lcdCsPin_ = lcdCsPin;
   sdCsPin_ = sdCsPin;
+  totalBytes_ = 0;
 
 #if !CCM_SD_ENABLED
   mounted_ = false;
@@ -83,12 +84,22 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   digitalWrite(sdCsPin_, HIGH);
 
   {
-    hal::SharedSpiBusLock spiLock("SD:begin");
+    Serial.printf("[SD] waiting for SPI lock owner=%s\n", hal::sharedSpiBusOwner());
+    hal::SharedSpiBusLock spiLock("SD:begin", pdMS_TO_TICKS(1500));
+    if (!spiLock.locked()) {
+      mounted_ = false;
+      setStatus("spi_lock_timeout", true);
+      Serial.printf("[SD] SPI lock timeout owner=%s; continuing without SD\n",
+                    hal::sharedSpiBusOwner());
+      return false;
+    }
+    Serial.println("[SD] SPI lock acquired; probing at 400kHz");
     // SD.begin() manages CS internally; start at the safest speed on the
     // shared SPI bus. Faster retries are capped so SD cannot dominate the
     // same wires the TFT depends on for stable redraws.
     mounted_ = SD.begin(sdCsPin_, SPI, 400000U);
     if (!mounted_ && kSdMaxSpiHz >= 1000000UL) {
+      Serial.println("[SD] 400kHz failed; retrying at 1MHz");
       delay(50);
       mounted_ = SD.begin(sdCsPin_, SPI, 1000000U);
     }
@@ -115,6 +126,7 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   }
   Serial.printf("[SD] card size=%lu MB\n",
                  static_cast<unsigned long>(cardSize / (1024ULL * 1024ULL)));
+  totalBytes_ = cardSize;
 
   bool foldersOk = true;
   if (kSdCreateFoldersOnBoot) {
@@ -142,12 +154,10 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
 }
 
 uint64_t SdManager::totalBytes() const {
-  if (!mounted_) return 0;
-  hal::SharedSpiBusLock spiLock("SD:total");
-  digitalWrite(lcdCsPin_, HIGH);
-  const uint64_t total = SD.totalBytes();
-  digitalWrite(sdCsPin_, HIGH);
-  return total;
+  // Card capacity is static while mounted and was already queried at boot.
+  // Avoid a FAT/SD call from the periodic storage-status path: on a busy
+  // shared SPI bus that query can block long enough to trip the task WDT.
+  return mounted_ ? totalBytes_ : 0;
 }
 
 uint64_t SdManager::usedBytes() const {

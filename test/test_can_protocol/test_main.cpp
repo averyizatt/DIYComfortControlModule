@@ -1,6 +1,7 @@
 #include <Unity.h>
 
 #include "can/CanFrameBuilders.hpp"
+#include "can/MicroSquirtProtocol.hpp"
 #include "can_contract/can_protocol.h"
 
 void setUp() {}
@@ -83,11 +84,47 @@ void test_meth_config_broadcast_has_required_fields_and_checksum() {
   TEST_ASSERT_TRUE(can_protocol::validateMethConfigChecksum(msg));
 }
 
+void test_microsquirt_dash_broadcast_decodes_big_endian_values() {
+  can_protocol::CanFrame frame{};
+  frame.id = microsquirt::kDashBaseId;
+  frame.dlc = 8;
+  frame.data[0] = 0x05; frame.data[1] = 0xDC;  // 150.0 kPa
+  frame.data[2] = 0x0D; frame.data[3] = 0xAC;  // 3500 rpm
+  frame.data[4] = 0x03; frame.data[5] = 0x56;  // 85.4 F
+  frame.data[6] = 0x02; frame.data[7] = 0x26;  // 55.0 %
+  microsquirt::LiveData data{};
+  TEST_ASSERT_TRUE(microsquirt::decodeDash(frame, data, 100));
+  TEST_ASSERT_EQUAL_UINT16(3500, data.rpm);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 150.0f, data.map_kpa);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 85.4f, data.coolant_f);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.0f, data.tps_percent);
+}
+
+void test_microsquirt_realtime_boost_uses_baro_and_rejects_bad_dlc() {
+  can_protocol::CanFrame frame{};
+  frame.id = microsquirt::kRecommendedRealtimeBaseId + 2;
+  frame.dlc = 8;
+  frame.data[0] = 0x03; frame.data[1] = 0x70;  // 88.0 kPa baro
+  frame.data[2] = 0x06; frame.data[3] = 0x40;  // 160.0 kPa MAP
+  frame.data[4] = 0x02; frame.data[5] = 0xEE;  // 75.0 F MAT
+  frame.data[6] = 0x03; frame.data[7] = 0x84;  // 90.0 F CLT
+  microsquirt::LiveData data{};
+  TEST_ASSERT_TRUE(microsquirt::decodeRealtime(
+      frame, microsquirt::kRecommendedRealtimeBaseId, data, 200));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 72.0f, microsquirt::gaugeBoostKpa(data));
+  frame.dlc = 7;
+  TEST_ASSERT_FALSE(microsquirt::decodeRealtime(
+      frame, microsquirt::kRecommendedRealtimeBaseId, data, 201));
+  TEST_ASSERT_EQUAL_UINT32(1, data.invalid_count);
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_taillight_and_meth_frames_remain_compatible);
   RUN_TEST(test_invalid_dlc_and_endian_handling);
   RUN_TEST(test_knock_and_sensor_frames_pack_expected_bytes);
   RUN_TEST(test_meth_config_broadcast_has_required_fields_and_checksum);
+  RUN_TEST(test_microsquirt_dash_broadcast_decodes_big_endian_values);
+  RUN_TEST(test_microsquirt_realtime_boost_uses_baro_and_rejects_bad_dlc);
   return UNITY_END();
 }

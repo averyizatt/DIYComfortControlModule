@@ -334,7 +334,12 @@ void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
 void UartGpsAdapter::poll() {
   const uint32_t nowMs = millis();
   bool sawByte = false;
-  while (serial_.available() > 0) {
+  // Keep each poll bounded. A noisy/floating UART can continuously refill the
+  // hardware buffer and otherwise prevent gps_task from ever feeding TWDT.
+  constexpr uint16_t kMaxBytesPerPoll = 256;
+  uint16_t bytesRead = 0;
+  while (serial_.available() > 0 && bytesRead < kMaxBytesPerPoll) {
+    ++bytesRead;
     sawByte = true;
     const uint8_t b = static_cast<uint8_t>(serial_.read());
     if (latest_.rawSampleLen < sizeof(latest_.rawSample)) {

@@ -34,6 +34,7 @@ class SdManager {
   void setStatus(const char* s, bool isError);
 
   bool mounted_ = false;
+  uint64_t totalBytes_ = 0;
   uint8_t lcdCsPin_ = 255;
   uint8_t sdCsPin_ = 255;
   char lastStatus_[32] = "not_mounted";

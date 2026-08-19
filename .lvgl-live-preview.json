@@ -1,0 +1,15 @@
+{
+  "mainFile": "preview/lvgl_live_preview.cpp",
+  "dependencies": [
+    "src/ui/ccm_font_semibold_16.c",
+    "src/ui/ccm_font_semibold_20.c",
+    "src/ui/ccm_font_semibold_48.c"
+  ],
+  "includePaths": [
+    "./include",
+    "./src"
+  ],
+  "defines": [
+    "LVGL_LIVE_PREVIEW=1"
+  ]
+}

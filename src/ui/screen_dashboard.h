@@ -17,16 +17,16 @@ class ScreenDashboard {
   bool begin(uint8_t lcdCs, uint8_t lcdRst, uint8_t lcdDc,
              uint8_t spiSck, uint8_t spiMosi, uint8_t spiMiso);
   void tick(const state::VehicleState& s, uint32_t nowMs);
-  void handleTouch(const touch::TouchSample& sample, uint32_t nowMs);
   void attach(canbus::CanManager* canMgr, race::RacePerformanceManager* raceMgr,
-              settings::SettingsManager* settingsMgr, storage::SdManager* sdMgr);
+              settings::SettingsManager* settingsMgr, storage::SdManager* sdMgr,
+              touch::TouchManager* touchMgr);
   bool online() const { return online_; }
 
  private:
   // ---- Layout constants -----------------------------------------------
   static constexpr uint16_t kWidth    = 480;
   static constexpr uint16_t kHeight   = 320;
-  static constexpr uint16_t kHdrH     = 26;
+  static constexpr uint16_t kHdrH     = 44;
   static constexpr uint16_t kNavH     = 52;
   static constexpr uint16_t kContentH = kHeight - kHdrH - kNavH;
   static constexpr uint16_t kArcSize  = 180;
@@ -69,6 +69,9 @@ class ScreenDashboard {
     BenchTest,
     DiagInfo,
     DiagTools,
+    DiagStorage,
+    DiagTrends,
+    ThemeProfile,
     FaultPage,
     FaultClose,
     LedOutputTest,
@@ -111,6 +114,8 @@ class ScreenDashboard {
   void buildDiagPage(lv_obj_t* parent);
   void buildKnockPage(lv_obj_t* parent);
   void buildSdBrowser(lv_obj_t* parent);
+  void buildStatusOverlays(lv_obj_t* scr);
+  void updateStatusOverlays(const state::VehicleState& s, uint32_t nowMs);
   void showPage(uint8_t idx);
 
   // ---- Per-tick updates -----------------------------------------------
@@ -185,6 +190,9 @@ class ScreenDashboard {
   static void onBenchTestClicked(lv_event_t* e);
   static void onDiagInfoClicked(lv_event_t* e);
   static void onDiagToolsClicked(lv_event_t* e);
+  static void onDiagStorageClicked(lv_event_t* e);
+  static void onDiagTrendsClicked(lv_event_t* e);
+  static void onThemeProfileClicked(lv_event_t* e);
   static void onFaultPageClicked(lv_event_t* e);
   static void onFaultCloseClicked(lv_event_t* e);
   static void onLedOutputTestClicked(lv_event_t* e);
@@ -209,6 +217,7 @@ class ScreenDashboard {
   race::RacePerformanceManager* raceMgr_     = nullptr;
   settings::SettingsManager*    settingsMgr_ = nullptr;
   storage::SdManager*           sdMgr_       = nullptr;
+  touch::TouchManager*          touchMgr_    = nullptr;
 
   bool     online_                = false;
   uint32_t actionFeedbackUntilMs_ = 0;
@@ -219,13 +228,16 @@ class ScreenDashboard {
   bool     suppressLedMasterEvent_ = false;
   bool     filteredTouchDown_      = false;
   bool     gestureTouchWasDown_    = false;
-  uint8_t  touchPressStableCount_  = 0;
-  uint8_t  touchReleaseStableCount_ = 0;
+  bool     touchDebugWasDown_      = false;
+  int8_t   pendingDirectNav_       = -1;
   uint8_t  uiActionHead_           = 0;
   uint8_t  uiActionTail_           = 0;
   uint8_t  uiActionCount_          = 0;
   uint8_t  touchCalIndex_          = 0;
   uint8_t  ledOutputTestStep_      = 0;
+  uint8_t  themeProfileMode_       = 0;  // 0 auto, 1 day, 2 night
+  bool     nightProfileApplied_    = false;
+  bool     startupComplete_        = false;
   UiActionType pendingConfirmType_ = UiActionType::None;
   uint32_t lastStressPageSwitchMs_ = 0;
   uint32_t lastHeaderUpdateMs_    = 0;
@@ -237,6 +249,7 @@ class ScreenDashboard {
   uint32_t pendingConfirmUntilMs_ = 0;
   uint32_t gestureStartMs_ = 0;
   uint32_t lastHeaderTapMs_ = 0;
+  uint32_t startupBeginMs_ = 0;
   int16_t  touchCalOffsetX_ = 0;
   int16_t  touchCalOffsetY_ = 0;
   int16_t  touchCalAccumX_ = 0;
@@ -267,13 +280,23 @@ class ScreenDashboard {
 
   // Header
   lv_obj_t* hdrBatLabel_      = nullptr;  // left:   GPS UTC clock
+  lv_obj_t* headerBar_        = nullptr;
   lv_obj_t* hdrTitleLabel_    = nullptr;  // center: page name (cyan)
   lv_obj_t* hdrFaultDot_      = nullptr;  // right:  status indicator
   lv_obj_t* hdrFeedbackLabel_ = nullptr;  // far-right: action feedback
+  lv_obj_t* alertStrip_       = nullptr;
+  lv_obj_t* alertStripLabel_  = nullptr;
+  lv_obj_t* themeTint_        = nullptr;
+  lv_obj_t* startupOverlay_   = nullptr;
+  lv_obj_t* startupStatus_    = nullptr;
+  lv_obj_t* startupProgress_  = nullptr;
 
   // Bottom nav bar (0=DASH 1=METH 2=TAIL 3=LEDS 4=GPS 5=TEMPS 6=DIAG 7=KNOCK)
   lv_obj_t* navBtns_[8]     = {};
   lv_obj_t* navBtnIcons_[8] = {};
+  lv_obj_t* navBar_         = nullptr;
+  lv_obj_t* navDivider_     = nullptr;
+  lv_obj_t* templateImgs_[8] = {};
   lv_obj_t* topContentEdgeGuard_ = nullptr;
   lv_obj_t* bottomEdgeGuard_ = nullptr;
 
@@ -346,17 +369,30 @@ class ScreenDashboard {
   // -- GPS page --
   lv_obj_t* gpsSpdLabel_  = nullptr;
   lv_obj_t* gpsInfoLabel_ = nullptr;
+  lv_obj_t* gpsReceiverLabel_ = nullptr;
+  lv_obj_t* gpsSatLabel_ = nullptr;
+  lv_obj_t* gpsHdopLabel_ = nullptr;
 
   // -- TEMPS page --
   lv_obj_t* tempsLabel_ = nullptr;
   lv_obj_t* tempsTable_ = nullptr;
+  lv_obj_t* tempsValueLabels_[6] = {};
+  lv_obj_t* tempsStatusLabels_[6] = {};
 
   // -- DIAG page --
   lv_obj_t* diagInfoBtn_  = nullptr;
   lv_obj_t* diagToolsBtn_ = nullptr;
+  lv_obj_t* diagStorageBtn_ = nullptr;
+  lv_obj_t* diagTrendsBtn_ = nullptr;
   lv_obj_t* diagInfoPanel_ = nullptr;
   lv_obj_t* diagToolsPanel_ = nullptr;
+  lv_obj_t* diagStoragePanel_ = nullptr;
+  lv_obj_t* diagTrendsPanel_ = nullptr;
   lv_obj_t* diagLabel_     = nullptr;
+  lv_obj_t* diagStatusCards_[6] = {};
+  lv_obj_t* trendCharts_[4] = {};
+  lv_chart_series_t* trendSeriesA_[4] = {};
+  lv_chart_series_t* trendSeriesB_[4] = {};
   lv_obj_t* faultOverlay_  = nullptr;
   lv_obj_t* faultLabel_    = nullptr;
   lv_obj_t* faultCloseBtn_ = nullptr;
@@ -372,6 +408,7 @@ class ScreenDashboard {
   lv_obj_t* diagRaceResetBtn_  = nullptr;
   lv_obj_t* diagRaceSetStartBtn_ = nullptr;
   lv_obj_t* benchTestBtn_  = nullptr;
+  lv_obj_t* themeProfileBtn_ = nullptr;
   lv_obj_t* touchCalBtn_   = nullptr;
   lv_obj_t* touchCalOverlay_ = nullptr;
   lv_obj_t* touchCalPromptLabel_ = nullptr;

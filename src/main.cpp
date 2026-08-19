@@ -61,6 +61,14 @@
 #define CCM_SD_STATUS_PERIOD_MS 60000
 #endif
 
+#ifndef CCM_STORAGE_TASK_STACK_BYTES
+#define CCM_STORAGE_TASK_STACK_BYTES 8192
+#endif
+
+#ifndef CCM_CAN_TASK_STACK_BYTES
+#define CCM_CAN_TASK_STACK_BYTES 10240
+#endif
+
 #ifndef CCM_STORAGE_TASK_PERIOD_MS
 #define CCM_STORAGE_TASK_PERIOD_MS 100
 #endif
@@ -165,6 +173,7 @@
 #include "state/vehicle_state.h"
 #include "storage/log_manager.h"
 #include "storage/sd_manager.h"
+#include "storage/telemetry_recorder.h"
 #include "touch/touch_manager.h"
 #include "ui/asset_manager.h"
 #include "ui/screen_dashboard.h"
@@ -436,6 +445,7 @@ void IRAM_ATTR tachInputIsr() {
 led::LedManager g_led;
 storage::SdManager g_sd;
 storage::LogManager g_logs;
+storage::TelemetryRecorder g_telemetry;
 race::RacePerformanceManager g_race;
 knock::KnockMonitor g_knock;
 touch::TouchManager g_touch;
@@ -458,7 +468,6 @@ constexpr BaseType_t kCoreIo = 0;
 constexpr BaseType_t kCoreUi = 1;
 constexpr UBaseType_t kPrioHighIo = 3;
 constexpr UBaseType_t kPrioUi = 3;
-constexpr UBaseType_t kPrioTouch = 2;
 constexpr UBaseType_t kPrioSensors = 2;
 constexpr UBaseType_t kPrioBackground = 1;
 constexpr uint16_t kAnalogFaultIat = 1U << 0;
@@ -661,8 +670,15 @@ void canTask(void*) {
   registerTaskWatchdog();
   constexpr uint32_t kCanTaskPeriodMs =
       (CCM_CAN_TASK_PERIOD_MS < 5) ? 5U : static_cast<uint32_t>(CCM_CAN_TASK_PERIOD_MS);
+  uint32_t lastStackReportMs = 0;
   while (true) {
     g_can.tick();
+    const uint32_t nowMs = millis();
+    if (nowMs - lastStackReportMs >= 30000U) {
+      lastStackReportMs = nowMs;
+      Serial.printf("[STACK] can free=%lu bytes\n",
+                    static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+    }
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(kCanTaskPeriodMs));
   }
@@ -703,6 +719,14 @@ void tachInputTask(void*) {
 
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
       if (s.bench_test_mode) return;
+
+      // The engine ECU is the authoritative RPM source while its broadcast is
+      // fresh. Keep the GPIO tach input as an automatic failover only.
+      if (s.microsquirt_online &&
+          (nowMs - s.microsquirt_last_ms) <= microsquirt::kFreshTimeoutMs) {
+        s.tach_source = static_cast<uint8_t>(can_protocol::TachSource::CAN);
+        return;
+      }
 
       const uint8_t ppr10 = s.pulses_per_rev10 == 0U ? 20U : s.pulses_per_rev10;
       uint16_t rawHz10 = 0;
@@ -769,22 +793,15 @@ void ledTask(void*) {
 #endif
       lastLedFrameMs = nowMs;
     }
-    state::g_vehicle_state.mutate([](state::VehicleState& st) {
-      if (st.led_startup_preview) st.led_startup_preview = false;
-    });
+    if (s.led_startup_preview) {
+      state::g_vehicle_state.mutate([](state::VehicleState& st) {
+        st.led_startup_preview = false;
+      });
+    }
     feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(8));
+    vTaskDelay(pdMS_TO_TICKS(kLedTaskPeriodMs));
   }
 #endif
-}
-
-void raceTask(void*) {
-  registerTaskWatchdog();
-  while (true) {
-    g_race.tick(millis());
-    feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(50));
-  }
 }
 
 void knockTask(void*) {
@@ -793,28 +810,6 @@ void knockTask(void*) {
     g_knock.tick(millis());
     feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(CCM_KNOCK_TASK_PERIOD_MS));
-  }
-}
-
-void touchTask(void*) {
-  constexpr uint32_t kTouchTaskPeriodMs = 10;
-  while (true) {
-    const uint32_t nowMs = millis();
-    const touch::TouchSample t = g_touch.read();
-#if CCM_IMU_ENABLED
-    // Touch has priority on the shared I2C bus; pause IMU polling while touch recovers.
-    if (g_touch.online()) {
-      g_imu.update();
-    }
-#endif
-    g_screen.handleTouch(t, nowMs);
-    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-      s.touch_online = g_touch.online();
-      if (t.touched) {
-        s.input_flags |= can_protocol::input_flag::TOUCH;
-      }
-    });
-    vTaskDelay(pdMS_TO_TICKS(kTouchTaskPeriodMs));
   }
 }
 
@@ -966,7 +961,9 @@ void screenTask(void*) {
 }
 
 void storageTask(void*) {
-  registerTaskWatchdog();
+  // SD/FAT operations can block below this task while a card is busy. Storage
+  // is noncritical, so it must not reboot the controller if a slow or damaged
+  // card exceeds the global watchdog timeout.
   constexpr bool kSdLoggingEnabled = CCM_SD_LOGGING_ENABLED != 0;
   constexpr uint32_t kSdLogSnapshotPeriodMs = CCM_SD_LOG_SNAPSHOT_PERIOD_MS;
   constexpr uint32_t kStorageStatusPeriodMs =
@@ -975,11 +972,45 @@ void storageTask(void*) {
       (CCM_STORAGE_TASK_PERIOD_MS < 20) ? 20U : static_cast<uint32_t>(CCM_STORAGE_TASK_PERIOD_MS);
   uint32_t lastLogMs = 0;
   uint32_t lastStorageStatusMs = 0;
-  uint16_t lastFaultFlags = 0;  // track transitions to avoid calling flushCritical() every second
   uint8_t lastKnockEventCount = 0;
+  uint8_t lastProtectedKnockEventCount = 0;
+  uint16_t lastProtectedFaultFlags = 0;
+  uint32_t lastTelemetryStatusMs = 0;
+  bool lastRaceRunning = false;
+#ifndef CCM_IGNITION_SENSE_ACTIVE_HIGH
+#define CCM_IGNITION_SENSE_ACTIVE_HIGH 1
+#endif
+  bool ignitionStable = true;
+  bool ignitionRawLast = true;
+  uint32_t ignitionChangeMs = millis();
 
   while (true) {
     const uint32_t nowMs = millis();
+    if (pins::kIgnitionSense != 255U) {
+      const bool rawLevel = digitalRead(pins::kIgnitionSense) == HIGH;
+      const bool ignitionOn = CCM_IGNITION_SENSE_ACTIVE_HIGH ? rawLevel : !rawLevel;
+      if (ignitionOn != ignitionRawLast) {
+        ignitionRawLast = ignitionOn;
+        ignitionChangeMs = nowMs;
+      }
+      if (ignitionOn != ignitionStable && (nowMs - ignitionChangeMs) >= 100U) {
+        ignitionStable = ignitionOn;
+        if (ignitionOn) g_telemetry.resume(nowMs);
+        else g_telemetry.requestShutdown();
+      }
+    }
+
+    const state::VehicleState eventState = state::g_vehicle_state.read();
+    if ((eventState.fault_flags != 0U && eventState.fault_flags != lastProtectedFaultFlags) ||
+        eventState.knock_event_count != lastProtectedKnockEventCount ||
+        (eventState.race_running && !lastRaceRunning)) {
+      g_telemetry.protectEvent();
+    }
+    lastProtectedFaultFlags = eventState.fault_flags;
+    lastProtectedKnockEventCount = eventState.knock_event_count;
+    lastRaceRunning = eventState.race_running;
+    g_telemetry.service(nowMs);
+
     if (kSdLoggingEnabled) {
       g_logs.tick(nowMs);
     }
@@ -988,10 +1019,10 @@ void storageTask(void*) {
         (nowMs - lastLogMs) >= kSdLogSnapshotPeriodMs) {
       lastLogMs = nowMs;
       const state::VehicleState s = state::g_vehicle_state.read();
-      char canLine[96];
-      char gpsLine[96];
-      char methLine[96];
-      char raceLine[160];
+      static char canLine[96];
+      static char gpsLine[96];
+      static char methLine[96];
+      static char raceLine[160];
       snprintf(canLine, sizeof(canLine), "rx=%lu,tx=%lu,last_id=%u", static_cast<unsigned long>(s.can_rx_count), static_cast<unsigned long>(s.can_tx_count), s.can_last_rx_id);
       snprintf(gpsLine, sizeof(gpsLine), "fix=%u,used=%u,view=%u,q=%u,mode=%u,speed=%.1f",
                s.gps_fix ? 1U : 0U,
@@ -1009,7 +1040,7 @@ void storageTask(void*) {
       g_logs.enqueue("meth", methLine);
       g_logs.enqueue("race", raceLine);
 
-      char knockLine[220];
+      static char knockLine[220];
       const bool knockEventCountChanged = s.knock_event_count != lastKnockEventCount;
       lastKnockEventCount = s.knock_event_count;
       snprintf(knockLine, sizeof(knockLine),
@@ -1024,7 +1055,7 @@ void storageTask(void*) {
       g_logs.enqueue("knock", knockLine);
 
       // 11 key/value fields + delimiters + float precision margin.
-      char analogLine[512];
+      static char analogLine[512];
       snprintf(analogLine, sizeof(analogLine),
                "intake_air_temp_c=%.2f,engine_bay_temp_c=%.2f,cabin_temp_c=%.2f,ambient_temp_c=%.2f,oil_pressure_psi=%.2f,fuel_pressure_psi=%.2f,meth_pressure_psi=%.2f,boost_ref_pressure_psi=%.2f,spare_pressure_1_psi=%.2f,spare_pressure_2_psi=%.2f,sensor_fault_flags=0x%04X",
                static_cast<double>(s.intake_temp), static_cast<double>(s.engine_bay_temp),
@@ -1037,13 +1068,37 @@ void storageTask(void*) {
 
       const uint16_t curFaultFlags = s.fault_flags;
       if (curFaultFlags != 0) {
-        char faultLine[48];
+        static char faultLine[48];
         snprintf(faultLine, sizeof(faultLine), "fault_flags=%u", curFaultFlags);
         g_logs.enqueue("faults", faultLine);
         // Avoid synchronous flushes here; queued SD writes are intentionally
         // drained slowly so logging cannot stall the shared SPI bus.
       }
-      lastFaultFlags = curFaultFlags;
+    }
+
+    if ((nowMs - lastTelemetryStatusMs) >= 1000U) {
+      lastTelemetryStatusMs = nowMs;
+      const storage::TelemetryRecorderStats ts = g_telemetry.stats();
+      state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+        s.telemetry_recording = ts.recording;
+        s.telemetry_shutdown_clean = ts.shutdown_clean;
+        s.telemetry_active_protected = ts.active_protected;
+        s.telemetry_queue_depth = ts.queue_depth;
+        s.telemetry_queue_high_water = ts.queue_high_water;
+        s.telemetry_captured_count = ts.captured;
+        s.telemetry_written_count = ts.written;
+        s.telemetry_dropped_count = ts.dropped;
+        s.telemetry_bytes_written = ts.bytes_written;
+        s.telemetry_write_errors = ts.write_errors;
+        s.telemetry_recovery_count = ts.recovery_count;
+        s.telemetry_deleted_count = ts.deleted_count;
+        s.telemetry_max_write_us = ts.max_write_us;
+        s.telemetry_managed_bytes = ts.managed_bytes;
+        if (ts.active_file[0] != '\0') {
+          strncpy(s.current_log_file, ts.active_file, sizeof(s.current_log_file) - 1);
+          s.current_log_file[sizeof(s.current_log_file) - 1] = '\0';
+        }
+      });
     }
 
     if ((nowMs - lastStorageStatusMs) >= kStorageStatusPeriodMs) {
@@ -1058,7 +1113,9 @@ void storageTask(void*) {
         s.sd_write_error_count = g_sd.errorCount() + g_logs.droppedCount();
         strncpy(s.last_sd_write_status, g_sd.lastStatus(), sizeof(s.last_sd_write_status) - 1);
         s.last_sd_write_status[sizeof(s.last_sd_write_status) - 1] = '\0';
-        strncpy(s.current_log_file, g_logs.currentFile(), sizeof(s.current_log_file) - 1);
+        const storage::TelemetryRecorderStats ts = g_telemetry.stats();
+        const char* activeLog = ts.active_file[0] != '\0' ? ts.active_file : g_logs.currentFile();
+        strncpy(s.current_log_file, activeLog, sizeof(s.current_log_file) - 1);
         s.current_log_file[sizeof(s.current_log_file) - 1] = '\0';
         s.heap_free_bytes = ESP.getFreeHeap();
         if (s.heap_free_bytes < s.heap_min_free_bytes) {
@@ -1080,13 +1137,14 @@ void storageTask(void*) {
       }
     }
 
-    feedTaskWatchdog();
     vTaskDelay(pdMS_TO_TICKS(kStorageTaskPeriodMs));
   }
 }
 
 void gpsTask(void*) {
-  registerTaskWatchdog();
+  // HardwareSerial operations (including driver-level reconfiguration/flush)
+  // can block independently of our parser loop. GPS is non-critical, so do
+  // not let a disconnected or noisy receiver reboot the entire dashboard.
 
   if (CCM_GPS_SERIAL_LOGS) Serial.println("[GPS] task started - waiting for fix");
 
@@ -1205,21 +1263,6 @@ void gpsTask(void*) {
   }
 }
 
-void heartbeatTask(void*) {
-  registerTaskWatchdog();
-  while (true) {
-    state::g_vehicle_state.mutate([](state::VehicleState& s) {
-      s.input_flags = 0;
-      if (s.fault_flags != 0) {
-        s.master_state = static_cast<uint8_t>(can_protocol::MasterState::WARN);
-      } else {
-        s.master_state = static_cast<uint8_t>(can_protocol::MasterState::RUN);
-      }
-    });
-    feedTaskWatchdog();
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
-}
 }  // namespace
 
 void setup() {
@@ -1275,9 +1318,8 @@ void setup() {
   delay(5);
   Serial.println("[CAN-ONLY] screen/GPS/touch/SD/LED/sensors disabled");
   g_can.begin(true);
-  Serial.println("[TASK] core0=CAN/hb only");
-  createPinnedTask(canTask, "can_task", 3584, kPrioHighIo, kCoreIo);
-  createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
+  Serial.println("[TASK] core0=CAN; heartbeat uses loopTask");
+  createPinnedTask(canTask, "can_task", CCM_CAN_TASK_STACK_BYTES, kPrioHighIo, kCoreIo);
   return;
 #endif
 
@@ -1313,7 +1355,7 @@ void setup() {
   delay(5);
   feedTaskWatchdog();
 
-  g_screen.attach(&g_can, &g_race, &g_settings, &g_sd);
+  g_screen.attach(&g_can, &g_race, &g_settings, &g_sd, &g_touch);
   if (CCM_SCREEN_SERIAL_LOGS) {
     Serial.printf("[SETUP] heap free before screen init: %lu bytes\n",
       static_cast<unsigned long>(ESP.getFreeHeap()));
@@ -1341,15 +1383,19 @@ void setup() {
 
 #if CCM_DISPLAY_LCD_ONLY_TEST
   Serial.println("[LCD-ONLY] enabled: skipping CAN, SD, touch, sensors, storage, race, web, and LED tasks");
-  Serial.println("[TASK] core1=screen only");
+  Serial.println("[TASK] core1=screen; heartbeat uses loopTask");
   createPinnedTask(screenTask, "screen_task", 12288, kPrioUi, kCoreUi);
-  createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
   return;
 #endif
 
   // CAN (CS=11), SD (CS=5), and LCD (CS=10) share the same SPI pins and the
   // same Arduino SPI driver. All bus users take SharedSpiBusLock before IO.
   const bool touchOk = g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
+  // Publish the startup probe result before worker tasks begin. The touch task
+  // must never wait on the general vehicle-state mutex in its 10 ms input loop.
+  state::g_vehicle_state.mutate([touchOk](state::VehicleState& s) {
+    s.touch_online = touchOk;
+  });
 #if CCM_IMU_ENABLED
   const bool imuOk = g_imu.begin(Wire);  // MPU-6050 shares the same I2C bus
   const char* imuStatus = imuOk ? "OK" : "OFF";
@@ -1361,9 +1407,11 @@ void setup() {
                  imuStatus,
                  static_cast<unsigned>(pins::kTouchSda),
                  static_cast<unsigned>(pins::kTouchScl));
-  createPinnedTask(touchTask, "touch_task", 4096, kPrioTouch, kCoreUi);
-  createPinnedTask(screenTask, "screen_task", 10240, kPrioUi, kCoreUi);
+  // Keep the shared SPI bus single-threaded until CAN and SD finish their
+  // synchronous startup. Starting screenTask here can race SD.begin() and
+  // leave setup blocked forever waiting for the display's SPI lock.
   g_can.begin(true);
+  g_can.requestKnockConfig();
   // GPS starts at the configured baud and auto-probes common NMEA baud rates.
   g_gps.begin(pins::kGpsBaud);  // Serial2 GPIO42 RX / GPIO41 TX
   Serial.println("[SD] begin start");
@@ -1371,6 +1419,12 @@ void setup() {
   Serial.println("[SD] begin done");
   g_assets.begin(&g_sd);
   g_logs.begin(&g_sd);
+  g_telemetry.begin(&g_sd, static_cast<uint8_t>(esp_reset_reason()),
+                    microsquirt::kRecommendedRealtimeBaseId);
+  g_can.attachTelemetryRecorder(&g_telemetry);
+  if (pins::kIgnitionSense != 255U) {
+    pinMode(pins::kIgnitionSense, INPUT_PULLDOWN);
+  }
   { char pfx[32]; snprintf(pfx, sizeof(pfx), "boot_%lu", static_cast<unsigned long>(millis())); g_logs.setSessionPrefix(pfx); }
   g_race.begin(&state::g_vehicle_state, &g_settings, &g_logs);
 #if CCM_LOCAL_KNOCK_ENABLED
@@ -1397,23 +1451,22 @@ void setup() {
 #else
   Serial.println("[LED] disabled by build flag");
 #endif
-  Serial.println("[TASK] core0=CAN/GPS/sensors/storage/race/hb core1=screen/touch/LED");
-  createPinnedTask(canTask, "can_task", 3584, kPrioHighIo, kCoreIo);
+  Serial.println("[TASK] core0=CAN/GPS/sensors/storage core1=screen/LED; race/hb use loopTask; touch owned by screen");
+  createPinnedTask(screenTask, "screen_task", 10240, kPrioUi, kCoreUi);
+  createPinnedTask(canTask, "can_task", CCM_CAN_TASK_STACK_BYTES, kPrioHighIo, kCoreIo);
   createPinnedTask(tachInputTask, "tach_in_task", 3072, kPrioHighIo, kCoreIo);
   createPinnedTask(gpsTask, "gps_task", 3584, kPrioSensors, kCoreIo);
 #if CCM_LED_ENABLED
   createPinnedTask(ledTask, "led_task", CCM_LED_TASK_STACK_BYTES, kPrioSensors, kCoreIo);
 #endif
 #if CCM_SD_ENABLED
-  createPinnedTask(storageTask, "storage_task", 4096, kPrioBackground, kCoreIo);
+  createPinnedTask(storageTask, "storage_task", CCM_STORAGE_TASK_STACK_BYTES,
+                   kPrioBackground, kCoreIo);
 #endif
   createPinnedTask(analogSensorTask, "analog_sensor_task", 3584, kPrioSensors, kCoreIo);
 #if CCM_LOCAL_KNOCK_ENABLED
   createPinnedTask(knockTask, "knock_task", 3584, kPrioSensors, kCoreIo);
 #endif
-  createPinnedTask(raceTask, "race_task", 3072, kPrioBackground, kCoreIo);
-  createPinnedTask(heartbeatTask, "hb_task", 3072, kPrioBackground, kCoreIo);
-
   // setup() can block on peripheral bring-up; register loopTask only once loop() starts.
 }
 
@@ -1423,5 +1476,28 @@ void loop() {
   // the watchdog themselves. Registering loopTask adds a low-priority CPU1
   // observer that can be starved by normal UI activity and cause false resets
   // while the real tasks are still healthy.
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  static uint32_t lastHeartbeatMs = 0;
+  static uint32_t lastRaceMs = 0;
+  const uint32_t nowMs = millis();
+
+  if ((nowMs - lastHeartbeatMs) >= 20U) {
+    lastHeartbeatMs = nowMs;
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.input_flags = 0;
+      s.master_state = static_cast<uint8_t>(
+          s.fault_flags != 0 ? can_protocol::MasterState::WARN
+                             : can_protocol::MasterState::RUN);
+    });
+  }
+
+#if !CCM_CAN_ONLY_DEBUG && !CCM_DISPLAY_LCD_ONLY_TEST
+  if ((nowMs - lastRaceMs) >= 50U) {
+    lastRaceMs = nowMs;
+    g_race.tick(nowMs);
+  }
+#else
+  (void)lastRaceMs;
+#endif
+
+  vTaskDelay(pdMS_TO_TICKS(10));
 }

@@ -170,6 +170,13 @@ namespace pins {
 #define CCM_PIN_KNOCK_ADC 48
 #endif
 
+// Optional ignition-run sense input. Leave disabled until the dashboard has
+// protected hold-up power; this is a signal only and must never receive 12 V
+// directly. Use an automotive-rated divider/comparator or isolated input.
+#ifndef CCM_PIN_IGNITION_SENSE
+#define CCM_PIN_IGNITION_SENSE 255
+#endif
+
 #ifndef CCM_GYRO_I2C_ADDR_PRIMARY
 #define CCM_GYRO_I2C_ADDR_PRIMARY 0x68
 #endif
@@ -238,6 +245,7 @@ static constexpr uint8_t kAuxOut1 = CCM_PIN_AUX_OUT1;
 static constexpr uint8_t kAuxOut2 = CCM_PIN_AUX_OUT2;
 static constexpr uint8_t kBatterySense = CCM_PIN_BATTERY_SENSE;
 static constexpr uint8_t kKnockAdc = CCM_PIN_KNOCK_ADC;
+static constexpr uint8_t kIgnitionSense = CCM_PIN_IGNITION_SENSE;
 
 static constexpr uint8_t kGyroI2cAddrPrimary = CCM_GYRO_I2C_ADDR_PRIMARY;
 static constexpr uint8_t kGyroI2cAddrSecondary = CCM_GYRO_I2C_ADDR_SECONDARY;

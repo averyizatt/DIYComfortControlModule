@@ -5,6 +5,7 @@
 #include "hal/SharedSpiBus.hpp"
 #include "meth/MethSafetyLogic.hpp"
 #include "state/StateHelpers.hpp"
+#include "storage/telemetry_recorder.h"
 
 #include <cmath>
 
@@ -64,17 +65,22 @@
 #define CCM_CAN_GPS_TX_MS 500
 #endif
 
-#ifndef CCM_CAN_SENSOR_EXT_TX_MS
-#define CCM_CAN_SENSOR_EXT_TX_MS 500
+#ifndef CCM_CAN_ENGINE_RUNTIME_TX_MS
+#define CCM_CAN_ENGINE_RUNTIME_TX_MS 50
 #endif
 
 #ifndef CCM_CAN_METH_CONFIG_TX_MS
 #define CCM_CAN_METH_CONFIG_TX_MS 1000
 #endif
 
+#ifndef CCM_CAN_KNOCK_CONFIG_REQUEST_MS
+#define CCM_CAN_KNOCK_CONFIG_REQUEST_MS 1000
+#endif
+
 namespace canbus {
 
 namespace {
+constexpr float kKpaToPsi = 0.1450377f;
 constexpr uint32_t kTaillightTimeoutMs = 500;
 constexpr uint32_t kMethTimeoutMs = 250;
 constexpr uint32_t kKnockTimeoutMs = 500;
@@ -90,10 +96,13 @@ constexpr uint32_t kCanTachTxMs =
     (CCM_CAN_TACH_TX_MS < 20) ? 20U : static_cast<uint32_t>(CCM_CAN_TACH_TX_MS);
 constexpr uint32_t kCanGpsTxMs =
     (CCM_CAN_GPS_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_GPS_TX_MS);
-constexpr uint32_t kCanSensorExtTxMs =
-    (CCM_CAN_SENSOR_EXT_TX_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_SENSOR_EXT_TX_MS);
-constexpr uint32_t kCanNoAckBackoffMs = 2000;
+constexpr uint32_t kCanEngineRuntimeTxMs =
+    (CCM_CAN_ENGINE_RUNTIME_TX_MS < 20) ? 20U : static_cast<uint32_t>(CCM_CAN_ENGINE_RUNTIME_TX_MS);
+constexpr uint32_t kCanKnockConfigRequestMs =
+    (CCM_CAN_KNOCK_CONFIG_REQUEST_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_KNOCK_CONFIG_REQUEST_MS);
+constexpr uint32_t kCanNoAckBackoffMs = 10000;
 constexpr uint32_t kCanNoAckLogMs = 30000;
+constexpr uint32_t kCanTxQuietGraceMs = 5000;
 #if CCM_CAN_MCP_CLOCK_MHZ == 8
 constexpr auto kCanMcpClock = MCP_8MHZ;
 constexpr uint8_t kCanMcpClockMhz = 8;
@@ -258,6 +267,7 @@ void CanManager::tick() {
   can_protocol::CanFrame frame{};
   uint8_t rxFramesThisTick = 0;
   while (rxFramesThisTick < kCanRxMaxFramesPerTick && receiveFrame(frame)) {
+    if (recorder_) recorder_->capture(frame, nowMs);
     dispatchFrame(frame, nowMs);
     ++rxFramesThisTick;
   }
@@ -271,11 +281,15 @@ void CanManager::tick() {
     uint8_t eflg = 0;
     uint8_t rec = 0;
     uint8_t tec = 0;
+    uint8_t intf = 0;
+    uint8_t stat = 0;
     {
       hal::SharedSpiBusLock spiLock("CAN:eflg");
       eflg = g_mcp2515.getErrorFlags();
       rec = g_mcp2515.errorCountRX();
       tec = g_mcp2515.errorCountTX();
+      intf = g_mcp2515.getInterrupts();
+      stat = g_mcp2515.getStatus();
     }
     const bool busOff    = (eflg & 0x20) != 0;  // TXBO
     const bool txErrPass = (eflg & 0x10) != 0;  // TXEP
@@ -284,15 +298,34 @@ void CanManager::tick() {
     const bool rxWarn    = (eflg & 0x02) != 0;  // RXWAR
     const bool errWarn   = (eflg & 0x01) != 0;  // EWARN
     const bool rxOvr     = (eflg & 0xC0) != 0;  // RX0OVR | RX1OVR
+    const bool rxPending = (stat & 0x03U) != 0U; // READ_STATUS RX0IF | RX1IF
+    const bool txInt     = (intf & 0x1CU) != 0U; // CANINTF TX0IF | TX1IF | TX2IF
+    const bool errInt    = (intf & 0x20U) != 0U; // CANINTF ERRIF
+    const bool wakeInt   = (intf & 0x40U) != 0U; // CANINTF WAKIF
+    const bool msgErrInt = (intf & 0x80U) != 0U; // CANINTF MERRF
     const state::VehicleState snap = state::g_vehicle_state.read();
-    const bool emptyBenchBus = snap.can_rx_count == 0 && (txErrPass || busOff);
+    const bool emptyBenchBus = snap.can_rx_count == 0 && (txErrPass || busOff || msgErrInt);
     const bool rxErrorNoFrames = snap.can_rx_count == 0 && (rxErrPass || rxWarn);
     const bool noAckBackoffActive =
         canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_;
-    const bool shouldLogCanStatus = true;
+    // TX-complete interrupt bits normally toggle under load and used to print
+    // a full status line every three seconds. Log immediately when the actual
+    // error state changes, otherwise emit only a slow health heartbeat.
+    const uint16_t statusSignature =
+        static_cast<uint16_t>((static_cast<uint16_t>(eflg) << 8U) |
+                              static_cast<uint16_t>(intf & 0xE0U));
+    const bool canErrorActive = eflg != 0U || errInt || msgErrInt || rxOvr;
+    const uint32_t statusLogPeriodMs = canErrorActive ? 10000U : 30000U;
+    const bool shouldLogCanStatus =
+        statusSignature != lastCanStatusSignature_ ||
+        (nowMs - lastCanStatusLogMs_) >= statusLogPeriodMs;
     if (shouldLogCanStatus) {
-      Serial.printf("[CAN] EFLG=0x%02X REC=%u TEC=%u INT=%d rx=%lu tx=%lu%s%s%s%s%s%s%s%s\n",
+      lastCanStatusSignature_ = statusSignature;
+      lastCanStatusLogMs_ = nowMs;
+      Serial.printf("[CAN] EFLG=0x%02X INTF=0x%02X STAT=0x%02X REC=%u TEC=%u INT=%d rx=%lu tx=%lu%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
           eflg,
+          intf,
+          stat,
           static_cast<unsigned>(rec),
           static_cast<unsigned>(tec),
           digitalRead(pins::kCanSpiInt),
@@ -306,7 +339,12 @@ void CanManager::tick() {
           errWarn   ? " WARN" : "",
           emptyBenchBus ? " NO-ACK-BENCH" : "",
           rxErrorNoFrames ? " RX-BAD-FRAMES" : "",
-          rxOvr ? " RX-OVR" : "");
+          rxOvr ? " RX-OVR" : "",
+          rxPending ? " RX-PENDING" : "",
+          txInt ? " TX-INT" : "",
+          errInt ? " ERR-INT" : "",
+          wakeInt ? " WAKE-INT" : "",
+          msgErrInt ? " MSG-ERR" : "");
       if (rxErrorNoFrames) {
         Serial.println("[CAN] RX errors but no frames decoded - check bitrate, MCP crystal clock, CANH/CANL, ground, and termination");
       }
@@ -319,13 +357,25 @@ void CanManager::tick() {
         canNoAckBackoffUntilMs_ = nowMs + kCanNoAckBackoffMs;
       }
       if (!canNoAckBackoffLogged_) {
-        Serial.println("[CAN] no ACK detected; bench bus has no other node, pausing TX and retrying periodically");
+        Serial.println("[CAN] no ACK detected; pausing TX probes - check other node power/mode/bitrate/transceiver/CANH-CANL/ground/termination");
         canNoAckBackoffLogged_ = true;
       }
     }
     if (rxOvr) {
       hal::SharedSpiBusLock spiLock("CAN:clear");
       g_mcp2515.clearRXnOVRFlags();
+    }
+    if (txInt) {
+      hal::SharedSpiBusLock spiLock("CAN:txif-clear");
+      g_mcp2515.clearTXInterrupts();
+    }
+    if (msgErrInt) {
+      hal::SharedSpiBusLock spiLock("CAN:merr-clear");
+      g_mcp2515.clearMERR();
+    }
+    if (errInt) {
+      hal::SharedSpiBusLock spiLock("CAN:errif-clear");
+      g_mcp2515.clearERRIF();
     }
     if (busOff) {
       // Full reset + reinit recovers from bus-off.
@@ -344,7 +394,7 @@ void CanManager::tick() {
       (nowMs - canStartMs_) > 10000) {
     const state::VehicleState snap = state::g_vehicle_state.read();
     if (snap.can_tx_count > 5 && snap.can_rx_count == 0) {
-      Serial.println("[CAN] WARNING: TX active but RX=0 - check wiring, CANH/CANL, and 120ohm termination");
+      Serial.println("[CAN] WARNING: TX active but RX=0 - bus may be ACKing, but no node is transmitting frames this module can read");
       canRxWarnSent_ = true;
     }
   }
@@ -518,7 +568,27 @@ bool CanManager::sendMethConfigBroadcast() {
   return sent;
 }
 
+bool CanManager::sendKnockCommand(uint8_t command, uint8_t value) {
+  if (command < can_protocol::knock_command::SET_ENABLE ||
+      command > can_protocol::knock_command::CLEAR_EVENTS_AND_FAULTS) {
+    return false;
+  }
+  return sendFrame(can_protocol::packEngineKnockCommand(command, value));
+}
+
+bool CanManager::requestKnockConfig() {
+  return sendFrame(can_protocol::packEngineKnockConfigRequest());
+}
+
 bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
+  // This node is a passive consumer of ECU telemetry. Refuse any frame whose
+  // identifier belongs to the MicroSquirt broadcast windows, even if a future
+  // caller accidentally constructs one.
+  if (microsquirt::isMicroSquirtId(frame.id,
+                                  microsquirt::kRecommendedRealtimeBaseId)) {
+    return false;
+  }
+
   bool sent = false;
   const uint32_t nowMs = millis();
 
@@ -638,6 +708,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
 }
 
 void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t nowMs) {
+  if (dispatchMicroSquirt(frame, nowMs)) return;
   if (frame.id == can_protocol::ID_TAILLIGHT_STATE) {
     can_protocol::TaillightState msg{};
     if (!can_protocol::unpackTaillightState(frame, msg)) return;
@@ -681,8 +752,15 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       s.meth_pump_duty = msg.pump_duty;
       s.meth_tank_level = msg.tank_level;
       s.meth_flow_status = msg.flow_status;
-      s.boost_kpa = msg.boost_kpa;
-      s.intake_temp = msg.iat_c;
+      // 0x300 byte 4 is already gauge kPa from the meth/knock module.
+      // Do not subtract baro here; just expose gauge kPa and gauge psi.
+      const bool ecuFresh = s.microsquirt_online &&
+                            (nowMs - s.microsquirt_last_ms) <= microsquirt::kFreshTimeoutMs;
+      if (!ecuFresh) {
+        s.boost_kpa = static_cast<float>(msg.boost_kpa);
+        s.boost_psi = s.boost_kpa * kKpaToPsi;
+        s.intake_temp = msg.iat_c;
+      }
       s.engine_bay_temp = msg.engine_bay_c;
       s.intake_temp_valid = true;
       s.engine_bay_temp_valid = true;
@@ -784,6 +862,55 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
   }
 
   if (frame.id == can_protocol::ID_METH_CONFIG_ACK) {
+    can_protocol::EngineKnockConfigAck knockAck{};
+    if (can_protocol::unpackEngineKnockConfigAck(frame, knockAck)) {
+      state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+        s.can_online = true;
+        switch (knockAck.command) {
+          case can_protocol::knock_command::SET_ENABLE:
+            s.knock_enabled = knockAck.applied_value != 0;
+            break;
+          case can_protocol::knock_command::SET_THRESHOLD_OFFSET:
+            s.knock_threshold_offset = static_cast<float>(knockAck.applied_value);
+            break;
+          case can_protocol::knock_command::SET_ADAPTIVE_MULTIPLIER:
+            s.knock_threshold_multiplier = static_cast<float>(knockAck.applied_value) / 10.0f;
+            break;
+          case can_protocol::knock_command::SET_MIN_RPM:
+            s.knock_rpm_enable_min = static_cast<uint16_t>(knockAck.applied_value) * 100U;
+            break;
+          case can_protocol::knock_command::SET_MIN_MAP_KPA:
+            s.knock_boost_enable_kpa = static_cast<float>(knockAck.applied_value);
+            break;
+          case can_protocol::knock_command::SET_DEBOUNCE:
+            s.knock_event_cooldown_ms = static_cast<uint16_t>(knockAck.applied_value) * 10U;
+            break;
+          case can_protocol::knock_command::SET_GAIN:
+            s.knock_gain = static_cast<float>(knockAck.applied_value) / 10.0f;
+            break;
+          case can_protocol::knock_command::SET_CENTER_FREQUENCY:
+            s.knock_center_frequency_hz = static_cast<uint16_t>(knockAck.applied_value) * 100U;
+            break;
+          case can_protocol::knock_command::SET_BANDWIDTH:
+            s.knock_bandwidth_hz = static_cast<uint16_t>(knockAck.applied_value) * 100U;
+            break;
+          case can_protocol::knock_command::SET_AUTO_FREQUENCY_FROM_BORE:
+            s.knock_auto_frequency_from_bore = knockAck.applied_value != 0;
+            break;
+          case can_protocol::knock_command::CLEAR_EVENTS_AND_FAULTS:
+            s.knock_event_count = 0;
+            s.knock_warning_active = false;
+            s.knock_critical_active = false;
+            s.knock_sensor_fault = false;
+            s.knock_clipping_detected = false;
+            break;
+          default:
+            break;
+        }
+      });
+      return;
+    }
+
     can_protocol::MethConfigAck ack{};
     if (!can_protocol::unpackMethConfigAck(frame, ack)) return;
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
@@ -809,6 +936,40 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
   }
 
   // 0x307: Knock state from the external knock controller — parse all fields into VehicleState.
+  if (frame.id == can_protocol::ID_ENGINE_KNOCK_CONFIG_PAGE1) {
+    can_protocol::EngineKnockConfigPage1 cfg{};
+    if (!can_protocol::unpackEngineKnockConfigPage1(frame, cfg)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.knock_enabled = (cfg.config_flags & 0x01U) != 0;
+      s.knock_auto_frequency_from_bore = (cfg.config_flags & 0x02U) != 0;
+      s.knock_threshold_offset = static_cast<float>(cfg.threshold_offset);
+      s.knock_threshold_multiplier = static_cast<float>(cfg.adaptive_multiplier_x10) / 10.0f;
+      s.knock_rpm_enable_min = static_cast<uint16_t>(cfg.min_rpm_div100) * 100U;
+      s.knock_boost_enable_kpa = static_cast<float>(cfg.min_map_kpa);
+      s.knock_event_cooldown_ms = static_cast<uint16_t>(cfg.debounce_ms_div10) * 10U;
+      s.knock_gain = static_cast<float>(cfg.gain_x10) / 10.0f;
+      s.knock_center_frequency_hz = static_cast<uint16_t>(cfg.center_frequency_div100) * 100U;
+      s.can_online = true;
+    });
+    return;
+  }
+
+  if (frame.id == can_protocol::ID_ENGINE_KNOCK_CONFIG_PAGE2) {
+    can_protocol::EngineKnockConfigPage2 cfg{};
+    if (!can_protocol::unpackEngineKnockConfigPage2(frame, cfg)) return;
+    state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+      s.knock_bandwidth_hz = static_cast<uint16_t>(cfg.bandwidth_div100) * 100U;
+      s.knock_sample_rate_hz = static_cast<uint16_t>(cfg.sample_rate_div100) * 100U;
+      s.knock_samples_per_update = cfg.samples_per_update;
+      s.knock_bias_alpha = static_cast<float>(cfg.bias_alpha_x1000) / 1000.0f;
+      s.knock_rms_alpha = static_cast<float>(cfg.rms_alpha_x100) / 100.0f;
+      s.knock_envelope_alpha = static_cast<float>(cfg.envelope_alpha_x100) / 100.0f;
+      s.knock_bore_mm = cfg.bore_mm;
+      s.can_online = true;
+    });
+    return;
+  }
+
   if (frame.id == can_protocol::ID_ENGINE_KNOCK_STATE) {
     can_protocol::EngineKnockState ks{};
     if (!can_protocol::unpackEngineKnockState(frame, ks)) return;
@@ -855,6 +1016,15 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
 
 void CanManager::sendScheduledFrames(uint32_t nowMs) {
   state::VehicleState snapshot = state::g_vehicle_state.read();
+  const bool rxSilent = snapshot.can_rx_count == 0 && (nowMs - canStartMs_) > kCanTxQuietGraceMs;
+
+  if (rxSilent) {
+    if ((nowMs - lastKnockConfigRequestMs_) >= kCanKnockConfigRequestMs) {
+      requestKnockConfig();
+      lastKnockConfigRequestMs_ = nowMs;
+    }
+    return;
+  }
 
   if ((nowMs - lastHeartbeatTxMs_) >= kCanHeartbeatTxMs) {
     can_protocol::CanFrame hb{};
@@ -882,12 +1052,72 @@ void CanManager::sendScheduledFrames(uint32_t nowMs) {
     lastMethConfigTxMs_ = nowMs;
   }
 
-  if ((nowMs - lastSensorExtTxMs_) >= kCanSensorExtTxMs) {
-    can_protocol::CanFrame sensorExt{};
-    packEngineSensorExt(snapshot, sensorExt);
-    sendFrame(sensorExt);
-    lastSensorExtTxMs_ = nowMs;
+  if (snapshot.can_rx_count == 0 && (nowMs - lastKnockConfigRequestMs_) >= kCanKnockConfigRequestMs) {
+    requestKnockConfig();
+    lastKnockConfigRequestMs_ = nowMs;
   }
+
+  if ((nowMs - lastEngineRuntimeTxMs_) >= kCanEngineRuntimeTxMs) {
+    can_protocol::EngineRuntime runtime{};
+    runtime.rpm = snapshot.rpm;
+    runtime.map_kpa = 0;
+    runtime.valid_flags = runtime.rpm > 0 ? 0x01 : 0x00;
+    sendFrame(can_protocol::packEngineRuntime(runtime));
+    lastEngineRuntimeTxMs_ = nowMs;
+  }
+}
+
+bool CanManager::dispatchMicroSquirt(const can_protocol::CanFrame& frame, uint32_t nowMs) {
+  bool decoded = microsquirt::decodeDash(frame, microsquirtData_, nowMs);
+  if (!decoded) {
+    decoded = microsquirt::decodeRealtime(
+        frame, microsquirt::kRecommendedRealtimeBaseId, microsquirtData_, nowMs);
+  }
+  if (!decoded) {
+    decoded = microsquirt::decodeRealtime(
+        frame, microsquirt::kDefaultRealtimeBaseId, microsquirtData_, nowMs);
+  }
+  if (!decoded) return false;
+
+  const auto& ms = microsquirtData_;
+  state::g_vehicle_state.mutate([&](state::VehicleState& s) {
+    s.microsquirt_online = true;
+    s.microsquirt_last_id = frame.id;
+    s.microsquirt_last_ms = nowMs;
+    s.microsquirt_frame_count = ms.frame_count;
+    s.microsquirt_invalid_count = ms.invalid_count;
+    s.can_online = true;
+
+    if ((ms.valid & microsquirt::VALID_RPM) != 0U) {
+      s.rpm = ms.rpm;
+      s.tach_source = static_cast<uint8_t>(can_protocol::TachSource::CAN);
+    }
+    if ((ms.valid & microsquirt::VALID_MAP) != 0U) s.microsquirt_map_kpa = ms.map_kpa;
+    if ((ms.valid & microsquirt::VALID_BARO) != 0U) s.microsquirt_baro_kpa = ms.baro_kpa;
+    if ((ms.valid & microsquirt::VALID_TPS) != 0U) s.microsquirt_tps_percent = ms.tps_percent;
+    if ((ms.valid & microsquirt::VALID_SPARK) != 0U) s.microsquirt_spark_deg = ms.spark_advance_deg;
+    if ((ms.valid & microsquirt::VALID_PW1) != 0U) s.microsquirt_pw1_ms = ms.pulse_width_1_ms;
+    if ((ms.valid & microsquirt::VALID_PW2) != 0U) s.microsquirt_pw2_ms = ms.pulse_width_2_ms;
+    if ((ms.valid & microsquirt::VALID_AFR_TARGET1) != 0U) s.microsquirt_afr_target = ms.afr_target1;
+    if ((ms.valid & microsquirt::VALID_KNOCK) != 0U) s.microsquirt_knock_percent = ms.knock_percent;
+    if ((ms.valid & microsquirt::VALID_BATTERY) != 0U) s.battery_voltage = ms.battery_v;
+    if ((ms.valid & microsquirt::VALID_AFR1) != 0U && ms.afr1 >= 5.0f && ms.afr1 <= 30.0f) {
+      s.afr = ms.afr1;
+    }
+    if ((ms.valid & microsquirt::VALID_CLT) != 0U) {
+      s.coolant_temp = microsquirt::fahrenheitToCelsius(ms.coolant_f);
+    }
+    if ((ms.valid & microsquirt::VALID_MAT) != 0U) {
+      s.intake_temp = microsquirt::fahrenheitToCelsius(ms.mat_f);
+      s.intake_temp_valid = true;
+    }
+    if ((ms.valid & (microsquirt::VALID_MAP | microsquirt::VALID_BARO)) ==
+        (microsquirt::VALID_MAP | microsquirt::VALID_BARO)) {
+      s.boost_kpa = microsquirt::gaugeBoostKpa(ms);
+      s.boost_psi = s.boost_kpa * kKpaToPsi;
+    }
+  });
+  return true;
 }
 
 void CanManager::updateTimeouts(uint32_t nowMs) {
@@ -900,6 +1130,8 @@ void CanManager::updateTimeouts(uint32_t nowMs) {
     s.taillight_online = (nowMs - s.last_taillight_ms) <= kTaillightTimeoutMs;
     s.meth_online = !state::nodeTimedOut(nowMs, s.last_meth_ms, kMethTimeoutMs);
     s.gps_stale = (nowMs - s.last_gps_ms) > kGpsStaleTimeoutMs;
+    s.microsquirt_online = s.microsquirt_last_ms != 0U &&
+                           (nowMs - s.microsquirt_last_ms) <= microsquirt::kFreshTimeoutMs;
 
     // Knock online: driven entirely by 0x307 frames from the external knock module.
     if (!inStartupGrace) {
@@ -969,6 +1201,7 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
     s.meth_tank_level = static_cast<uint8_t>(60 + 20 * sinf(t * 0.07f));
     s.meth_flow_status = (s.meth_state == state::MethState::SPRAYING) ? 1 : 0;
     s.boost_kpa = static_cast<uint8_t>(95 + 45 * sinf(t * 0.9f));
+    s.boost_psi = s.boost_kpa * kKpaToPsi;
     s.intake_temp = 26.0f + 4.0f * sinf(t * 0.4f);
     s.engine_bay_temp = 50.0f + 6.0f * sinf(t * 0.25f);
     s.last_meth_ms = nowMs;

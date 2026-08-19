@@ -42,6 +42,7 @@ struct VehicleState {
   float speed = 0.0f;
   float battery_voltage = 12.5f;
   float boost_kpa = 0.0f;
+  float boost_psi = 0.0f;
   float afr = 14.7f;
   float coolant_temp = 0.0f;
 
@@ -101,6 +102,15 @@ struct VehicleState {
   float knock_threshold_multiplier = 2.5f;
   float knock_threshold_offset = 8.0f;
   uint16_t knock_event_cooldown_ms = 250;
+  uint16_t knock_center_frequency_hz = 6400;
+  uint16_t knock_bandwidth_hz = 1200;
+  uint16_t knock_sample_rate_hz = 10000;
+  uint8_t knock_samples_per_update = 64;
+  float knock_bias_alpha = 0.050f;
+  float knock_rms_alpha = 0.20f;
+  float knock_envelope_alpha = 0.35f;
+  uint8_t knock_bore_mm = 86;
+  bool knock_auto_frequency_from_bore = true;
   uint8_t knock_warning_threshold_count = 2;
   uint8_t knock_critical_threshold_count = 4;
   bool knock_baseline_learning_enabled = true;
@@ -139,6 +149,22 @@ struct VehicleState {
   uint16_t can_last_tx_id = 0;
   uint32_t can_last_rx_ms = 0;
   uint32_t can_last_tx_ms = 0;
+
+  // Read-only MicroSquirt realtime telemetry. Raw frames are recorded even
+  // when a field is not promoted into this live UI subset.
+  bool microsquirt_online = false;
+  uint16_t microsquirt_last_id = 0;
+  uint32_t microsquirt_last_ms = 0;
+  uint32_t microsquirt_frame_count = 0;
+  uint32_t microsquirt_invalid_count = 0;
+  float microsquirt_map_kpa = 0.0f;
+  float microsquirt_baro_kpa = 0.0f;
+  float microsquirt_tps_percent = 0.0f;
+  float microsquirt_spark_deg = 0.0f;
+  float microsquirt_pw1_ms = 0.0f;
+  float microsquirt_pw2_ms = 0.0f;
+  float microsquirt_afr_target = 0.0f;
+  float microsquirt_knock_percent = 0.0f;
 
   uint8_t taillight_left_state = 0;
   uint8_t taillight_right_state = 0;
@@ -244,6 +270,20 @@ struct VehicleState {
   uint8_t reset_reason = 0;
   char current_log_file[64]{};
   char last_sd_write_status[32]{};
+  bool telemetry_recording = false;
+  bool telemetry_shutdown_clean = false;
+  bool telemetry_active_protected = false;
+  uint16_t telemetry_queue_depth = 0;
+  uint16_t telemetry_queue_high_water = 0;
+  uint32_t telemetry_captured_count = 0;
+  uint32_t telemetry_written_count = 0;
+  uint32_t telemetry_dropped_count = 0;
+  uint32_t telemetry_bytes_written = 0;
+  uint32_t telemetry_write_errors = 0;
+  uint32_t telemetry_recovery_count = 0;
+  uint32_t telemetry_deleted_count = 0;
+  uint32_t telemetry_max_write_us = 0;
+  uint64_t telemetry_managed_bytes = 0;
 
   double gps_latitude = 0.0;
   double gps_longitude = 0.0;

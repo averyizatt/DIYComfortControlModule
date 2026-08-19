@@ -48,6 +48,15 @@ constexpr uint16_t ID_METH_CONFIG_REQUEST = 0x305;   // RX/TX as needed, DLC 1
 constexpr uint16_t ID_METH_CONFIG_ACK = 0x306;       // RX/TX as needed, DLC 4
 constexpr uint16_t ID_ENGINE_KNOCK_STATE = 0x307;    // TX every 50ms, DLC 8
 constexpr uint16_t ID_ENGINE_KNOCK_FAULT = 0x308;    // TX on event/fault, DLC 4
+constexpr uint16_t ID_ENGINE_RUNTIME = 0x309;
+constexpr uint16_t ID_KNOCK_LIVE_HOOK = 0x30B;
+constexpr uint16_t ID_KNOCK_CONFIG_PAGE_1 = 0x30C;
+constexpr uint16_t ID_KNOCK_CONFIG_PAGE_2 = 0x30D;
+constexpr uint16_t ID_ENGINE_KNOCK_COMMAND = ID_ENGINE_METH_COMMAND;      // RX, command range 0x40..0x4A
+constexpr uint16_t ID_KNOCK_CONFIG_REQUEST = ID_METH_CONFIG_REQUEST;      // RX/TX as needed
+constexpr uint16_t ID_KNOCK_CONFIG_ACK = ID_METH_CONFIG_ACK;              // RX/TX as needed, DLC 4
+constexpr uint16_t ID_ENGINE_KNOCK_CONFIG_PAGE1 = ID_KNOCK_CONFIG_PAGE_1; // TX on request/change, DLC 8
+constexpr uint16_t ID_ENGINE_KNOCK_CONFIG_PAGE2 = ID_KNOCK_CONFIG_PAGE_2; // TX on request/change, DLC 8
 
 enum class MasterState : uint8_t { BOOT = 0, RUN = 1, WARN = 2, FAULT = 3, CONFIG = 4 };
 enum class UiPage : uint8_t { DASH = 0, ENVIRONMENT = 1, METH = 2, LIGHTING = 3, DIAGNOSTICS = 4, SETTINGS = 5, RACE = 6 };
@@ -92,7 +101,25 @@ constexpr uint8_t STOP_MANUAL_TEST = 0x03;     // DLC 1
 constexpr uint8_t SET_BOOST_TRIGGER = 0x04;    // DLC 2, B1 kPa
 constexpr uint8_t SET_IAT_THRESHOLD = 0x05;    // DLC 2, B1 temp + 40
 constexpr uint8_t CLEAR_FAULTS = 0x06;         // DLC 1
+constexpr uint8_t KNOCK_SET_ENABLE = 0x40;
+constexpr uint8_t KNOCK_SET_THRESHOLD_OFFSET = 0x41;
+constexpr uint8_t KNOCK_SET_ADAPTIVE_MULTIPLIER_X10 = 0x42;
+constexpr uint8_t KNOCK_SET_MIN_RPM_DIV100 = 0x43;
+constexpr uint8_t KNOCK_SET_MIN_MAP_KPA = 0x44;
+constexpr uint8_t KNOCK_SET_DEBOUNCE_MS_DIV10 = 0x45;
+constexpr uint8_t KNOCK_SET_GAIN_X10 = 0x46;
+constexpr uint8_t KNOCK_SET_CENTER_FREQ_DIV100 = 0x47;
+constexpr uint8_t KNOCK_SET_BANDWIDTH_DIV100 = 0x48;
+constexpr uint8_t KNOCK_SET_AUTO_FREQ_FROM_BORE = 0x49;
+constexpr uint8_t KNOCK_CLEAR_EVENTS = 0x4A;
 }  // namespace meth_command
+
+namespace config_ack_status {
+constexpr uint8_t OK = 0x00;
+constexpr uint8_t UNSUPPORTED_COMMAND = 0x01;
+constexpr uint8_t INVALID_LENGTH = 0x02;
+constexpr uint8_t VALUE_CLAMPED = 0x03;
+}  // namespace config_ack_status
 
 namespace meth_fault_code {
 constexpr uint8_t LOW_TANK = 0x01;
@@ -124,6 +151,27 @@ constexpr uint8_t BASELINE_LEARNED = 1U << 4;
 constexpr uint8_t SENSOR_FAULT = 1U << 5;
 constexpr uint8_t CLIPPING_DETECTED = 1U << 6;
 }  // namespace knock_status_flag
+
+namespace knock_command {
+constexpr uint8_t SET_ENABLE = meth_command::KNOCK_SET_ENABLE;
+constexpr uint8_t SET_THRESHOLD_OFFSET = meth_command::KNOCK_SET_THRESHOLD_OFFSET;
+constexpr uint8_t SET_ADAPTIVE_MULTIPLIER = meth_command::KNOCK_SET_ADAPTIVE_MULTIPLIER_X10;
+constexpr uint8_t SET_MIN_RPM = meth_command::KNOCK_SET_MIN_RPM_DIV100;
+constexpr uint8_t SET_MIN_MAP_KPA = meth_command::KNOCK_SET_MIN_MAP_KPA;
+constexpr uint8_t SET_DEBOUNCE = meth_command::KNOCK_SET_DEBOUNCE_MS_DIV10;
+constexpr uint8_t SET_GAIN = meth_command::KNOCK_SET_GAIN_X10;
+constexpr uint8_t SET_CENTER_FREQUENCY = meth_command::KNOCK_SET_CENTER_FREQ_DIV100;
+constexpr uint8_t SET_BANDWIDTH = meth_command::KNOCK_SET_BANDWIDTH_DIV100;
+constexpr uint8_t SET_AUTO_FREQUENCY_FROM_BORE = meth_command::KNOCK_SET_AUTO_FREQ_FROM_BORE;
+constexpr uint8_t CLEAR_EVENTS_AND_FAULTS = meth_command::KNOCK_CLEAR_EVENTS;
+}  // namespace knock_command
+
+namespace knock_ack_status {
+constexpr uint8_t OK = config_ack_status::OK;
+constexpr uint8_t UNSUPPORTED_COMMAND = config_ack_status::UNSUPPORTED_COMMAND;
+constexpr uint8_t INVALID_LENGTH = config_ack_status::INVALID_LENGTH;
+constexpr uint8_t VALUE_CLAMPED = config_ack_status::VALUE_CLAMPED;
+}  // namespace knock_ack_status
 
 struct CanFrame {
   uint16_t id = 0;
@@ -202,7 +250,7 @@ inline bool unpackTaillightFault(const CanFrame& frame, TaillightFault& out) {
 struct EngineMethState {
   // 0x300, DLC 8
   // B0 meth state, B1 pump duty, B2 tank %, B3 flow status,
-  // B4 MAP/boost kPa, B5 IAT+40, B6 engine bay+40, B7 fault flags.
+  // B4 gauge boost kPa, B5 IAT+40, B6 engine bay+40, B7 fault flags.
   uint8_t meth_state = 0;
   uint8_t pump_duty = 0;
   uint8_t tank_level = 0;
@@ -260,6 +308,12 @@ struct EngineSensorExt {
   int8_t ambient_temp_c = 0;
   int8_t cabin_temp_c = 0;
   uint16_t analog_fault_flags = 0;
+};
+
+struct EngineRuntime {
+  uint16_t rpm = 0;
+  uint8_t map_kpa = 0;
+  uint8_t valid_flags = 0;
 };
 
 inline bool unpackEngineSensorExt(const CanFrame& frame, EngineSensorExt& out) {
@@ -329,6 +383,118 @@ inline bool unpackEngineKnockFault(const CanFrame& frame, EngineKnockFault& out)
   return true;
 }
 
+inline CanFrame packEngineRuntime(const EngineRuntime& runtime) {
+  CanFrame frame{};
+  frame.id = ID_ENGINE_RUNTIME;
+  frame.dlc = 4;
+  frame.data[0] = static_cast<uint8_t>(runtime.rpm & 0xFFU);
+  frame.data[1] = static_cast<uint8_t>((runtime.rpm >> 8U) & 0xFFU);
+  frame.data[2] = runtime.map_kpa;
+  frame.data[3] = runtime.valid_flags;
+  return frame;
+}
+
+struct KnockLiveHook {
+  uint8_t flags = 0;
+  uint8_t live_knock_rms = 0;
+  uint8_t adaptive_threshold = 0;
+  uint8_t adaptive_baseline = 0;
+  uint8_t event_count = 0;
+  uint8_t bias_adc_div16 = 0;
+  uint8_t raw_adc_div16 = 0;
+  uint8_t envelope_level = 0;
+};
+
+inline bool unpackKnockLiveHook(const CanFrame& frame, KnockLiveHook& out) {
+  if (frame.id != ID_KNOCK_LIVE_HOOK || frame.dlc < 8) return false;
+  out.flags = frame.data[0];
+  out.live_knock_rms = frame.data[1];
+  out.adaptive_threshold = frame.data[2];
+  out.adaptive_baseline = frame.data[3];
+  out.event_count = frame.data[4];
+  out.bias_adc_div16 = frame.data[5];
+  out.raw_adc_div16 = frame.data[6];
+  out.envelope_level = frame.data[7];
+  return true;
+}
+
+struct EngineKnockConfigAck {
+  uint8_t command = 0;
+  uint8_t status = 0;
+  uint8_t applied_value = 0;
+  uint8_t schema_version = 0;
+};
+
+inline bool unpackEngineKnockConfigAck(const CanFrame& frame, EngineKnockConfigAck& out) {
+  if (frame.id != ID_KNOCK_CONFIG_ACK || frame.dlc < 4) return false;
+  if (frame.data[0] < knock_command::SET_ENABLE || frame.data[0] > knock_command::CLEAR_EVENTS_AND_FAULTS) return false;
+  if (frame.data[3] != 1U) return false;
+  out.command = frame.data[0];
+  out.status = frame.data[1];
+  out.applied_value = frame.data[2];
+  out.schema_version = frame.data[3];
+  return true;
+}
+
+struct KnockConfigPage1 {
+  uint8_t config_flags = 0;
+  uint8_t threshold_offset = 0;
+  uint8_t adaptive_multiplier_x10 = 0;
+  uint8_t min_rpm_div100 = 0;
+  uint8_t min_map_kpa = 0;
+  uint8_t debounce_ms_div10 = 0;
+  uint8_t gain_x10 = 0;
+  uint8_t center_frequency_div100 = 0;
+};
+
+inline bool unpackKnockConfigPage1(const CanFrame& frame, KnockConfigPage1& out) {
+  if (frame.id != ID_KNOCK_CONFIG_PAGE_1 || frame.dlc < 8) return false;
+  out.config_flags = frame.data[0];
+  out.threshold_offset = frame.data[1];
+  out.adaptive_multiplier_x10 = frame.data[2];
+  out.min_rpm_div100 = frame.data[3];
+  out.min_map_kpa = frame.data[4];
+  out.debounce_ms_div10 = frame.data[5];
+  out.gain_x10 = frame.data[6];
+  out.center_frequency_div100 = frame.data[7];
+  return true;
+}
+
+struct KnockConfigPage2 {
+  uint8_t bandwidth_div100 = 0;
+  uint8_t sample_rate_div100 = 0;
+  uint8_t samples_per_update = 0;
+  uint8_t bias_alpha_x1000 = 0;
+  uint8_t rms_alpha_x100 = 0;
+  uint8_t envelope_alpha_x100 = 0;
+  uint8_t bore_mm = 0;
+  uint8_t reserved = 0;
+};
+
+inline bool unpackKnockConfigPage2(const CanFrame& frame, KnockConfigPage2& out) {
+  if (frame.id != ID_KNOCK_CONFIG_PAGE_2 || frame.dlc < 8) return false;
+  out.bandwidth_div100 = frame.data[0];
+  out.sample_rate_div100 = frame.data[1];
+  out.samples_per_update = frame.data[2];
+  out.bias_alpha_x1000 = frame.data[3];
+  out.rms_alpha_x100 = frame.data[4];
+  out.envelope_alpha_x100 = frame.data[5];
+  out.bore_mm = frame.data[6];
+  out.reserved = frame.data[7];
+  return true;
+}
+
+using EngineKnockConfigPage1 = KnockConfigPage1;
+using EngineKnockConfigPage2 = KnockConfigPage2;
+
+inline bool unpackEngineKnockConfigPage1(const CanFrame& frame, EngineKnockConfigPage1& out) {
+  return unpackKnockConfigPage1(frame, out);
+}
+
+inline bool unpackEngineKnockConfigPage2(const CanFrame& frame, EngineKnockConfigPage2& out) {
+  return unpackKnockConfigPage2(frame, out);
+}
+
 inline CanFrame packEngineKnockState(const EngineKnockState& state) {
   CanFrame frame{};
   frame.id = ID_ENGINE_KNOCK_STATE;
@@ -352,6 +518,79 @@ inline CanFrame packEngineKnockFault(uint8_t code, uint8_t severity, uint8_t dat
   frame.data[1] = severity;
   frame.data[2] = data0;
   frame.data[3] = data1;
+  return frame;
+}
+
+inline CanFrame packKnockLiveHook(const KnockLiveHook& hook) {
+  CanFrame frame{};
+  frame.id = ID_KNOCK_LIVE_HOOK;
+  frame.dlc = 8;
+  frame.data[0] = hook.flags;
+  frame.data[1] = hook.live_knock_rms;
+  frame.data[2] = hook.adaptive_threshold;
+  frame.data[3] = hook.adaptive_baseline;
+  frame.data[4] = hook.event_count;
+  frame.data[5] = hook.bias_adc_div16;
+  frame.data[6] = hook.raw_adc_div16;
+  frame.data[7] = hook.envelope_level;
+  return frame;
+}
+
+inline CanFrame packKnockConfigPage1(const KnockConfigPage1& page) {
+  CanFrame frame{};
+  frame.id = ID_KNOCK_CONFIG_PAGE_1;
+  frame.dlc = 8;
+  frame.data[0] = page.config_flags;
+  frame.data[1] = page.threshold_offset;
+  frame.data[2] = page.adaptive_multiplier_x10;
+  frame.data[3] = page.min_rpm_div100;
+  frame.data[4] = page.min_map_kpa;
+  frame.data[5] = page.debounce_ms_div10;
+  frame.data[6] = page.gain_x10;
+  frame.data[7] = page.center_frequency_div100;
+  return frame;
+}
+
+inline CanFrame packKnockConfigPage2(const KnockConfigPage2& page) {
+  CanFrame frame{};
+  frame.id = ID_KNOCK_CONFIG_PAGE_2;
+  frame.dlc = 8;
+  frame.data[0] = page.bandwidth_div100;
+  frame.data[1] = page.sample_rate_div100;
+  frame.data[2] = page.samples_per_update;
+  frame.data[3] = page.bias_alpha_x1000;
+  frame.data[4] = page.rms_alpha_x100;
+  frame.data[5] = page.envelope_alpha_x100;
+  frame.data[6] = page.bore_mm;
+  frame.data[7] = page.reserved;
+  return frame;
+}
+
+inline CanFrame packEngineKnockCommand(uint8_t command, uint8_t value = 0) {
+  CanFrame frame{};
+  frame.id = ID_ENGINE_KNOCK_COMMAND;
+  frame.dlc = 2;
+  frame.data[0] = command;
+  frame.data[1] = value;
+  return frame;
+}
+
+inline CanFrame packEngineKnockConfigRequest() {
+  CanFrame frame{};
+  frame.id = ID_KNOCK_CONFIG_REQUEST;
+  frame.dlc = 1;
+  frame.data[0] = 0x40;
+  return frame;
+}
+
+inline CanFrame packConfigAck(uint8_t command, uint8_t status, uint8_t value, uint8_t schemaVersion) {
+  CanFrame frame{};
+  frame.id = ID_METH_CONFIG_ACK;
+  frame.dlc = 4;
+  frame.data[0] = command;
+  frame.data[1] = status;
+  frame.data[2] = value;
+  frame.data[3] = schemaVersion;
   return frame;
 }
 
