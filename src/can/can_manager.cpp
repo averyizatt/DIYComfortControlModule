@@ -77,6 +77,10 @@
 #define CCM_CAN_KNOCK_CONFIG_REQUEST_MS 1000
 #endif
 
+#ifndef CCM_CAN_FRAME_TRACE
+#define CCM_CAN_FRAME_TRACE 0
+#endif
+
 namespace canbus {
 
 namespace {
@@ -155,6 +159,43 @@ MCP2515 g_mcp2515(pins::kCanSpiCs, CCM_CAN_SPI_HZ, &SPI);
 bool g_spiCanOnline = false;
 CAN_CLOCK g_activeCanMcpClock = kCanMcpClock;
 uint8_t g_activeCanMcpClockMhz = kCanMcpClockMhz;
+
+#if CCM_CAN_FRAME_TRACE
+constexpr uint8_t kCanTraceLinesPerSecond = 25U;
+uint32_t g_canTraceWindowMs = 0U;
+uint16_t g_canTraceLines = 0U;
+uint32_t g_canTraceSuppressed = 0U;
+
+void traceCanFrame(const char* direction,
+                   const can_protocol::CanFrame& frame,
+                   const char* result) {
+  const uint32_t nowMs = millis();
+  if ((nowMs - g_canTraceWindowMs) >= 1000U) {
+    if (g_canTraceSuppressed != 0U) {
+      Serial.printf("[CAN-TRACE] suppressed=%lu frames in previous window\n",
+                    static_cast<unsigned long>(g_canTraceSuppressed));
+    }
+    g_canTraceWindowMs = nowMs;
+    g_canTraceLines = 0U;
+    g_canTraceSuppressed = 0U;
+  }
+  if (g_canTraceLines >= kCanTraceLinesPerSecond) {
+    ++g_canTraceSuppressed;
+    return;
+  }
+
+  Serial.printf("[CAN-%s] t=%lu id=0x%03X dlc=%u data=",
+                direction,
+                static_cast<unsigned long>(nowMs),
+                static_cast<unsigned>(frame.id),
+                static_cast<unsigned>(frame.dlc));
+  for (uint8_t i = 0; i < frame.dlc && i < 8U; ++i) {
+    Serial.printf("%02X%s", frame.data[i], (i + 1U < frame.dlc) ? " " : "");
+  }
+  Serial.printf(" result=%s\n", result);
+  ++g_canTraceLines;
+}
+#endif
 
 // setBitrate() only confirms that the timing registers were written over SPI;
 // it cannot determine the crystal fitted to the MCP2515 board.  If a new bus
@@ -462,6 +503,48 @@ void CanManager::tick() {
       canRxWarnSent_ = true;
     }
   }
+
+#if CCM_CAN_FRAME_TRACE
+  static uint32_t lastDebugHealthMs = 0U;
+  static uint32_t previousRxCount = 0U;
+  static uint32_t previousTxCount = 0U;
+  if ((nowMs - lastDebugHealthMs) >= 1000U) {
+    lastDebugHealthMs = nowMs;
+    uint8_t eflg = 0xFFU;
+    uint8_t rec = 0xFFU;
+    uint8_t tec = 0xFFU;
+    uint8_t intf = 0xFFU;
+    uint8_t stat = 0xFFU;
+    if (hwCanReady_ && g_spiCanOnline) {
+      hal::SharedSpiBusLock spiLock("CAN:debug");
+      eflg = g_mcp2515.getErrorFlags();
+      rec = g_mcp2515.errorCountRX();
+      tec = g_mcp2515.errorCountTX();
+      intf = g_mcp2515.getInterrupts();
+      stat = g_mcp2515.getStatus();
+    }
+    const state::VehicleState debugState = state::g_vehicle_state.read();
+    Serial.printf("[CAN-ONLY] health online=%u clock=%uMHz mode=%s EFLG=0x%02X TEC=%u REC=%u INTF=0x%02X STAT=0x%02X INT=%d rx=%lu(+%lu) tx=%lu(+%lu) lastRx=0x%03X lastTx=0x%03X backoff=%u\n",
+                  static_cast<unsigned>(hwCanReady_ && g_spiCanOnline),
+                  static_cast<unsigned>(g_activeCanMcpClockMhz),
+                  (stat == 0xFFU) ? "offline" : "normal",
+                  eflg,
+                  static_cast<unsigned>(tec),
+                  static_cast<unsigned>(rec),
+                  intf,
+                  stat,
+                  digitalRead(pins::kCanSpiInt),
+                  static_cast<unsigned long>(debugState.can_rx_count),
+                  static_cast<unsigned long>(debugState.can_rx_count - previousRxCount),
+                  static_cast<unsigned long>(debugState.can_tx_count),
+                  static_cast<unsigned long>(debugState.can_tx_count - previousTxCount),
+                  static_cast<unsigned>(debugState.can_last_rx_id),
+                  static_cast<unsigned>(debugState.can_last_tx_id),
+                  static_cast<unsigned>(deadlinePending(nowMs, canNoAckBackoffUntilMs_)));
+    previousRxCount = debugState.can_rx_count;
+    previousTxCount = debugState.can_tx_count;
+  }
+#endif
 #endif
 
 #if defined(DEMO_MODE) && (DEMO_MODE == 1)
@@ -706,6 +789,9 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
       s.can_last_tx_ms = nowMs;
     });
   }
+#if CCM_CAN_FRAME_TRACE
+  traceCanFrame("TX", frame, sent ? "OK" : "FAIL");
+#endif
   return sent;
 }
 
@@ -748,6 +834,9 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
     lastCanNoAckLogMs_ = 0;
     canNoAckBackoffLogged_ = false;
     canRxWarnSent_ = false;
+#if CCM_CAN_FRAME_TRACE
+    traceCanFrame("RX", frame, "OK");
+#endif
     return true;
   }
 #endif

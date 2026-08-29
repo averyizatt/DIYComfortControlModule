@@ -181,6 +181,7 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 | Environment | Purpose |
 |---|---|
 | `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
+| `esp32s3_can_debug` | CAN-only bench build; skips display, SD, GPS, touch, LEDs, sensors, and web startup while tracing MCP2515 health and CAN frames over serial |
 | `esp32s3_devkit_release` | Default production-oriented build on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
 | `esp32s3_devkit_release_stock` | Stock PlatformIO `espressif32@6.7.0` release build kept for fallback/performance comparison |
 | `esp32s3_devkit_release_pioarduino` | Compatibility alias for `esp32s3_devkit_release` for existing scripts or local tooling that still reference the old name |
@@ -312,6 +313,9 @@ git submodule update --init --recursive
 # Debug
 pio run -e esp32s3_devkit_debug
 
+# CAN-only serial diagnostics
+pio run -e esp32s3_can_debug
+
 # Default release
 pio run -e esp32s3_devkit_release
 
@@ -327,6 +331,9 @@ pio run -e esp32s3_devkit_demo
 ```bash
 pio run -e esp32s3_devkit_release --target upload
 
+# Temporary CAN-only diagnostic image
+pio run -e esp32s3_can_debug --target upload
+
 # Or upload the stock PlatformIO fallback/comparison build
 pio run -e esp32s3_devkit_release_stock --target upload
 ```
@@ -336,6 +343,14 @@ pio run -e esp32s3_devkit_release_stock --target upload
 ```bash
 pio device monitor --baud 115200
 ```
+
+The CAN-only image prints `[CAN-RX]` and `[CAN-TX]` frame lines plus one
+`[CAN-ONLY] health` line per second. `TEC` rising while `REC` remains zero means
+the ESP32 is transmitting without another node acknowledging it. `REC` rising
+means frames are reaching the transceiver but have invalid timing or format.
+`EFLG=0x00`, increasing RX/TX counts, and stable `TEC=0 REC=0` indicate a healthy
+bus. Frame traces are capped at 25 lines per second; `[CAN-TRACE] suppressed=...`
+reports additional traffic without allowing serial output to overload CAN work.
 
 ### LVGL performance comparison
 
