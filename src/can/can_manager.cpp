@@ -100,7 +100,7 @@ constexpr uint32_t kCanEngineRuntimeTxMs =
     (CCM_CAN_ENGINE_RUNTIME_TX_MS < 20) ? 20U : static_cast<uint32_t>(CCM_CAN_ENGINE_RUNTIME_TX_MS);
 constexpr uint32_t kCanKnockConfigRequestMs =
     (CCM_CAN_KNOCK_CONFIG_REQUEST_MS < 250) ? 250U : static_cast<uint32_t>(CCM_CAN_KNOCK_CONFIG_REQUEST_MS);
-constexpr uint32_t kCanNoAckBackoffMs = 10000;
+constexpr uint32_t kCanNoAckBackoffMs = 2000;
 constexpr uint32_t kCanNoAckLogMs = 30000;
 constexpr uint32_t kCanTxQuietGraceMs = 5000;
 #if CCM_CAN_MCP_CLOCK_MHZ == 8
@@ -273,6 +273,24 @@ void CanManager::tick() {
   }
 
 #if CCM_HAS_SPI_CAN
+  // A no-ACK backoff must not depend on receiving a frame to end. If the
+  // remote node disappeared long enough for the MCP2515 to become passive,
+  // reset the controller when the probe pause expires and try the bus again.
+  if (hwCanReady_ && canNoAckBackoffUntilMs_ != 0 &&
+      static_cast<int32_t>(nowMs - canNoAckBackoffUntilMs_) >= 0) {
+    canNoAckBackoffUntilMs_ = 0;
+    g_spiCanOnline = false;
+    if (initSpiCan()) {
+      Serial.println("[CAN] MCP2515 no-ACK backoff recovery OK");
+      canNoAckBackoffLogged_ = false;
+      state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = true; });
+    } else {
+      Serial.println("[CAN] MCP2515 no-ACK backoff recovery FAILED; retrying after backoff");
+      canNoAckBackoffUntilMs_ = nowMs + kCanNoAckBackoffMs;
+      state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = false; });
+    }
+  }
+
   // ── MCP2515 error monitoring & bus-off recovery ───────────────────────────
   // Runs every 3 s. Detects TXBO (bus-off), error-passive, and RX overflow.
   // On bus-off the MCP2515 refuses to TX or RX until it is reset.
@@ -593,6 +611,12 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
   const uint32_t nowMs = millis();
 
   if (canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_) {
+    if ((nowMs - lastCanNoAckLogMs_) >= 1000U) {
+      lastCanNoAckLogMs_ = nowMs;
+      Serial.printf("[CAN] TX suppressed by no-ACK backoff, %lu ms remaining (id=0x%03X)\n",
+                    static_cast<unsigned long>(canNoAckBackoffUntilMs_ - nowMs),
+                    static_cast<unsigned>(frame.id));
+    }
     return false;
   }
 
@@ -677,6 +701,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
     canNoAckBackoffUntilMs_ = 0;
     lastCanNoAckLogMs_ = 0;
     canNoAckBackoffLogged_ = false;
+    canRxWarnSent_ = false;
     return true;
   }
 #endif
@@ -701,6 +726,7 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
     canNoAckBackoffUntilMs_ = 0;
     lastCanNoAckLogMs_ = 0;
     canNoAckBackoffLogged_ = false;
+    canRxWarnSent_ = false;
     return true;
   }
 #endif

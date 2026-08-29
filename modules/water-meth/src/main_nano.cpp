@@ -25,11 +25,13 @@ uint32_t lastLoopMs = 0;
 uint32_t lastDebugMs = 0;
 uint32_t lastCanStateTxMs = 0;
 uint32_t lastCanRetryMs = 0;
+uint32_t lastCanDiagMs = 0;
 uint32_t lastMasterRxMs = 0;
 uint32_t manualTestStartMs = 0;
 float knockBiasRaw = 0.0f;
 float knockEnvelopeRaw = 0.0f;
 bool canOnline = false;
+uint16_t canDiagTxFailStreak = 0;
 bool desiredArmed = false;
 bool manualTestActive = false;
 uint8_t manualTestDuty = 0;
@@ -42,6 +44,7 @@ constexpr float kKnockEnvelopeAlpha = 0.18f;
 constexpr float kKnockSoftwareGain = 1.0f;
 constexpr float kKnockDetectThresholdRaw = 35.0f;
 constexpr uint32_t kCanRetryMs = 2000;
+constexpr uint32_t kCanDiagMs = 3000;
 constexpr uint32_t kCanStateTxMs = 50;
 constexpr uint32_t kMasterTimeoutMs = 3000;
 constexpr uint32_t kManualTestTimeoutMs = 5000;
@@ -120,11 +123,43 @@ bool sendCanFrame(const can_protocol::CanFrame& frame) {
   const byte len = frame.dlc > 8 ? 8 : frame.dlc;
   for (byte i = 0; i < len; ++i) data[i] = frame.data[i];
   if (canBus.sendMsgBuf(frame.id, 0, len, data) != CAN_OK) {
-    Serial.println("CAN: TX failed, will retry init");
+    if (canDiagTxFailStreak < UINT16_MAX) ++canDiagTxFailStreak;
+    Serial.print("CAN: TX failed, streak=");
+    Serial.print(canDiagTxFailStreak);
+    Serial.println(", will retry init");
     canOnline = false;
     return false;
   }
+  canDiagTxFailStreak = 0;
   return true;
+}
+
+void serviceCanDiag(uint32_t now) {
+  if (!canOnline || !elapsed(now, lastCanDiagMs, kCanDiagMs)) return;
+  lastCanDiagMs = now;
+
+  const byte eflg = canBus.getError();
+  const byte rec = canBus.errorCountRX();
+  const byte tec = canBus.errorCountTX();
+  Serial.print("[CAN] EFLG=0x");
+  if (eflg < 0x10U) Serial.print('0');
+  Serial.print(eflg, HEX);
+  Serial.print(" REC=");
+  Serial.print(rec);
+  Serial.print(" TEC=");
+  Serial.print(tec);
+  Serial.print(" INT=");
+  Serial.println(digitalRead(pins::CAN_SPI_INT));
+
+  if ((eflg & MCP_EFLG_TXBO) != 0U) {
+    Serial.println("[CAN] TXBO detected; resetting MCP2515");
+    canOnline = false;
+    canBus.mcp2515_reset();
+    delay(2);
+    canOnline = initCanBus();
+    lastCanRetryMs = now;
+    Serial.println(canOnline ? "[CAN] TXBO recovery OK" : "[CAN] TXBO recovery FAILED");
+  }
 }
 
 void sendConfigAck(uint8_t status, uint8_t rejectReason) {
@@ -259,6 +294,8 @@ void serviceCanBus(uint32_t now, const SensorReadings& readings, const ControlRe
   }
 
   serviceCanRx(now);
+  serviceCanDiag(now);
+  if (!canOnline) return;
   const bool masterTimedOut = lastMasterRxMs != 0U && elapsed(now, lastMasterRxMs, kMasterTimeoutMs);
   if (masterTimedOut) {
     desiredArmed = false;
