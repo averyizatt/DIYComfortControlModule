@@ -153,6 +153,28 @@ constexpr uint8_t DUTY_OVER_MAX = 5;
 #if CCM_HAS_SPI_CAN
 MCP2515 g_mcp2515(pins::kCanSpiCs, CCM_CAN_SPI_HZ, &SPI);
 bool g_spiCanOnline = false;
+CAN_CLOCK g_activeCanMcpClock = kCanMcpClock;
+uint8_t g_activeCanMcpClockMhz = kCanMcpClockMhz;
+
+// setBitrate() only confirms that the timing registers were written over SPI;
+// it cannot determine the crystal fitted to the MCP2515 board.  If a new bus
+// has never decoded a frame, rotate through the common oscillator values after
+// a no-ACK timeout.  Once any real CAN frame is received, callers stop rotating
+// and retain the proven setting for all later reconnects.
+void selectNextSpiCanClock() {
+  if (g_activeCanMcpClockMhz == 8U) {
+    g_activeCanMcpClock = MCP_16MHZ;
+    g_activeCanMcpClockMhz = 16U;
+  } else if (g_activeCanMcpClockMhz == 16U) {
+    g_activeCanMcpClock = MCP_20MHZ;
+    g_activeCanMcpClockMhz = 20U;
+  } else {
+    g_activeCanMcpClock = MCP_8MHZ;
+    g_activeCanMcpClockMhz = 8U;
+  }
+  Serial.printf("[CAN] no valid RX yet; next MCP2515 clock candidate=%uMHz\n",
+                static_cast<unsigned>(g_activeCanMcpClockMhz));
+}
 
 bool configureSpiCanAtClock(CAN_CLOCK clock, uint8_t clockMhz) {
   Serial.printf("[CAN] try clock=%uMHz\n", static_cast<unsigned>(clockMhz));
@@ -193,7 +215,7 @@ bool initSpiCan() {
   }
 
   Serial.printf("[CAN] MCP2515 bitrate=500k clock=%uMHz SPI=%luHz int_gated=%u rx_max=%u fallback=%lums\n",
-                 static_cast<unsigned>(kCanMcpClockMhz),
+                 static_cast<unsigned>(g_activeCanMcpClockMhz),
                  static_cast<unsigned long>(CCM_CAN_SPI_HZ),
                  static_cast<unsigned>(kCanRxIntGated ? 1U : 0U),
                  static_cast<unsigned>(kCanRxMaxFramesPerTick),
@@ -201,28 +223,10 @@ bool initSpiCan() {
 
   g_mcp2515.reset();
   delay(2);
-  if (configureSpiCanAtClock(kCanMcpClock, kCanMcpClockMhz)) {
+  if (configureSpiCanAtClock(g_activeCanMcpClock, g_activeCanMcpClockMhz)) {
     g_spiCanOnline = true;
     return true;
   }
-
-#if CCM_CAN_MCP_CLOCK_MHZ != 16
-  g_mcp2515.reset();
-  delay(2);
-  if (configureSpiCanAtClock(MCP_16MHZ, 16)) {
-    g_spiCanOnline = true;
-    return true;
-  }
-#endif
-
-#if CCM_CAN_MCP_CLOCK_MHZ != 8
-  g_mcp2515.reset();
-  delay(2);
-  if (configureSpiCanAtClock(MCP_8MHZ, 8)) {
-    g_spiCanOnline = true;
-    return true;
-  }
-#endif
 
   g_spiCanOnline = false;
   return false;
@@ -300,6 +304,10 @@ void CanManager::tick() {
   if (hardwareCanRequested_ && deadlineReached(nowMs, canNoAckBackoffUntilMs_)) {
     canNoAckBackoffUntilMs_ = 0;
     g_spiCanOnline = false;
+    const state::VehicleState beforeReinit = state::g_vehicle_state.read();
+    if (beforeReinit.can_rx_count == 0U) {
+      selectNextSpiCanClock();
+    }
     if (initSpiCan()) {
       hwCanReady_ = true;
       Serial.println("[CAN] MCP2515 no-ACK backoff recovery OK");
