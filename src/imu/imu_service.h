@@ -25,6 +25,7 @@ class ImuService {
   uint8_t  activeAddr_  = 0;
   uint8_t  failCount_   = 0;
   uint32_t lastSampleMs_ = 0; // keep IMU reads from crowding touch I2C
+  uint32_t lastRetryMs_ = 0;
 
   // Low-pass filter state (alpha = 0.25 — smooths jitter without much lag)
   float filtLat_ = 0.0f;
@@ -33,6 +34,7 @@ class ImuService {
   static constexpr uint8_t  kMaxFails       = 5;
   static constexpr float    kFilterAlpha    = 0.25f;
   static constexpr uint32_t kSamplePeriodMs = 100;
+  static constexpr uint32_t kRetryIntervalMs = 2000;
 
   bool readAccel(float& ax, float& ay, float& az);
 };

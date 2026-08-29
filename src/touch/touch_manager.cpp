@@ -13,21 +13,16 @@ bool TouchManager::begin(TwoWire& wire, uint8_t sdaPin, uint8_t sclPin, uint8_t 
   // longer display harnesses. Touch traffic is tiny, so prefer robustness.
   wire_->setClock(100000U);
   wire_->setTimeOut(50);
-  if (rstPin_ != 255) {
-    pinMode(rstPin_, OUTPUT);
-    digitalWrite(rstPin_, LOW);
-    delay(20);
-    digitalWrite(rstPin_, HIGH);
-    delay(120);
-  }
+  pulseReset();
   if (intPin_ != 255) pinMode(intPin_, INPUT_PULLUP);
 
   online_ = false;
   for (uint8_t attempt = 0; attempt < 5U && !online_; ++attempt) {
-    online_ = probe();
+    online_ = probe() && activateController();
     if (!online_) delay(25);
   }
   readFailCount_ = 0;
+  retryCount_ = 0;
   lastProbeMs_ = millis();
   Serial.printf("[TOUCH] begin addr=0x%02X SDA=%u SCL=%u RST=%u INT=%u -> %s\n",
                 static_cast<unsigned>(address_),
@@ -37,13 +32,6 @@ bool TouchManager::begin(TwoWire& wire, uint8_t sdaPin, uint8_t sclPin, uint8_t 
                 static_cast<unsigned>(intPin_),
                 online_ ? "OK" : "OFF");
   if (online_) {
-    // Force normal operating mode after reset. A controller can ACK at 0x38
-    // while remaining asleep, which looks "online" but never reports touches.
-    writeRegister(0xA5, 0x00);  // power mode: active
-    writeRegister(0x00, 0x00);  // device mode: normal
-    writeRegister(0xA4, 0x00);  // G_MODE: polling (not one-shot interrupt)
-    delay(10);
-
     uint8_t chip = 0xFF;
     uint8_t firmware = 0xFF;
     uint8_t vendor = 0xFF;
@@ -74,6 +62,26 @@ bool TouchManager::probe() {
   if (!wire_) return false;
   wire_->beginTransmission(address_);
   return wire_->endTransmission(true) == 0;
+}
+
+void TouchManager::pulseReset() {
+  if (rstPin_ == 255U) return;
+  pinMode(rstPin_, OUTPUT);
+  digitalWrite(rstPin_, LOW);
+  delay(20);
+  digitalWrite(rstPin_, HIGH);
+  delay(120);
+}
+
+bool TouchManager::activateController() {
+  // An FT6x36-compatible controller can ACK while asleep. Reapply operating
+  // registers after every reconnect so an ACK alone is never called healthy.
+  const bool ok =
+      writeRegister(0xA5, 0x00) &&  // power mode: active
+      writeRegister(0x00, 0x00) &&  // device mode: normal
+      writeRegister(0xA4, 0x00);    // G_MODE: polling
+  if (ok) delay(10);
+  return ok;
 }
 
 bool TouchManager::readRegister(uint8_t reg, uint8_t& value) {
@@ -119,9 +127,14 @@ TouchSample TouchManager::read() {
     const uint32_t nowMs = millis();
     if ((nowMs - lastProbeMs_) >= 1000U) {
       lastProbeMs_ = nowMs;
-      online_ = probe();
+      if (retryCount_ < 255U) ++retryCount_;
+      // Periodically use the controller's hardware reset as well as an I2C
+      // probe. This recovers a device that still ACKs but has wedged internally.
+      if ((retryCount_ % 5U) == 0U) pulseReset();
+      online_ = probe() && activateController();
       if (online_) {
         readFailCount_ = 0;
+        retryCount_ = 0;
         Serial.printf("[TOUCH] online addr=0x%02X\n", static_cast<unsigned>(address_));
       }
     }

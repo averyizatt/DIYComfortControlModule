@@ -29,9 +29,10 @@ bool TelemetryRecorder::begin(SdManager* sd, uint8_t resetReason, uint16_t realt
   sd_ = sd;
   resetReason_ = resetReason;
   realtimeBaseId_ = realtimeBaseId;
-  // There is no hot-plug/remount path in this firmware. Do not consume the
-  // fixed CAN ring forever when boot completed without a usable card.
-  enabled_ = sd_ != nullptr && sd_->mounted();
+  // Keep the recorder ready across card insertion/remount, but capture() only
+  // accepts records while storage is mounted so an absent card cannot fill the
+  // fixed ring forever.
+  enabled_ = sd_ != nullptr;
   if (!enabled_) return false;
 
   Preferences prefs;
@@ -42,11 +43,11 @@ bool TelemetryRecorder::begin(SdManager* sd, uint8_t resetReason, uint16_t realt
   } else {
     sessionId_ = esp_random();
   }
-  return true;
+  return sd_->mounted();
 }
 
 bool TelemetryRecorder::capture(const can_protocol::CanFrame& frame, uint32_t timestampMs) {
-  if (!enabled_ || shutdownRequested_ ||
+  if (!enabled_ || !sd_ || !sd_->mounted() || shutdownRequested_ ||
       !microsquirt::isMicroSquirtId(frame.id, realtimeBaseId_)) {
     return false;
   }
@@ -98,7 +99,10 @@ uint16_t TelemetryRecorder::queueDepth() const {
 }
 
 bool TelemetryRecorder::openSegment(uint32_t nowMs) {
-  if (!sd_ || !sd_->mounted() || nowMs < retryAfterMs_) return false;
+  if (!sd_ || !sd_->mounted() ||
+      (retryAfterMs_ != 0U && static_cast<int32_t>(retryAfterMs_ - nowMs) > 0)) {
+    return false;
+  }
   sd_->ensureFolder("/logs");
   if (!sd_->ensureFolder(kLogDir)) {
     setWriteFailure();
@@ -158,8 +162,10 @@ bool TelemetryRecorder::writeBytes(const uint8_t* data, size_t len) {
   if (elapsed > maxWriteUs_) maxWriteUs_ = elapsed;
   if (wrote != len) {
     spacePressure_ = true;
+    if (sd_) sd_->noteIoFailure("telemetry_write_failed");
     return false;
   }
+  if (sd_) sd_->noteIoSuccess();
   bytesWritten_ += static_cast<uint32_t>(wrote);
   segmentBytes_ += static_cast<uint32_t>(wrote);
   return true;
@@ -338,7 +344,11 @@ void TelemetryRecorder::runRetention() {
 }
 
 void TelemetryRecorder::service(uint32_t nowMs) {
-  if (!enabled_ || !sd_ || !sd_->mounted()) return;
+  if (!enabled_ || !sd_) return;
+  if (!sd_->mounted()) {
+    if (recording_) setWriteFailure();
+    return;
+  }
   if (!recording_ && !shutdownRequested_) openSegment(nowMs);
   if (!recording_) {
     if (!scanStarted_ && !scanComplete_) startScan();

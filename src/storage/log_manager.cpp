@@ -79,7 +79,6 @@ void LogManager::tick(uint32_t nowMs) {
   lastFlushMs_ = nowMs;
   if (qCount_ == 0) return;
   if (ESP.getFreeHeap() < kSdLogMinFreeHeap) {
-    ++droppedCount_;
     return;
   }
 
@@ -88,7 +87,11 @@ void LogManager::tick(uint32_t nowMs) {
     char catBuf[24];
     extractCategory(entry, catBuf, sizeof(catBuf));
     snprintf(currentFile_, sizeof(currentFile_), "/logs/%s/%s.csv", catBuf, sessionPrefix_);
-    sd_->appendLine(currentFile_, entry);
+    if (!sd_->appendLine(currentFile_, entry)) {
+      // Preserve the queued entry for a later remount/retry. enqueue() remains
+      // responsible for dropping the oldest item if the fixed queue fills.
+      break;
+    }
     qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
     --qCount_;
   }
@@ -102,7 +105,7 @@ void LogManager::flushCritical() {
     char catBuf[24];
     extractCategory(entry, catBuf, sizeof(catBuf));
     snprintf(currentFile_, sizeof(currentFile_), "/logs/%s/%s.csv", catBuf, sessionPrefix_);
-    sd_->appendLine(currentFile_, entry);
+    if (!sd_->appendLine(currentFile_, entry)) break;
     qHead_ = static_cast<uint8_t>((qHead_ + 1) % kMaxQueueSize);
     --qCount_;
   }

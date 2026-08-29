@@ -103,6 +103,7 @@ constexpr uint32_t kCanKnockConfigRequestMs =
 constexpr uint32_t kCanNoAckBackoffMs = 2000;
 constexpr uint32_t kCanNoAckLogMs = 30000;
 constexpr uint32_t kCanTxQuietGraceMs = 5000;
+constexpr uint32_t kCanRxStaleMs = 3000;
 #if CCM_CAN_MCP_CLOCK_MHZ == 8
 constexpr auto kCanMcpClock = MCP_8MHZ;
 constexpr uint8_t kCanMcpClockMhz = 8;
@@ -122,6 +123,14 @@ constexpr uint16_t kFaultTaillight = 0x0001;
 constexpr uint16_t kFaultMeth = 0x0010;
 constexpr uint16_t kFaultModuleOffline = 0x0080;
 constexpr uint16_t kFaultKnockCritical = 0x0400;
+
+bool deadlinePending(uint32_t nowMs, uint32_t deadlineMs) {
+  return deadlineMs != 0U && static_cast<int32_t>(deadlineMs - nowMs) > 0;
+}
+
+bool deadlineReached(uint32_t nowMs, uint32_t deadlineMs) {
+  return deadlineMs != 0U && static_cast<int32_t>(nowMs - deadlineMs) >= 0;
+}
 
 namespace taillight_animation {
 constexpr uint8_t SEQUENTIAL_ID = 1;
@@ -224,6 +233,7 @@ bool initSpiCan() {
 
 bool CanManager::begin(bool tryHardwareCan) {
   hwCanReady_ = false;
+  hardwareCanRequested_ = tryHardwareCan;
 
 #if CCM_HAS_SPI_CAN
   if (tryHardwareCan) {
@@ -245,6 +255,17 @@ bool CanManager::begin(bool tryHardwareCan) {
   }
 #else
   (void)tryHardwareCan;
+#endif
+
+#if CCM_HAS_SPI_CAN
+  // A controller that is absent or still powering up at boot must not be a
+  // permanent failure. tick() owns all later retries so setup can continue.
+  // If a compiled-in TWAI fallback succeeded, there is nothing to retry.
+  if (hardwareCanRequested_ && !hwCanReady_) {
+    canNoAckBackoffUntilMs_ = millis() + kCanNoAckBackoffMs;
+  } else {
+    canNoAckBackoffUntilMs_ = 0;
+  }
 #endif
 
 #if defined(DEMO_MODE) && (DEMO_MODE == 1)
@@ -276,15 +297,16 @@ void CanManager::tick() {
   // A no-ACK backoff must not depend on receiving a frame to end. If the
   // remote node disappeared long enough for the MCP2515 to become passive,
   // reset the controller when the probe pause expires and try the bus again.
-  if (hwCanReady_ && canNoAckBackoffUntilMs_ != 0 &&
-      static_cast<int32_t>(nowMs - canNoAckBackoffUntilMs_) >= 0) {
+  if (hardwareCanRequested_ && deadlineReached(nowMs, canNoAckBackoffUntilMs_)) {
     canNoAckBackoffUntilMs_ = 0;
     g_spiCanOnline = false;
     if (initSpiCan()) {
+      hwCanReady_ = true;
       Serial.println("[CAN] MCP2515 no-ACK backoff recovery OK");
       canNoAckBackoffLogged_ = false;
       state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = true; });
     } else {
+      hwCanReady_ = false;
       Serial.println("[CAN] MCP2515 no-ACK backoff recovery FAILED; retrying after backoff");
       canNoAckBackoffUntilMs_ = nowMs + kCanNoAckBackoffMs;
       state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = false; });
@@ -322,10 +344,15 @@ void CanManager::tick() {
     const bool wakeInt   = (intf & 0x40U) != 0U; // CANINTF WAKIF
     const bool msgErrInt = (intf & 0x80U) != 0U; // CANINTF MERRF
     const state::VehicleState snap = state::g_vehicle_state.read();
-    const bool emptyBenchBus = snap.can_rx_count == 0 && (txErrPass || busOff || msgErrInt);
-    const bool rxErrorNoFrames = snap.can_rx_count == 0 && (rxErrPass || rxWarn);
-    const bool noAckBackoffActive =
-        canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_;
+    const uint32_t rxAgeMs = snap.can_last_rx_ms == 0U
+                                 ? nowMs - canStartMs_
+                                 : nowMs - snap.can_last_rx_ms;
+    const bool rxStale = rxAgeMs >= kCanRxStaleMs;
+    // Use recent activity, not the lifetime RX counter. A node that worked for
+    // hours and then lost power must still enter recovery.
+    const bool emptyBenchBus = rxStale && (txErrPass || busOff || msgErrInt);
+    const bool rxErrorNoFrames = rxStale && (rxErrPass || rxWarn);
+    const bool noAckBackoffActive = deadlinePending(nowMs, canNoAckBackoffUntilMs_);
     // TX-complete interrupt bits normally toggle under load and used to print
     // a full status line every three seconds. Log immediately when the actual
     // error state changes, otherwise emit only a slow health heartbeat.
@@ -399,20 +426,31 @@ void CanManager::tick() {
       // Full reset + reinit recovers from bus-off.
       g_spiCanOnline = false;
       if (initSpiCan()) {
+        hwCanReady_ = true;
+        canNoAckBackoffUntilMs_ = 0;
         Serial.println("[CAN] MCP2515 bus-off recovery OK");
         state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = true; });
       } else {
-        Serial.println("[CAN] MCP2515 bus-off recovery FAILED");
+        hwCanReady_ = false;
+        canNoAckBackoffUntilMs_ = nowMs + kCanNoAckBackoffMs;
+        Serial.println("[CAN] MCP2515 bus-off recovery FAILED; retry scheduled");
         state::g_vehicle_state.mutate([](state::VehicleState& s) { s.can_online = false; });
       }
     }
   }
-  // One-shot "silent bus" warning: TX going up but no RX after grace period.
+  // One warning per silence incident. This deliberately uses last-RX age so a
+  // bus that disappears after previously working is diagnosed too.
   if (!canRxWarnSent_ && hwCanReady_ && g_spiCanOnline &&
       (nowMs - canStartMs_) > 10000) {
     const state::VehicleState snap = state::g_vehicle_state.read();
-    if (snap.can_tx_count > 5 && snap.can_rx_count == 0) {
-      Serial.println("[CAN] WARNING: TX active but RX=0 - bus may be ACKing, but no node is transmitting frames this module can read");
+    const uint32_t rxAgeMs = snap.can_last_rx_ms == 0U
+                                 ? nowMs - canStartMs_
+                                 : nowMs - snap.can_last_rx_ms;
+    const bool txWasRecent = snap.can_last_tx_ms != 0U &&
+                             (nowMs - snap.can_last_tx_ms) <= 2000U;
+    if (txWasRecent && rxAgeMs > 10000U) {
+      Serial.printf("[CAN] WARNING: TX active but RX silent for %lu ms - check peer power, bitrate, wiring, and termination\n",
+                    static_cast<unsigned long>(rxAgeMs));
       canRxWarnSent_ = true;
     }
   }
@@ -610,7 +648,7 @@ bool CanManager::sendFrame(const can_protocol::CanFrame& frame) {
   bool sent = false;
   const uint32_t nowMs = millis();
 
-  if (canNoAckBackoffUntilMs_ != 0 && nowMs < canNoAckBackoffUntilMs_) {
+  if (deadlinePending(nowMs, canNoAckBackoffUntilMs_)) {
     if ((nowMs - lastCanNoAckLogMs_) >= 1000U) {
       lastCanNoAckLogMs_ = nowMs;
       Serial.printf("[CAN] TX suppressed by no-ACK backoff, %lu ms remaining (id=0x%03X)\n",

@@ -47,6 +47,7 @@ class CanManager {
   bool dispatchMicroSquirt(const can_protocol::CanFrame& frame, uint32_t nowMs);
 
   bool hwCanReady_ = false;
+  bool hardwareCanRequested_ = false;
   uint32_t canStartMs_ = 0;        // time begin() was called; used for startup grace period
   uint32_t lastHeartbeatTxMs_ = 0;
   uint32_t lastTachTxMs_ = 0;

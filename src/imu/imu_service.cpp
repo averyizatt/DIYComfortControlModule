@@ -23,6 +23,7 @@ namespace imu {
 
 bool ImuService::begin(TwoWire& wire) {
   wire_ = &wire;
+  lastRetryMs_ = millis();
 
   activeAddr_ = 0;
   const uint8_t candidates[] = {
@@ -66,6 +67,9 @@ bool ImuService::begin(TwoWire& wire) {
   if (wire_->endTransmission() != 0) {
     online_ = false;
     activeAddr_ = 0;
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.imu_online = false;
+    });
     return false;
   }
 
@@ -76,6 +80,9 @@ bool ImuService::begin(TwoWire& wire) {
   if (wire_->endTransmission() != 0) {
     online_ = false;
     activeAddr_ = 0;
+    state::g_vehicle_state.mutate([](state::VehicleState& s) {
+      s.imu_online = false;
+    });
     return false;
   }
 
@@ -83,6 +90,9 @@ bool ImuService::begin(TwoWire& wire) {
   failCount_ = 0;
   filtLat_   = 0.0f;
   filtLon_   = 0.0f;
+  state::g_vehicle_state.mutate([](state::VehicleState& s) {
+    s.imu_online = true;
+  });
   return true;
 }
 
@@ -112,6 +122,13 @@ void ImuService::update() {
   const uint32_t nowMs = static_cast<uint32_t>(millis());
 
   if (!online_) {
+    if ((nowMs - lastRetryMs_) >= kRetryIntervalMs) {
+      lastRetryMs_ = nowMs;
+      if (begin(*wire_)) {
+        Serial.printf("[IMU] reconnected addr=0x%02X\n",
+                      static_cast<unsigned>(activeAddr_));
+      }
+    }
     return;
   }
 
@@ -126,6 +143,8 @@ void ImuService::update() {
     if (failCount_ >= kMaxFails) {
       online_ = false;
       activeAddr_ = 0;
+      lastRetryMs_ = nowMs;
+      Serial.println("[IMU] offline after repeated I2C read failures; retry scheduled");
       state::g_vehicle_state.mutate([](state::VehicleState& s) {
         s.imu_online = false;
       });

@@ -288,7 +288,13 @@ void UartGpsAdapter::sendOptionalUbxTuning() {
 }
 
 void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
-  if (lastGoodSentenceMs_ != 0) {
+  // A historical sentence is not proof that the receiver is still alive.
+  // Keep the current UART only while valid NMEA is recent; otherwise reopen
+  // and resume the baud/pin scan so a reset or hot-plug can recover.
+  const bool goodSentenceRecent =
+      lastGoodSentenceMs_ != 0U &&
+      (nowMs - lastGoodSentenceMs_) < kGpsNoGoodSentenceProbeMs;
+  if (goodSentenceRecent) {
     return;
   }
   if (preferredBaud_ != 0 && currentBaud_ == preferredBaud_ &&
@@ -296,9 +302,15 @@ void UartGpsAdapter::maybeAutoBaud(uint32_t nowMs) {
     return;
   }
 
-  const bool noRx = latest_.lastRxMs == 0 && (nowMs - lastBaudOpenMs_) >= kGpsNoRxProbeMs;
-  const bool noGoodSentence = latest_.lastRxMs != 0 && lastGoodSentenceMs_ == 0 &&
-                              (nowMs - lastBaudOpenMs_) >= kGpsNoGoodSentenceProbeMs;
+  const bool uartHoldElapsed =
+      (nowMs - lastBaudOpenMs_) >= kGpsNoRxProbeMs;
+  const bool noRx = uartHoldElapsed &&
+                    (latest_.lastRxMs == 0U ||
+                     (nowMs - latest_.lastRxMs) >= kGpsNoRxProbeMs);
+  const bool noGoodSentence =
+      (nowMs - lastBaudOpenMs_) >= kGpsNoGoodSentenceProbeMs &&
+      (lastGoodSentenceMs_ == 0U ||
+       (nowMs - lastGoodSentenceMs_) >= kGpsNoGoodSentenceProbeMs);
   if (!noRx && !noGoodSentence) {
     return;
   }

@@ -31,6 +31,8 @@ constexpr uint32_t kSdMaxSpiHz = CCM_SD_MAX_SPI_HZ;
 constexpr bool kSdCreateFoldersOnBoot = CCM_SD_CREATE_FOLDERS_ON_BOOT != 0;
 constexpr uint32_t kSdMinFileOpHeap =
     (CCM_SD_MIN_FILEOP_HEAP < 8000) ? 8000U : static_cast<uint32_t>(CCM_SD_MIN_FILEOP_HEAP);
+constexpr uint32_t kSdRemountIntervalMs = 10000U;
+constexpr uint8_t kSdIoErrorsBeforeOffline = 3U;
 
 bool heapAllowsFileOp() {
   return ESP.getFreeHeap() >= kSdMinFileOpHeap;
@@ -63,6 +65,8 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   lcdCsPin_ = lcdCsPin;
   sdCsPin_ = sdCsPin;
   totalBytes_ = 0;
+  configured_ = true;
+  lastMountAttemptMs_ = millis();
 
 #if !CCM_SD_ENABLED
   mounted_ = false;
@@ -127,6 +131,7 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
   Serial.printf("[SD] card size=%lu MB\n",
                  static_cast<unsigned long>(cardSize / (1024ULL * 1024ULL)));
   totalBytes_ = cardSize;
+  consecutiveIoErrors_ = 0;
 
   bool foldersOk = true;
   if (kSdCreateFoldersOnBoot) {
@@ -150,6 +155,31 @@ bool SdManager::begin(uint8_t lcdCsPin, uint8_t sdCsPin) {
 
   setStatus(foldersOk ? "mounted" : "folder_failed", !foldersOk);
   return true;
+#endif
+}
+
+void SdManager::service(uint32_t nowMs) {
+#if CCM_SD_ENABLED && CCM_SD_AUTOMOUNT
+  if (!configured_ || mounted_ ||
+      (nowMs - lastMountAttemptMs_) < kSdRemountIntervalMs) {
+    return;
+  }
+
+  lastMountAttemptMs_ = nowMs;
+  Serial.println("[SD] offline; attempting remount");
+  {
+    hal::SharedSpiBusLock spiLock("SD:remount-end", pdMS_TO_TICKS(500));
+    if (!spiLock.locked()) {
+      setStatus("remount_lock_timeout", true);
+      return;
+    }
+    SD.end();
+    digitalWrite(lcdCsPin_, HIGH);
+    digitalWrite(sdCsPin_, HIGH);
+  }
+  (void)begin(lcdCsPin_, sdCsPin_);
+#else
+  (void)nowMs;
 #endif
 }
 
@@ -181,15 +211,44 @@ bool SdManager::ensureFolder(const char* path) {
   digitalWrite(lcdCsPin_, HIGH);
   if (SD.exists(path)) {
     digitalWrite(sdCsPin_, HIGH);
+    recordIoResult(true, nullptr);
     return true;
   }
   if (!SD.mkdir(path)) {
     digitalWrite(sdCsPin_, HIGH);
-    setStatus("mkdir_failed", true);
+    recordIoResult(false, "mkdir_failed");
     return false;
   }
   digitalWrite(sdCsPin_, HIGH);
+  recordIoResult(true, nullptr);
   return true;
+}
+
+void SdManager::recordIoResult(bool ok, const char* failureStatus) {
+  if (ok) {
+    consecutiveIoErrors_ = 0;
+    return;
+  }
+
+  setStatus(failureStatus, true);
+  if (consecutiveIoErrors_ < 255U) ++consecutiveIoErrors_;
+  if (mounted_ && consecutiveIoErrors_ >= kSdIoErrorsBeforeOffline) {
+    bool cardPresent = false;
+    {
+      hal::SharedSpiBusLock spiLock("SD:health", pdMS_TO_TICKS(100));
+      cardPresent = spiLock.locked() && SD.cardType() != CARD_NONE;
+    }
+    if (cardPresent) {
+      // A present but full card is handled by telemetry retention; remounting
+      // it would only interrupt that recovery path.
+      consecutiveIoErrors_ = 0;
+      return;
+    }
+    mounted_ = false;
+    totalBytes_ = 0;
+    setStatus("io_offline", false);
+    Serial.println("[SD] repeated I/O failures; marked offline and remount scheduled");
+  }
 }
 
 bool SdManager::exists(const char* path) const {
@@ -216,14 +275,15 @@ bool SdManager::appendLine(const char* path, const char* line) {
   File f = SD.open(path, FILE_APPEND);
   if (!f) {
     digitalWrite(sdCsPin_, HIGH);
-    setStatus("open_failed", true);
+    recordIoResult(false, "open_failed");
     return false;
   }
 
   const bool ok = (f.println(line) > 0);
   f.close();
   digitalWrite(sdCsPin_, HIGH);
-  setStatus(ok ? "write_ok" : "write_failed", !ok);
+  if (ok) setStatus("write_ok", false);
+  recordIoResult(ok, "write_failed");
   return ok;
 }
 
@@ -244,14 +304,15 @@ bool SdManager::writeTextFile(const char* path, const char* text) {
   File f = SD.open(path, FILE_WRITE);
   if (!f) {
     digitalWrite(sdCsPin_, HIGH);
-    setStatus("open_failed", true);
+    recordIoResult(false, "open_failed");
     return false;
   }
 
   const bool ok = f.print(text) > 0;
   f.close();
   digitalWrite(sdCsPin_, HIGH);
-  setStatus(ok ? "write_ok" : "write_failed", !ok);
+  if (ok) setStatus("write_ok", false);
+  recordIoResult(ok, "write_failed");
   return ok;
 }
 

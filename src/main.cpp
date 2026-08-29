@@ -930,6 +930,7 @@ void analogSensorTask(void*) {
 void screenTask(void*) {
   uint32_t lastFpsMs = millis();
   uint32_t frameCount = 0;
+  bool lastTouchOnline = g_touch.online();
   constexpr uint32_t kScreenTaskPeriodMs =
       (CCM_SCREEN_TASK_PERIOD_MS < 1) ? 1 : CCM_SCREEN_TASK_PERIOD_MS;
   if (CCM_SCREEN_SERIAL_LOGS) {
@@ -942,6 +943,18 @@ void screenTask(void*) {
   while (true) {
     const state::VehicleState s = state::g_vehicle_state.read();
     g_screen.tick(s, millis());
+#if CCM_IMU_ENABLED
+    // Touch and IMU share one I2C bus. Sampling both from screenTask keeps bus
+    // ownership serialized and lets ImuService run its reconnect state machine.
+    g_imu.update();
+#endif
+    const bool touchOnline = g_touch.online();
+    if (touchOnline != lastTouchOnline) {
+      lastTouchOnline = touchOnline;
+      state::g_vehicle_state.mutate([touchOnline](state::VehicleState& st) {
+        st.touch_online = touchOnline;
+      });
+    }
     frameCount++;
 
     const uint32_t nowMs = millis();
@@ -986,6 +999,7 @@ void storageTask(void*) {
 
   while (true) {
     const uint32_t nowMs = millis();
+    g_sd.service(nowMs);
     if (pins::kIgnitionSense != 255U) {
       const bool rawLevel = digitalRead(pins::kIgnitionSense) == HIGH;
       const bool ignitionOn = CCM_IGNITION_SENSE_ACTIVE_HIGH ? rawLevel : !rawLevel;

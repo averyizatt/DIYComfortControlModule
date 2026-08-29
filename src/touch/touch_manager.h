@@ -21,6 +21,8 @@ class TouchManager {
 
  private:
   bool probe();
+  bool activateController();
+  void pulseReset();
   bool readRegister(uint8_t reg, uint8_t& value);
   bool writeRegister(uint8_t reg, uint8_t value);
   void markOffline(const char* reason);
@@ -31,6 +33,7 @@ class TouchManager {
   uint8_t intPin_ = 255;
   bool online_ = false;
   uint8_t readFailCount_ = 0;
+  uint8_t retryCount_ = 0;
   uint32_t lastProbeMs_ = 0;
   uint32_t lastStateLogMs_ = 0;
   uint32_t lastIrqStatusLogMs_ = 0;
