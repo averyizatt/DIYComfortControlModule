@@ -181,7 +181,7 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 | Environment | Purpose |
 |---|---|
 | `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
-| `esp32s3_can_debug` | CAN-only bench build; skips display, SD, GPS, touch, LEDs, sensors, and web startup while tracing MCP2515 health and CAN frames over serial |
+| `esp32s3_can_debug` | CAN-only bench build using the documented original MCP2515 harness pins; skips display, SD, GPS, touch, LEDs, sensors, and web startup while tracing controller health and CAN frames over serial |
 | `esp32s3_devkit_release` | Default production-oriented build on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
 | `esp32s3_devkit_release_stock` | Stock PlatformIO `espressif32@6.7.0` release build kept for fallback/performance comparison |
 | `esp32s3_devkit_release_pioarduino` | Compatibility alias for `esp32s3_devkit_release` for existing scripts or local tooling that still reference the old name |
@@ -351,6 +351,13 @@ means frames are reaching the transceiver but have invalid timing or format.
 `EFLG=0x00`, increasing RX/TX counts, and stable `TEC=0 REC=0` indicate a healthy
 bus. Frame traces are capped at 25 lines per second; `[CAN-TRACE] suppressed=...`
 reports additional traffic without allowing serial output to overload CAN work.
+The diagnostic environment routes Arduino `Serial` to UART0, so application
+messages remain on the same USB-to-UART COM port that prints the ESP-ROM boot
+text instead of moving to a separately enumerated native USB CDC port.
+It intentionally probes the original documented harness on SCK GPIO12, MOSI
+GPIO11, MISO GPIO13, CS GPIO17, INT GPIO18, and reset GPIO21. Persistent `0xFF`
+register values on this image indicate an electrical SPI/power/reset fault,
+not a CAN bitrate, oscillator, termination, or CANH/CANL problem.
 
 ### LVGL performance comparison
 
