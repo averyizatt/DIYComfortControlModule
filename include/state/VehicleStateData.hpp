@@ -222,6 +222,9 @@ struct VehicleState {
   uint8_t led_zone_brightness[kLedZoneCount] = {0, 0, 0, 0};
   uint32_t led_zone_color[kLedZoneCount] = {0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF};
   bool led_startup_preview = false;
+  // Transient diagnostics flag. The LED task generates a local RPM sweep on
+  // channel 1 without changing the real engine RPM or enabling global demo mode.
+  bool led_rpm_test_active = false;
 
   uint8_t display_brightness = 180;
   bool night_mode_enabled = false;

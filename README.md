@@ -476,7 +476,7 @@ If the README and code ever disagree, **trust the code**.
 | Tach out / in | 6 / 2 |
 | Buttons up / down / select | 35 / 36 / 37 |
 | Aux outputs | 33 / 34 |
-| LED data outputs | 38 / 39 / 40 |
+| LED data outputs | RPM strip GPIO40 / interior strips GPIO38 and GPIO39 |
 | Battery sense | 46 |
 
 Most pin assignments can be overridden at build time with `CCM_PIN_*` defines. See the comments at the top of [`src/pin_map.h`](src/pin_map.h) for the override pattern.

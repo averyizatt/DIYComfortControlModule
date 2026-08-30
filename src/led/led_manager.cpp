@@ -74,6 +74,8 @@ constexpr uint16_t kRpmGaugeIdle = 800;
 constexpr uint16_t kRpmGaugeMax = 6500;
 constexpr uint16_t kRpmGaugeYellow = 4500;
 constexpr uint16_t kRpmGaugeRed = 5600;
+constexpr uint32_t kRpmTestCycleMs = 4000;
+constexpr uint32_t kLedStatusIntervalMs = 5000;
 
 CRGB g_ch1[kMaxCh1];
 CRGB g_ch2[kMaxCh2];
@@ -385,7 +387,7 @@ void LedManager::renderStartupSweep(uint32_t nowMs) {
   }
 }
 
-void LedManager::renderRpmGauge(const state::VehicleState& s) {
+void LedManager::renderRpmGauge(const state::VehicleState& s, uint32_t nowMs) {
   Channel& ch = channels_[0];
   if (!ch.leds || ch.count == 0) return;
 
@@ -393,9 +395,19 @@ void LedManager::renderRpmGauge(const state::VehicleState& s) {
   const uint16_t activeCount = (ch.count > ch.offset) ? (ch.count - ch.offset) : 0;
   if (activeCount == 0) return;
 
-  const uint16_t rpm = min<uint16_t>(max<uint16_t>(s.rpm, kRpmGaugeIdle), kRpmGaugeMax);
+  uint16_t sourceRpm = s.rpm;
+  if (s.led_rpm_test_active) {
+    const uint32_t halfCycleMs = kRpmTestCycleMs / 2U;
+    const uint32_t phaseMs = nowMs % kRpmTestCycleMs;
+    const uint32_t rampMs = phaseMs <= halfCycleMs ? phaseMs : (kRpmTestCycleMs - phaseMs);
+    sourceRpm = static_cast<uint16_t>(
+        kRpmGaugeIdle +
+        (static_cast<uint32_t>(kRpmGaugeMax - kRpmGaugeIdle) * rampMs) / halfCycleMs);
+  }
+
+  const uint16_t rpm = min<uint16_t>(max<uint16_t>(sourceRpm, kRpmGaugeIdle), kRpmGaugeMax);
   uint16_t lit = 0;
-  if (s.rpm >= kRpmGaugeIdle) {
+  if (sourceRpm >= kRpmGaugeIdle) {
     lit = static_cast<uint16_t>(
         ((static_cast<uint32_t>(rpm - kRpmGaugeIdle) * activeCount) /
          (kRpmGaugeMax - kRpmGaugeIdle)) + 1U);
@@ -417,10 +429,29 @@ void LedManager::renderRpmGauge(const state::VehicleState& s) {
   ch.enabled = true;
   ch.mode = state::LedMode::RPM_GAUGE;
   ch.brightness = 180;
+
+  static uint32_t lastStatusMs = 0;
+  static uint16_t lastSourceRpm = 0xFFFFU;
+  static bool lastTestActive = false;
+  const bool sourceChanged = (sourceRpm == 0U) != (lastSourceRpm == 0U);
+  if (lastStatusMs == 0U || sourceChanged || lastTestActive != s.led_rpm_test_active ||
+      static_cast<uint32_t>(nowMs - lastStatusMs) >= kLedStatusIntervalMs) {
+    lastStatusMs = nowMs;
+    lastSourceRpm = sourceRpm;
+    lastTestActive = s.led_rpm_test_active;
+    Serial.printf("[LED:RPM] pin=%u rpm=%u source=%u live=%u test=%u lit=%u/%u show=scheduled\n",
+                  static_cast<unsigned>(pins::kLedData1),
+                  static_cast<unsigned>(sourceRpm),
+                  static_cast<unsigned>(s.tach_source),
+                  (s.microsquirt_online || (s.tach_status_flags & 0x01U)) ? 1U : 0U,
+                  s.led_rpm_test_active ? 1U : 0U,
+                  static_cast<unsigned>(lit),
+                  static_cast<unsigned>(activeCount));
+  }
 }
 
 void LedManager::renderFallbackModes(const state::VehicleState& s, uint32_t nowMs) {
-  renderRpmGauge(s);
+  renderRpmGauge(s, nowMs);
 
   for (uint8_t i = 1; i < 3; ++i) {
     if (channels_[i].leds && channels_[i].count > 0) {

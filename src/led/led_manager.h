@@ -44,7 +44,7 @@ class LedManager {
   void fillZone(uint8_t zone, const CRGB& color);
   void configureZones();
   void applyUiMode(LedUiMode mode, bool forceLog);
-  void renderRpmGauge(const state::VehicleState& s);
+  void renderRpmGauge(const state::VehicleState& s, uint32_t nowMs);
   void renderStartupSweep(uint32_t nowMs);
   void renderFallbackModes(const state::VehicleState& s, uint32_t nowMs);
   static bool uiModeFromState(const state::VehicleState& s, LedUiMode& mode);

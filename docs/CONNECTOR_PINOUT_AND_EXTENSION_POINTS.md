@@ -11,7 +11,7 @@
 - Tach output (LEDC): GPIO6
 - Tach input capture: GPIO2
 - Gyro/IMU (I2C shared): SCL GPIO47, SDA GPIO48, INT GPIO3
-- LED channel data pins: GPIO38 / GPIO39 / GPIO40
+- LED channel data pins: RPM channel 1 GPIO40 / interior channel 2 GPIO38 / interior channel 3 GPIO39
 - Aux output expansion: GPIO33 / GPIO34
 
 ## Power and Grounding Notes

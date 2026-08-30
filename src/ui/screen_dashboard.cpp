@@ -4693,14 +4693,18 @@ void ScreenDashboard::runLedOutputTest(uint32_t nowMs) {
   const uint8_t step = ledOutputTestStep_;
   state::g_vehicle_state.mutate([step](state::VehicleState& vs) {
     applyLedModeToAllZones(vs, state::LedMode::OFF);
-    if (step < state::kLedZoneCount) {
-      applyLedModeToZone(vs, step, state::LedMode::HIGH_LIGHT);
+    vs.led_rpm_test_active = step == 0U;
+    if (step > 0U && step <= state::kLedZoneCount) {
+      applyLedModeToZone(vs, static_cast<uint8_t>(step - 1U), state::LedMode::HIGH_LIGHT);
     }
   });
 
-  if (step < state::kLedZoneCount) {
+  if (step == 0U) {
+    setActionFeedback("LED TEST RPM GPIO40", nowMs);
+    ledOutputTestStep_ = 1U;
+  } else if (step <= state::kLedZoneCount) {
     char msg[28];
-    snprintf(msg, sizeof(msg), "LED TEST %s", ledZoneName(static_cast<uint8_t>(step + 1U)));
+    snprintf(msg, sizeof(msg), "LED TEST %s", ledZoneName(step));
     setActionFeedback(msg, nowMs);
     ledOutputTestStep_ = static_cast<uint8_t>(step + 1U);
   } else {
