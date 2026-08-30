@@ -338,6 +338,22 @@ pio run -e esp32s3_can_debug --target upload
 pio run -e esp32s3_devkit_release_stock --target upload
 ```
 
+The ESP32-S3 environments upload at 921600 baud. PlatformIO reuses the existing
+`.pio` build output, so use the same environment for normal edit/flash cycles
+and do not clean between uploads. A first build still compiles the framework and
+libraries; later builds compile only changed sources before flashing.
+
+To reflash the last successfully built release without running the dependency
+scanner or compiler again:
+
+```bash
+pio run -e esp32s3_devkit_release -t nobuild -t upload
+```
+
+Only use the cached command when no source, library, or build configuration has
+changed since the last successful release build. In VS Code, the matching task
+is `PlatformIO: Flash cached stable release (fast)`.
+
 ### Serial monitor
 
 ```bash

@@ -4,12 +4,6 @@
 #include "ui/DashboardFonts.hpp"
 
 #include "ui/assets/ui_background.h"
-#include "ui/assets/templates/ui_template_dash.h"
-#include "ui/assets/templates/ui_template_diag.h"
-#include "ui/assets/templates/ui_template_knock.h"
-#include "ui/assets/templates/ui_template_meth.h"
-#include "ui/assets/templates/ui_template_tail.h"
-#include "ui/assets/templates/ui_template_temps.h"
 #include "led/led_manager.h"
 
 #include <cmath>
