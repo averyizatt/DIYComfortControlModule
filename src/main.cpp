@@ -1404,7 +1404,31 @@ void setup() {
 
   // CAN (CS=11), SD (CS=5), and LCD (CS=10) share the same SPI pins and the
   // same Arduino SPI driver. All bus users take SharedSpiBusLock before IO.
-  const bool touchOk = g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl, pins::kTouchRst, pins::kTouchInt);
+  bool touchOk = g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl,
+                               pins::kTouchRst, pins::kTouchInt);
+  // Two display harness revisions exist in this project. Prefer the production
+  // map, but recover automatically when a controller is still wired to the
+  // original documented FT6x36 I2C pins. If neither map responds, finish on
+  // the production map so the shared IMU and later touch retries use it.
+  constexpr uint8_t kLegacyTouchSda = 48U;
+  constexpr uint8_t kLegacyTouchScl = 47U;
+  constexpr uint8_t kLegacyTouchRst = 14U;
+  constexpr uint8_t kLegacyTouchInt = 15U;
+  const bool touchMapDiffers =
+      pins::kTouchSda != kLegacyTouchSda ||
+      pins::kTouchScl != kLegacyTouchScl ||
+      pins::kTouchRst != kLegacyTouchRst ||
+      pins::kTouchInt != kLegacyTouchInt;
+  if (!touchOk && touchMapDiffers) {
+    Serial.println("[TOUCH] production map did not respond; trying legacy harness");
+    touchOk = g_touch.begin(Wire, kLegacyTouchSda, kLegacyTouchScl,
+                            kLegacyTouchRst, kLegacyTouchInt);
+    if (!touchOk) {
+      Serial.println("[TOUCH] legacy map did not respond; restoring production map");
+      touchOk = g_touch.begin(Wire, pins::kTouchSda, pins::kTouchScl,
+                              pins::kTouchRst, pins::kTouchInt);
+    }
+  }
   // Publish the startup probe result before worker tasks begin. The touch task
   // must never wait on the general vehicle-state mutex in its 10 ms input loop.
   state::g_vehicle_state.mutate([touchOk](state::VehicleState& s) {

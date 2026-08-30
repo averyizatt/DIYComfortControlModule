@@ -1888,22 +1888,10 @@ void ScreenDashboard::buildUi() {
   lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_move_background(bg);
 
-  // Exact supplied reference images form the visual baseline. They are kept
-  // below the interaction layer so transparent touch targets can be added
-  // without altering a single source pixel.
-  const lv_img_dsc_t* templates[kPageCount] = {
-    &ui_template_dash, &ui_template_meth, &ui_template_tail, nullptr, nullptr,
-    &ui_template_temps, &ui_template_diag, &ui_template_knock
-  };
-  for (uint8_t i = 0; i < kPageCount; ++i) {
-    if (!templates[i]) continue;
-    templateImgs_[i] = lv_img_create(scr);
-    lv_img_set_src(templateImgs_[i], templates[i]);
-    lv_obj_set_pos(templateImgs_[i], 0, 0);
-    lv_obj_clear_flag(templateImgs_[i], LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(templateImgs_[i], LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(templateImgs_[i], LV_OBJ_FLAG_HIDDEN);
-  }
+  // The supplied reference PNGs contain sample telemetry baked into their
+  // pixels. Showing them as runtime pages makes real CAN values appear frozen
+  // and bypasses the normal widget update path. Keep them as design references
+  // only; the live cockpit widgets reproduce the layout using VehicleState.
 
   buildHeader(scr);
   buildContentArea(scr);
@@ -2091,10 +2079,14 @@ void ScreenDashboard::buildContentArea(lv_obj_t* scr) {
     pages_[i] = pg;
   }
 
-  // Supplied reference screens are rendered by exact full-screen bitmap
-  // templates. Do not also allocate their former widget trees underneath.
+  buildDashPage(pages_[0]);
+  buildMethPage(pages_[1]);
+  buildTailPage(pages_[2]);
   buildLedsPage(pages_[3]);
   buildGpsPage(pages_[4]);
+  buildTempsPage(pages_[5]);
+  buildDiagPage(pages_[6]);
+  buildKnockPage(pages_[7]);
 }
 
 // ---------------------------------------------------------------------------
