@@ -184,7 +184,7 @@ canbus::CanManager g_can;
 settings::SettingsManager g_settings;
 
 #ifndef CCM_MAIN_LED_COUNT
-#define CCM_MAIN_LED_COUNT 18
+#define CCM_MAIN_LED_COUNT 11
 #endif
 
 #ifndef CCM_CASE_LED_COUNT

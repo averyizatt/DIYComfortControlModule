@@ -16,7 +16,7 @@ enum class LedUiMode : uint8_t {
 class LedManager {
  public:
   bool begin(uint8_t pin1, uint8_t pin2, uint8_t pin3,
-             uint16_t ledsChannel1 = 16, uint16_t ledsChannel2 = 0,
+             uint16_t ledsChannel1 = 11, uint16_t ledsChannel2 = 0,
              uint16_t ledsChannel3 = 0,
              uint16_t ledsChannel3Offset = 0);
   void tick(const state::VehicleState& s);

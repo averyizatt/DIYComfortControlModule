@@ -192,8 +192,9 @@ The default environment is `esp32s3_devkit_release`, and it now uses the updated
 The normal release also provides a safe runtime demo under **DIAG > TOOLS >
 DEMO**. It generates local dashboard telemetry without transmitting simulated
 frames onto the vehicle CAN bus. The generated RPM drives both the LVGL RPM
-display and the 18-pixel shift-light strip on GPIO40. **LED TEST** exercises
-that strip directly before cycling through the interior lighting zones.
+display and the seven visible shift-light pixels on the 11-pixel GPIO40 strip;
+the first four pixels are hidden inside the enclosure and remain dark. **LED
+TEST** exercises the visible gauge before cycling through the interior zones.
 
 ## Automotive Analog Sensors (Thermistors + Pressure)
 

@@ -10,7 +10,11 @@ namespace {
 #endif
 
 #ifndef CCM_MAIN_LED_COUNT
-#define CCM_MAIN_LED_COUNT 18
+#define CCM_MAIN_LED_COUNT 11
+#endif
+
+#ifndef CCM_MAIN_LED_HIDDEN_COUNT
+#define CCM_MAIN_LED_HIDDEN_COUNT 4
 #endif
 
 #ifndef CCM_INTERIOR_LED_SEND_COUNT
@@ -68,6 +72,7 @@ constexpr uint32_t kStartupDurationMs = 2200;
 constexpr uint8_t kLowWhiteBrightness = CCM_LED_LOW_WHITE_BRIGHTNESS;
 constexpr uint8_t kHighWhiteBrightness = CCM_LED_HIGH_WHITE_BRIGHTNESS;
 constexpr uint16_t kMaxCh1 = CCM_MAIN_LED_COUNT;
+constexpr uint16_t kRpmHiddenPixels = CCM_MAIN_LED_HIDDEN_COUNT;
 constexpr uint16_t kMaxCh2 = CCM_INTERIOR_LED_SEND_COUNT;
 constexpr uint16_t kMaxCh3 = CCM_INTERIOR_LED_SEND_COUNT;
 constexpr uint16_t kRpmGaugeIdle = 800;
@@ -213,7 +218,10 @@ bool LedManager::begin(uint8_t pin1, uint8_t pin2, uint8_t pin3,
 
   channels_[0].leds = g_ch1;
   channels_[0].count = clampCount(ledsChannel1, kMaxCh1);
-  channels_[0].offset = 0;
+  // The GPIO40 strip contains four pixels inside the enclosure followed by
+  // seven visible shift-light pixels. Keep the hidden pixels dark and map the
+  // complete RPM range across the visible section only.
+  channels_[0].offset = min<uint16_t>(kRpmHiddenPixels, channels_[0].count);
   channels_[1].leds = g_ch2;
   channels_[1].count = clampCount(ledsChannel2, kMaxCh2);
   channels_[1].offset = 0;
