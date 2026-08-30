@@ -415,13 +415,16 @@ void LedManager::renderRpmGauge(const state::VehicleState& s, uint32_t nowMs) {
   }
 
   for (uint16_t i = 0; i < lit; ++i) {
-    CRGB color = CRGB(0, 90, 24);
+    // Channel 1 is a daylight-visible shift-light strip. The previous palette
+    // was scaled twice and could leave the first active pixel at roughly 10%
+    // output, which looked completely off in a bright cabin.
+    CRGB color = CRGB(0, 255, 64);
     if (rpm >= kRpmGaugeRed) {
-      color = CRGB(120, 0, 0);
+      color = CRGB(255, 0, 0);
     } else if (rpm >= kRpmGaugeYellow) {
-      color = CRGB(110, 72, 0);
+      color = CRGB(255, 150, 0);
     }
-    const uint8_t scale = static_cast<uint8_t>(80U + ((static_cast<uint32_t>(i) * 80U) / activeCount));
+    const uint8_t scale = static_cast<uint8_t>(96U + ((static_cast<uint32_t>(i) * 159U) / activeCount));
     ch.leds[ch.offset + i] = color;
     ch.leds[ch.offset + i].nscale8_video(scale);
   }

@@ -15,8 +15,9 @@
 
 namespace {
 
-// Preview-only visual concept. These values intentionally do not affect the
-// embedded dashboard until the design is approved on the desktop.
+// Host-side mirror of the production dashboard geometry and theme. Hardware
+// I/O is replaced by simulated data, while controls and layout track the
+// embedded ScreenDashboard implementation.
 constexpr unsigned kBackground = 0x02070A;
 constexpr unsigned kPanel = 0x071014;
 constexpr unsigned kPanelRaised = 0x0A171C;
@@ -80,12 +81,14 @@ lv_obj_t* s_sd_log_title = nullptr;
 lv_obj_t* s_sd_log_content = nullptr;
 lv_obj_t* s_theme_tint = nullptr;
 lv_obj_t* s_theme_button_label = nullptr;
+lv_obj_t* s_demo_button_label = nullptr;
 lv_obj_t* s_alert_strip = nullptr;
 lv_obj_t* s_alert_label = nullptr;
 lv_obj_t* s_startup_overlay = nullptr;
 lv_obj_t* s_startup_status = nullptr;
 lv_obj_t* s_startup_progress = nullptr;
 unsigned s_theme_mode = 0;
+bool s_demo_enabled = true;
 unsigned s_tail_show_page = 0;
 uint32_t s_startup_begin = 0;
 unsigned s_active_page = 0;
@@ -275,6 +278,14 @@ void theme_profile_cycle(lv_event_t*) {
   if (s_theme_tint) {
     lv_obj_set_style_bg_opa(s_theme_tint, night ? static_cast<lv_opa_t>(72) :
                             static_cast<lv_opa_t>(LV_OPA_TRANSP), 0);
+  }
+}
+
+void demo_toggle(lv_event_t*) {
+  s_demo_enabled = !s_demo_enabled;
+  if (s_demo_button_label) {
+    lv_label_set_text(s_demo_button_label,
+                      s_demo_enabled ? "DEMO: ON" : "DEMO: OFF");
   }
 }
 
@@ -591,19 +602,6 @@ void build_generic_page(lv_obj_t* page, unsigned index) {
     s_temp_values[4] = sensor_card(page, 8, 162, "OIL PRESSURE", "62.0 psi", kPurple);
     s_temp_values[5] = sensor_card(page, 244, 162, "FUEL PRESSURE", "48.0 psi", kRed);
   } else if (index == 6) {
-    metric_tile(page, 8, 8, 226, 112, "HEALTH\n98%\nALL SYSTEMS OK", 0x040A0D, &ccm_font_semibold_20);
-    metric_tile(page, 242, 8, 110, 54, "CAN BUS\nCAN OK", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 360, 8, 112, 54, "GPS LOCK\n9 SAT", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 242, 70, 110, 50, "SD LOGGING\nACTIVE", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 360, 70, 112, 50, "ECU SYNC\nGOOD", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 8, 128, 109, 54, "SENSOR HEALTH\n8 OF 8 OK", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 125, 128, 109, 54, "METH CONTROLLER\nREADY", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 242, 128, 110, 54, "BATTERY\n13.9 V", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 360, 128, 112, 54, "FAULT HISTORY\nNONE", kPanel, &lv_font_montserrat_16);
-    s_page_data[index] = metric_tile(page, 8, 190, 464, 26,
-        "RECENT EVENTS     NO ACTIVE FAULTS", kPanel, &lv_font_montserrat_12);
-    return;
-
     s_diag_info = transparent_layer(page);
     action_button(s_diag_info, "INFO", 8, 6, 108, 32, diag_info_open);
     action_button(s_diag_info, "TOOLS", 122, 6, 108, 32, diag_tools_open);
@@ -646,10 +644,12 @@ void build_generic_page(lv_obj_t* page, unsigned index) {
     label(storage, "LOGGING ACTIVE", 148, 10, &lv_font_montserrat_12, kCyan);
     label(storage, "/logs/preview.csv", 148, 34, &lv_font_montserrat_12, kWhite);
     action_button(s_diag_tools, "TOUCH CAL", 8, 182, 108, 38);
-    lv_obj_t* theme = action_button(s_diag_tools, "THEME AUTO", 124, 182, 108, 38,
+    lv_obj_t* demo = action_button(s_diag_tools, "DEMO: ON", 124, 182, 108, 38,
+                                   demo_toggle);
+    s_demo_button_label = lv_obj_get_child(demo, 0);
+    lv_obj_t* theme = action_button(s_diag_tools, "THEME AUTO", 240, 182, 108, 38,
                                     theme_profile_cycle);
     s_theme_button_label = lv_obj_get_child(theme, 0);
-    action_button(s_diag_tools, "RACE", 240, 182, 108, 38);
     action_button(s_diag_tools, "SD READ", 356, 182, 108, 38, diag_storage_open);
 
     s_diag_storage = transparent_layer(page);
@@ -810,6 +810,8 @@ void demo_can_tick(lv_timer_t*) {
   // A repeating pull-and-coast cycle stands in for decoded CAN frames. Keeping
   // this model in the preview avoids introducing host-only behavior into the
   // production vehicle state or CAN manager.
+  if (!s_demo_enabled) return;
+
   const uint32_t now_ms = lv_tick_get();
   const uint32_t seconds = now_ms / 1000U;
   const uint32_t phase_tenths = (now_ms / 100U) % 400U;

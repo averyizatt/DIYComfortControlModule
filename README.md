@@ -189,6 +189,12 @@ The active PlatformIO environments are defined in [`platformio.ini`](platformio.
 
 The default environment is `esp32s3_devkit_release`, and it now uses the updated Arduino core via PioArduino.
 
+The normal release also provides a safe runtime demo under **DIAG > TOOLS >
+DEMO**. It generates local dashboard telemetry without transmitting simulated
+frames onto the vehicle CAN bus. The generated RPM drives both the LVGL RPM
+display and the 18-pixel shift-light strip on GPIO40. **LED TEST** exercises
+that strip directly before cycling through the interior lighting zones.
+
 ## Automotive Analog Sensors (Thermistors + Pressure)
 
 The CCM now supports automotive passive NTC thermistors and 3-wire 0.5–4.5 V pressure transducers using the existing task/state/UI/web/CAN/logging architecture.

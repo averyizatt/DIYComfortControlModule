@@ -330,6 +330,15 @@ void CanManager::tick() {
   const uint32_t nowMs = millis();
   bool mustStopManualTest = false;
 
+  // Runtime demo mode is a local UI/LED exercise. Keep it off the physical
+  // CAN network and prevent timeout handling from overwriting the generated
+  // module states. Normal CAN processing resumes on the next tick after demo
+  // mode is turned off.
+  if (state::g_vehicle_state.read().bench_test_mode) {
+    runDemoGenerator(nowMs);
+    return;
+  }
+
   can_protocol::CanFrame frame{};
   uint8_t rxFramesThisTick = 0;
   while (rxFramesThisTick < kCanRxMaxFramesPerTick && receiveFrame(frame)) {
@@ -552,12 +561,6 @@ void CanManager::tick() {
     runDemoGenerator(nowMs);
   }
 #endif
-
-  // Runtime bench test mode — spoofs RPM, speed, and module statuses for
-  // bench validation without needing DEMO_MODE=1 or live CAN / GPS hardware.
-  if (state::g_vehicle_state.read().bench_test_mode) {
-    runDemoGenerator(nowMs);
-  }
 
   sendScheduledFrames(nowMs);
 
@@ -1323,6 +1326,8 @@ void CanManager::runDemoGenerator(uint32_t nowMs) {
   const float t = nowMs / 1000.0f;
   state::g_vehicle_state.mutate([&](state::VehicleState& s) {
     s.can_online = true;
+    s.microsquirt_online = true;
+    s.microsquirt_last_ms = nowMs;
     s.taillight_online = true;
     s.meth_online = true;
 

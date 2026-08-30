@@ -2717,43 +2717,6 @@ void ScreenDashboard::buildTempsPage(lv_obj_t* parent) {
 // ---------------------------------------------------------------------------
 
 void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
-  // Reference SYSTEM HEALTH composition. Advanced tools remain available in
-  // the fault/storage overlays, but are not allowed to distort this page.
-  lv_obj_t* health = makePanel(parent, 8, 8, 226, 112, 0x040A0D);
-  lv_obj_set_style_border_color(health, lv_color_hex(0x46545A), LV_PART_MAIN);
-  lv_obj_t* shield = makeLabel(health, 10, 20, 68, LV_SYMBOL_OK, &ccm_font_semibold_48);
-  setTextColor(shield, lv_color_hex(kUiColorGood), 0);
-  makeLabel(health, 84, 10, 126, "HEALTH", &ccm_font_semibold_20);
-  lv_obj_t* healthValue = makeLabel(health, 84, 34, 126, "98%", &ccm_font_semibold_48);
-  setTextColor(healthValue, lv_color_hex(kUiColorText), 0);
-  lv_obj_t* healthOk = makeLabel(health, 84, 84, 126, "ALL SYSTEMS OK", &lv_font_montserrat_12);
-  setTextColor(healthOk, lv_color_hex(kUiColorGood), 0);
-
-  diagStatusCards_[0] = makeCockpitCard(parent, 242, 8, 110, 54, "CAN BUS", "CAN OK", kUiColorGood,
-                                         &lv_font_montserrat_16);
-  diagStatusCards_[1] = makeCockpitCard(parent, 360, 8, 112, 54, "GPS LOCK", "-- SAT", dashboard_theme::blue,
-                                         &lv_font_montserrat_16);
-  diagStatusCards_[4] = makeCockpitCard(parent, 242, 70, 110, 50, "SD LOGGING", "--", dashboard_theme::purple,
-                                         &lv_font_montserrat_16);
-  diagStatusCards_[5] = makeCockpitCard(parent, 360, 70, 112, 50, "ECU SYNC", "--", dashboard_theme::cyan,
-                                         &lv_font_montserrat_16);
-  diagStatusCards_[2] = makeCockpitCard(parent, 8, 128, 109, 54, "SENSOR HEALTH", "--", kUiColorWarn,
-                                         &lv_font_montserrat_16);
-  diagStatusCards_[3] = makeCockpitCard(parent, 125, 128, 109, 54, "METH CONTROLLER", "--", kUiColorGood,
-                                         &lv_font_montserrat_16);
-  makeCockpitCard(parent, 242, 128, 110, 54, "BATTERY", "13.9 V", kUiColorBad,
-                  &lv_font_montserrat_16);
-  makeCockpitCard(parent, 360, 128, 112, 54, "FAULT HISTORY", "NONE", dashboard_theme::blue,
-                  &lv_font_montserrat_16);
-  makeCockpitCard(parent, 8, 190, 464, 26, "RECENT EVENTS", "NO ACTIVE FAULTS", kUiColorGood,
-                  &lv_font_montserrat_12);
-
-  // The detailed diagnostic text is still populated for the fault overlay,
-  // but hidden on the reference dashboard.
-  diagLabel_ = makeLabel(parent, 0, 0, 1, "", &lv_font_montserrat_12);
-  lv_obj_add_flag(diagLabel_, LV_OBJ_FLAG_HIDDEN);
-  return;
-
   lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(parent, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
@@ -2867,7 +2830,7 @@ void ScreenDashboard::buildDiagPage(lv_obj_t* parent) {
   touchCalBtn_ = makeBtn(diagToolsPanel_, "TOUCH CAL", 8, 70, 138, 34,
                          onTouchCalStartClicked, this);
   styleSecondaryButton(touchCalBtn_);
-  benchTestBtn_ = makeBtn(diagToolsPanel_, "SIM: OFF", 154, 70, 138, 34,
+  benchTestBtn_ = makeBtn(diagToolsPanel_, "DEMO: OFF", 154, 70, 138, 34,
                           onBenchTestClicked, this);
   themeProfileBtn_ = makeBtn(diagToolsPanel_, "THEME: AUTO", 300, 70, 158, 34,
                              onThemeProfileClicked, this);
@@ -3725,7 +3688,7 @@ void ScreenDashboard::updateDiagPage(const state::VehicleState& s) {
         s.bench_test_mode ? lv_color_hex(0xFF8C00) : lv_color_hex(kUiColorButton),
         LV_PART_MAIN);
     setLabelText(btnLabel(benchTestBtn_),
-        s.bench_test_mode ? "SIM: ON" : "SIM: OFF");
+        s.bench_test_mode ? "DEMO: ON" : "DEMO: OFF");
   }
   if (diagRaceStatusLabel_ && toolsVisible) {
     char raceBuf[160];
@@ -4389,7 +4352,7 @@ void ScreenDashboard::performUiAction(const UiAction& action, uint32_t nowMs) {
       state::g_vehicle_state.mutate([on](state::VehicleState& vs) {
         vs.bench_test_mode = on;
       });
-      setActionFeedback(on ? "SIM MODE ON" : "SIM MODE OFF", nowMs);
+      setActionFeedback(on ? "DEMO MODE ON" : "DEMO MODE OFF", nowMs);
       break;
     }
 
