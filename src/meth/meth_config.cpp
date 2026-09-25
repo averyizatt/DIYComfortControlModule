@@ -12,6 +12,7 @@ DesiredConfig fromVehicleState(const state::VehicleState& s) {
   DesiredConfig cfg{};
   cfg.version = s.meth_config_version;
   cfg.armed = s.meth_desired_armed;
+  cfg.tank_protection = s.meth_tank_protection;
   cfg.ratio_percent = sanitizeRatio(s.meth_selected_ratio_percent);
   return cfg;
 }
@@ -24,7 +25,7 @@ can_protocol::CanFrame toCanBroadcast(const DesiredConfig& cfg) {
   m.boost_trigger_kpa = 114;  // ~3.5 psi boost above a 90 kPa local baro default
   m.iat_threshold_offset40 = can_protocol::tempToOffset40(50);
   m.max_pump_duty = 100;
-  m.failsafe_flags = 0x03;  // low tank + sensor validity required
+  m.failsafe_flags = cfg.tank_protection ? 0x03 : 0x02;
   return can_protocol::packMethConfigBroadcast(m);
 }
 

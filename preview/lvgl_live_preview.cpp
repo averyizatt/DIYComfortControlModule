@@ -77,6 +77,7 @@ lv_obj_t* s_knock_baseline = nullptr;
 lv_obj_t* s_knock_chart = nullptr;
 lv_chart_series_t* s_knock_signal_series = nullptr;
 lv_chart_series_t* s_knock_base_series = nullptr;
+lv_chart_series_t* s_knock_threshold_series = nullptr;
 lv_obj_t* s_sd_log_title = nullptr;
 lv_obj_t* s_sd_log_content = nullptr;
 lv_obj_t* s_theme_tint = nullptr;
@@ -174,6 +175,25 @@ lv_obj_t* metric_tile(lv_obj_t* parent, int x, int y, int width, int height,
   lv_obj_set_style_pad_top(tile, vertical_pad, 0);
   lv_obj_set_style_pad_bottom(tile, vertical_pad, 0);
   return tile;
+}
+
+lv_obj_t* cockpit_card(lv_obj_t* parent, int x, int y, int width, int height,
+                       const char* caption, const char* value, unsigned accent,
+                       const lv_font_t* value_font = &ccm_font_semibold_20) {
+  lv_obj_t* card = panel(parent, x, y, width, height);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x040A0D), 0);
+  lv_obj_set_style_border_color(card, lv_color_hex(accent), 0);
+
+  lv_obj_t* title = label(card, caption, 8, 3, &lv_font_montserrat_12, kMuted);
+  lv_obj_set_size(title, width - 16, 16);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+
+  lv_obj_t* live = label(card, value, 8, height > 54 ? 25 : 20, value_font, accent);
+  lv_obj_set_size(live, width - 16, height - (height > 54 ? 29 : 24));
+  lv_obj_set_style_text_align(live, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(live, LV_LABEL_LONG_DOT);
+  return live;
 }
 
 lv_obj_t* action_button(lv_obj_t* parent, const char* text, int x, int y,
@@ -359,25 +379,30 @@ void led_zone_card(lv_obj_t* parent, int x, int y, const char* name,
 }
 
 void build_dashboard(lv_obj_t* page) {
-  s_speed = metric_tile(page, 8, 8, 226, 126, "SPEED\n52\nMPH", 0x040A0D,
-                        &ccm_font_semibold_48);
-  s_rpm = metric_tile(page, 8, 142, 109, 74, "RPM\n3864", kPanel, &ccm_font_semibold_20);
-  s_iat = metric_tile(page, 125, 142, 109, 74, "FUEL\n49%", kPanel, &ccm_font_semibold_20);
-  s_boost = metric_tile(page, 242, 8, 110, 62, "BOOST\n6.4 PSI", kPanel, &ccm_font_semibold_20);
-  s_meth_summary = metric_tile(page, 360, 8, 112, 62, "METH ARM\n4%", kPanel, &ccm_font_semibold_20);
-  metric_tile(page, 242, 78, 110, 62, "TANK\n82%", kPanel, &ccm_font_semibold_20);
-  metric_tile(page, 360, 78, 112, 62, "KNOCK\nOK", kPanel, &ccm_font_semibold_20);
-  s_battery = metric_tile(page, 242, 148, 110, 68, "OIL\n63 PSI", kPanel, &ccm_font_semibold_20);
-  s_accel = metric_tile(page, 360, 148, 112, 68, "CAN BUS\nCAN OK", kPanel, &ccm_font_semibold_16);
-  accent_widget(s_speed, kDivider, false);
-  accent_widget(s_rpm, kRed);
-  accent_widget(s_iat, kPurple);
-  accent_widget(s_boost, kAmber);
-  accent_widget(s_meth_summary, kGreen);
-  accent_widget(lv_obj_get_child(page, 5), kBlue);
-  accent_widget(lv_obj_get_child(page, 6), kGreen);
-  accent_widget(s_battery, kAmber);
-  accent_widget(s_accel, kGreen);
+  lv_obj_t* speed_card = panel(page, 8, 8, 226, 126);
+  lv_obj_set_style_bg_color(speed_card, lv_color_hex(0x040A0D), 0);
+  lv_obj_t* speed_caption = label(speed_card, "SPEED", 10, 4,
+                                  &lv_font_montserrat_12, kMuted);
+  lv_obj_set_width(speed_caption, 206);
+  lv_obj_set_style_text_align(speed_caption, LV_TEXT_ALIGN_CENTER, 0);
+  s_speed = label(speed_card, "52", 10, 32, &ccm_font_semibold_48, kWhite);
+  lv_obj_set_width(s_speed, 206);
+  lv_obj_set_style_text_align(s_speed, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_t* speed_unit = label(speed_card, "MPH", 10, 94,
+                               &ccm_font_semibold_20, kMuted);
+  lv_obj_set_width(speed_unit, 206);
+  lv_obj_set_style_text_align(speed_unit, LV_TEXT_ALIGN_CENTER, 0);
+  s_rpm = cockpit_card(page, 8, 142, 109, 74, "RPM", "3864", kRed);
+  s_iat = cockpit_card(page, 125, 142, 109, 74, "FUEL PRESSURE", "49 PSI", kPurple);
+  s_boost = cockpit_card(page, 242, 8, 110, 62, "BOOST", "6.4 PSI", kAmber);
+  s_meth_summary = cockpit_card(page, 360, 8, 112, 62, "METH ARM", "4%", kGreen,
+                                &ccm_font_semibold_16);
+  cockpit_card(page, 242, 78, 110, 62, "TANK", "82%", kBlue);
+  cockpit_card(page, 360, 78, 112, 62, "KNOCK", "OK", kGreen);
+  s_battery = cockpit_card(page, 242, 148, 110, 68, "OIL", "63 PSI", kAmber);
+  s_accel = cockpit_card(page, 360, 148, 112, 68, "CAN BUS", "CAN OK", kGreen,
+                         &ccm_font_semibold_16);
+  lv_obj_set_style_border_color(speed_card, lv_color_hex(kDivider), 0);
   return;
 
   s_speed = metric_tile(page, 8, 8, 224, 142, "64\nMPH", ui::dashboard_theme::heroPanel,
@@ -412,21 +437,38 @@ void build_dashboard(lv_obj_t* page) {
 
 void build_generic_page(lv_obj_t* page, unsigned index) {
   if (index == 1) {
-    s_page_data[index] = metric_tile(page, 8, 8, 226, 142,
-        "INJECTION STATUS\n42%", 0x040A0D, &ccm_font_semibold_48);
-    metric_tile(page, 24, 116, 194, 26, "SYSTEM STANDBY", 0x071014,
-                &lv_font_montserrat_12);
-    metric_tile(page, 242, 8, 110, 62, "PUMP DUTY\n42%", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 360, 8, 112, 62, "TANK LEVEL\n82%", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 242, 78, 110, 62, "LINE PRESSURE\n141 PSI", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 360, 78, 112, 62, "BOOST TRIGGER\n3.5 PSI", kPanel, &ccm_font_semibold_16);
-    metric_tile(page, 242, 148, 110, 68, "FLOW RATE\nLOW", kPanel, &ccm_font_semibold_16);
-    metric_tile(page, 360, 148, 112, 68, "IAT\n78 F", kPanel, &ccm_font_semibold_20);
+    lv_obj_t* injection_card = panel(page, 8, 8, 226, 142);
+    lv_obj_set_style_bg_color(injection_card, lv_color_hex(0x040A0D), 0);
+    lv_obj_set_style_border_color(injection_card, lv_color_hex(kGreen), 0);
+    lv_obj_t* injection_title = label(injection_card, "INJECTION STATUS", 10, 5,
+                                      &lv_font_montserrat_12, kMuted);
+    lv_obj_set_width(injection_title, 206);
+    lv_obj_set_style_text_align(injection_title, LV_TEXT_ALIGN_CENTER, 0);
+    s_page_data[index] = label(injection_card, "42%", 10, 34,
+                               &ccm_font_semibold_48, kGreen);
+    lv_obj_set_size(s_page_data[index], 206, 58);
+    lv_obj_set_style_text_align(s_page_data[index], LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t* meth_state = label(injection_card, "SYSTEM STANDBY", 16, 108,
+                                 &lv_font_montserrat_12, kGreen);
+    lv_obj_set_size(meth_state, 194, 20);
+    lv_obj_set_style_text_align(meth_state, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_color(meth_state, lv_color_hex(0x10271A), 0);
+    lv_obj_set_style_bg_opa(meth_state, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(meth_state, 7, 0);
+    cockpit_card(page, 242, 8, 110, 62, "PUMP DUTY", "42%", kGreen);
+    cockpit_card(page, 360, 8, 112, 62, "TANK LEVEL", "82%", kBlue);
+    cockpit_card(page, 242, 78, 110, 62, "LINE PRESSURE", "141 PSI", kAmber);
+    cockpit_card(page, 360, 78, 112, 62, "BOOST", "3.5 PSI", kBlue,
+                 &ccm_font_semibold_16);
+    cockpit_card(page, 242, 148, 110, 68, "ENGINE BAY", "104 F", kCyan,
+                 &ccm_font_semibold_16);
+    cockpit_card(page, 360, 148, 112, 68, "IAT", "78 F", kPurple);
     metric_tile(page, 8, 158, 108, 26, "SENSORS OK", kPanel, &lv_font_montserrat_12);
     metric_tile(page, 124, 158, 110, 26, "ARMED", kPanel, &lv_font_montserrat_12);
-    action_button(page, "DISARM", 8, 190, 108, 26);
-    action_button(page, "RATIO 50%", 124, 190, 110, 26);
-    accent_widget(s_page_data[index], kGreen);
+    lv_obj_t* arm_button = action_button(page, "DISARM", 8, 190, 108, 26);
+    lv_obj_t* ratio_button = action_button(page, "RATIO 50%", 124, 190, 110, 26);
+    lv_obj_set_style_text_font(lv_obj_get_child(arm_button, 0), &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(lv_obj_get_child(ratio_button, 0), &lv_font_montserrat_12, 0);
     return;
 
     metric_tile(page, 8, 8, 142, 30, "WATER-METH", kPanel, &lv_font_montserrat_12);
@@ -720,23 +762,63 @@ void build_generic_page(lv_obj_t* page, unsigned index) {
     }
   } else if (index == 7) {
     lv_obj_t* knock_left = panel(page, 8, 8, 220, 208);
-    label(knock_left, "KNOCK STATUS", 10, 4, &lv_font_montserrat_12, kMuted);
-    s_page_data[index] = label(knock_left, "NO KNOCK", 12, 28, &ccm_font_semibold_48, kGreen);
-    label(knock_left, "SENSOR OK  |  MONITOR ACTIVE", 12, 82, &lv_font_montserrat_12, kMuted);
+    lv_obj_t* knock_title = label(knock_left, "KNOCK STATUS", 8, 4,
+                                  &lv_font_montserrat_12, kMuted);
+    lv_obj_set_width(knock_title, 196);
+    lv_obj_set_style_text_align(knock_title, LV_TEXT_ALIGN_CENTER, 0);
+    s_page_data[index] = label(knock_left, "NO KNOCK", 8, 28,
+                               &ccm_font_semibold_20, kGreen);
+    lv_obj_set_size(s_page_data[index], 196, 28);
+    lv_obj_set_style_text_align(s_page_data[index], LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_page_data[index], LV_LABEL_LONG_DOT);
+    lv_obj_t* sensor_status = label(knock_left, "SENSOR OK  |  MONITOR ACTIVE", 8, 62,
+                                    &lv_font_montserrat_12, kMuted);
+    lv_obj_set_size(sensor_status, 196, 16);
+    lv_obj_set_style_text_align(sensor_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(sensor_status, LV_LABEL_LONG_DOT);
+    lv_obj_t* graph_title = label(knock_left,
+        "#42CB54 SIGNAL#   #20D6E4 BASE#   #F6B80B LIMIT#", 8, 78,
+        &lv_font_montserrat_12, kMuted);
+    lv_label_set_recolor(graph_title, true);
+    lv_obj_set_width(graph_title, 196);
+    lv_obj_set_style_text_align(graph_title, LV_TEXT_ALIGN_CENTER, 0);
     s_knock_chart = lv_chart_create(knock_left);
-    lv_obj_set_pos(s_knock_chart, 8, 112);
-    lv_obj_set_size(s_knock_chart, 196, 72);
+    lv_obj_set_pos(s_knock_chart, 8, 96);
+    lv_obj_set_size(s_knock_chart, 196, 94);
     lv_chart_set_type(s_knock_chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_range(s_knock_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_range(s_knock_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 110);
     lv_chart_set_point_count(s_knock_chart, 32);
+    lv_chart_set_div_line_count(s_knock_chart, 3, 4);
+    lv_obj_set_style_bg_color(s_knock_chart, lv_color_hex(0x061017), 0);
+    lv_obj_set_style_bg_opa(s_knock_chart, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_knock_chart, lv_color_hex(0x263944), 0);
+    lv_obj_set_style_border_width(s_knock_chart, 1, 0);
+    lv_obj_set_style_radius(s_knock_chart, 4, 0);
+    lv_obj_set_style_pad_all(s_knock_chart, 4, 0);
+    lv_obj_set_style_line_color(s_knock_chart, lv_color_hex(0x20323C), LV_PART_MAIN);
+    lv_obj_set_style_line_opa(s_knock_chart, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_line_width(s_knock_chart, 2, LV_PART_ITEMS);
+#if LVGL_VERSION_MAJOR < 9
+    // LVGL 9's chart renderer no longer exposes the v8 point-size style in
+    // every preview build. The line chart is already marker-free by default.
+    lv_obj_set_style_size(s_knock_chart, 0, LV_PART_INDICATOR);
+#endif
     s_knock_signal_series = lv_chart_add_series(s_knock_chart, lv_color_hex(kGreen), LV_CHART_AXIS_PRIMARY_Y);
     s_knock_base_series = lv_chart_add_series(s_knock_chart, lv_color_hex(kCyan), LV_CHART_AXIS_PRIMARY_Y);
-    s_knock_energy = metric_tile(page, 236, 8, 114, 48, "CURRENT LEVEL\n0.12 V", kPanel, &ccm_font_semibold_20);
-    s_knock_baseline = metric_tile(page, 358, 8, 114, 48, "PEAK LEVEL\n0.28 V", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 236, 64, 114, 48, "TIMING RETARD\n0.0 DEG", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 358, 64, 114, 48, "NOISE FLOOR\n0.08 V", kPanel, &ccm_font_semibold_20);
-    metric_tile(page, 236, 120, 114, 48, "LEARNED THRESHOLD\n0.35 V", kPanel, &lv_font_montserrat_16);
-    metric_tile(page, 358, 120, 114, 48, "ENGINE LOAD\n72 kPa", kPanel, &lv_font_montserrat_16);
+    s_knock_threshold_series = lv_chart_add_series(s_knock_chart, lv_color_hex(kAmber), LV_CHART_AXIS_PRIMARY_Y);
+    for (unsigned i = 0; i < 32; ++i) {
+      lv_chart_set_next_value(s_knock_chart, s_knock_signal_series, 12);
+      lv_chart_set_next_value(s_knock_chart, s_knock_base_series, 10);
+      lv_chart_set_next_value(s_knock_chart, s_knock_threshold_series, 100);
+    }
+    s_knock_energy = cockpit_card(page, 236, 8, 114, 48, "CURRENT LEVEL", "0.12 V", kGreen);
+    s_knock_baseline = cockpit_card(page, 358, 8, 114, 48, "PEAK LEVEL", "0.28 V", kGreen);
+    cockpit_card(page, 236, 64, 114, 48, "TIMING RETARD", "0.0 DEG", kAmber);
+    cockpit_card(page, 358, 64, 114, 48, "NOISE FLOOR", "0.08 V", kBlue);
+    cockpit_card(page, 236, 120, 114, 48, "LEARNED THRESHOLD", "0.35 V", kPurple,
+                 &lv_font_montserrat_16);
+    cockpit_card(page, 358, 120, 114, 48, "ENGINE LOAD", "72 kPa", kAmber,
+                 &lv_font_montserrat_16);
     action_button(page, "ENABLED", 236, 176, 114, 40);
     action_button(page, "RELEARN", 358, 176, 114, 40);
     return;
@@ -825,16 +907,16 @@ void demo_can_tick(lv_timer_t*) {
   const int32_t boost_tenths = -60 +
       static_cast<int32_t>((ramp_tenths * 12U) / 10U);
   const uint32_t meth_duty = rpm > 3600U ? (rpm - 3600U) / 55U : 0U;
-  lv_label_set_text_fmt(s_rpm, "RPM\n%lu", static_cast<unsigned long>(rpm));
-  lv_label_set_text_fmt(s_speed, "SPEED\n%lu\nMPH", static_cast<unsigned long>(speed));
+  lv_label_set_text_fmt(s_rpm, "%lu", static_cast<unsigned long>(rpm));
+  lv_label_set_text_fmt(s_speed, "%lu", static_cast<unsigned long>(speed));
   const int32_t boost_abs = boost_tenths < 0 ? -boost_tenths : boost_tenths;
-  lv_label_set_text_fmt(s_boost, "BOOST\n%s%ld.%ld PSI", boost_tenths < 0 ? "-" : "",
+  lv_label_set_text_fmt(s_boost, "%s%ld.%ld PSI", boost_tenths < 0 ? "-" : "",
                         static_cast<long>(boost_abs / 10),
                         static_cast<long>(boost_abs % 10));
-  lv_label_set_text_fmt(s_meth_summary, "METH ARM\n%lu%%", static_cast<unsigned long>(meth_duty));
-  lv_label_set_text_fmt(s_iat, "FUEL\n%lu%%", static_cast<unsigned long>(46U + ramp / 3U));
-  lv_label_set_text_fmt(s_battery, "OIL\n%lu PSI", static_cast<unsigned long>(58U + ramp / 2U));
-  lv_label_set_text(s_accel, "CAN BUS\nCAN OK");
+  lv_label_set_text_fmt(s_meth_summary, "%lu%%", static_cast<unsigned long>(meth_duty));
+  lv_label_set_text_fmt(s_iat, "%lu PSI", static_cast<unsigned long>(46U + ramp / 3U));
+  lv_label_set_text_fmt(s_battery, "%lu PSI", static_cast<unsigned long>(58U + ramp / 2U));
+  lv_label_set_text(s_accel, "CAN OK");
   lv_label_set_text_fmt(s_clock, "12:%02lu", static_cast<unsigned long>(42U + (seconds / 60U) % 18U));
   if (s_freshness) {
     lv_label_set_text_fmt(s_freshness, "CAN 0.%lus  GPS 0.%lus",
@@ -878,8 +960,7 @@ void demo_can_tick(lv_timer_t*) {
     }
   }
 
-  lv_label_set_text_fmt(s_page_data[1],
-      "INJECTION STATUS\n%lu%%", static_cast<unsigned long>(meth_duty));
+  lv_label_set_text_fmt(s_page_data[1], "%lu%%", static_cast<unsigned long>(meth_duty));
   if (s_gps_speed) {
     lv_label_set_text_fmt(s_gps_speed, "%lu", static_cast<unsigned long>(speed));
     lv_label_set_text_fmt(s_gps_satellites, "%lu USED / %lu VIEW",
@@ -920,9 +1001,9 @@ void demo_can_tick(lv_timer_t*) {
   const uint32_t knock_level = 12U + ramp * 3U;
   const uint32_t knock_value = knock_level > 100U ? 100U : knock_level;
   if (s_knock_energy) {
-    lv_label_set_text_fmt(s_knock_energy, "CURRENT LEVEL\n0.%02lu V",
+    lv_label_set_text_fmt(s_knock_energy, "0.%02lu V",
                           static_cast<unsigned long>(knock_value));
-    lv_label_set_text_fmt(s_knock_baseline, "PEAK LEVEL\n0.%02lu V",
+    lv_label_set_text_fmt(s_knock_baseline, "0.%02lu V",
                           static_cast<unsigned long>(10U + ramp / 2U));
   }
   if (s_knock_chart) {
@@ -930,6 +1011,7 @@ void demo_can_tick(lv_timer_t*) {
                             static_cast<lv_coord_t>(knock_value));
     lv_chart_set_next_value(s_knock_chart, s_knock_base_series,
                             static_cast<lv_coord_t>(10U + ramp / 2U));
+    lv_chart_set_next_value(s_knock_chart, s_knock_threshold_series, 100);
   }
   if (s_page_data[7]) {
     lv_label_set_text(s_page_data[7], knock_value >= 90U ? "KNOCK" :

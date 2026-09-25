@@ -45,6 +45,9 @@ class ScreenDashboard {
     Nav,
     MethArm,
     MethRatio,
+    MethTest,
+    MethStop,
+    MethTankProtection,
     TailMode,
     TailShowMenu,
     TailShowPrev,
@@ -172,6 +175,9 @@ class ScreenDashboard {
   static void onLedColorClicked(lv_event_t* e);
   static void onMethArmClicked(lv_event_t* e);
   static void onMethRatioClicked(lv_event_t* e);
+  static void onMethTestHeld(lv_event_t* e);
+  static void onMethStopClicked(lv_event_t* e);
+  static void onMethTankProtection(lv_event_t* e);
   static void onTailStockClicked(lv_event_t* e);
   static void onTailSeqClicked(lv_event_t* e);
   static void onTailShowMenuClicked(lv_event_t* e);
@@ -330,6 +336,7 @@ class ScreenDashboard {
   lv_obj_t* methArmBtnLabel_   = nullptr;
   lv_obj_t* methRatioBtn_      = nullptr;
   lv_obj_t* methRatioBtnLabel_ = nullptr;
+  lv_obj_t* methTestBtnLabel_ = nullptr;
 
   // -- TAIL page --
   lv_obj_t* tailStatusLabel_   = nullptr;

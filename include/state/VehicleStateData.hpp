@@ -78,6 +78,7 @@ struct VehicleState {
   uint8_t meth_config_version = 0;
   uint8_t meth_fault_flags = 0;
   bool meth_desired_armed = false;
+  bool meth_tank_protection = true;  // Session-only; never persisted.
 
   bool knock_enabled = true;
   uint8_t knock_adc_pin = 48;
@@ -170,7 +171,7 @@ struct VehicleState {
   uint8_t taillight_right_state = 0;
   uint8_t taillight_input_flags = 0;
   uint8_t taillight_brightness = 0;
-  int8_t taillight_die_temp_c = 0;
+  uint8_t taillight_die_temp_c = 0;
   uint8_t taillight_thermal_derate = 0;
   uint8_t taillight_mode_commanded = 0;
 

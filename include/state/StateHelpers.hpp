@@ -11,7 +11,9 @@ inline bool nodeTimedOut(uint32_t nowMs, uint32_t lastSeenMs, uint32_t timeoutMs
 }
 
 inline bool methSafetyInputsValid(const VehicleState& s) {
-  return s.intake_temp_valid && s.meth_pressure_valid;
+  // The Nano owns boost-only injection safety. Its MAP validity is reported
+  // in 0x300 fault bit 1; optional IAT/line-pressure channels may be unwired.
+  return s.meth_online && (s.meth_fault_flags & (1U << 1)) == 0U;
 }
 
 inline bool hasCriticalMethFault(const VehicleState& s) {

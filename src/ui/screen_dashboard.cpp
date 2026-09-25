@@ -968,13 +968,17 @@ lv_obj_t* makeCockpitCard(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
 
   lv_obj_t* title = makeLabel(card, 10, 2, static_cast<lv_coord_t>(w - 16),
                               caption, &lv_font_montserrat_12);
+  lv_obj_set_height(title, 16);
   setTextColor(title, lv_color_hex(kUiColorTextMuted), 0);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_letter_space(title, 1, LV_PART_MAIN);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
 
   lv_obj_t* live = makeLabel(card, 10, static_cast<lv_coord_t>(h > 54 ? 24 : 19),
                              static_cast<lv_coord_t>(w - 16), value, valueFont);
   setTextColor(live, lv_color_hex(kUiColorText), 0);
   lv_obj_set_style_text_align(live, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_height(live, static_cast<lv_coord_t>(h - (h > 54 ? 28 : 23)));
   lv_label_set_long_mode(live, LV_LABEL_LONG_DOT);
   return live;
 }
@@ -984,8 +988,8 @@ lv_obj_t* makeCockpitHero(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
                           const char* value, uint32_t accent) {
   lv_obj_t* hero = makeCockpitCard(parent, x, y, w, h, caption, value, accent,
                                    &ccm_font_semibold_48);
-  lv_obj_set_y(hero, 42);
-  lv_obj_set_height(hero, 82);
+  lv_obj_set_y(hero, 34);
+  lv_obj_set_height(hero, 58);
   lv_obj_set_style_text_align(hero, LV_TEXT_ALIGN_CENTER, 0);
   return hero;
 }
@@ -2305,15 +2309,19 @@ void ScreenDashboard::showPage(uint8_t idx) {
 void ScreenDashboard::buildDashPage(lv_obj_t* parent) {
   // 1:1 reference geometry: large speed hero at left, two compact lower
   // gauges, and a 2 x 3 telemetry matrix at right.
-  spdValLabel_ = makeCockpitHero(parent, 8, 8, 226, 126, "SPEED", "0\nMPH", kUiColorText);
-  rpmValLabel_ = makeCockpitCard(parent, 8, 142, 109, 74, "RPM", "0 RPM", kUiColorBad,
+  spdValLabel_ = makeCockpitHero(parent, 8, 8, 226, 126, "SPEED", "0", kUiColorText);
+  lv_obj_t* speedUnit = makeLabel(lv_obj_get_parent(spdValLabel_), 10, 96, 210, "MPH",
+                                  &ccm_font_semibold_20);
+  lv_obj_set_style_text_align(speedUnit, LV_TEXT_ALIGN_CENTER, 0);
+  setTextColor(speedUnit, lv_color_hex(kUiColorTextMuted), 0);
+  rpmValLabel_ = makeCockpitCard(parent, 8, 142, 109, 74, "RPM", "0", kUiColorBad,
                                  &ccm_font_semibold_20);
-  gLiveLabel_ = makeCockpitCard(parent, 125, 142, 109, 74, "FUEL", "-- %", dashboard_theme::purple,
+  gLiveLabel_ = makeCockpitCard(parent, 125, 142, 109, 74, "FUEL PRESSURE", "-- PSI", dashboard_theme::purple,
                                 &ccm_font_semibold_20);
   boostValLabel_ = makeCockpitCard(parent, 242, 8, 110, 62, "BOOST", "0.0 PSI", kUiColorWarn,
                                    &ccm_font_semibold_20);
   dashStatusLabel_ = makeCockpitCard(parent, 360, 8, 112, 62, "METH ARM", "OFFLINE", kUiColorGood,
-                                     &ccm_font_semibold_20);
+                                     &ccm_font_semibold_16);
   dashEnvLabel_ = makeCockpitCard(parent, 242, 78, 110, 62, "TANK", "100%", dashboard_theme::blue,
                                   &ccm_font_semibold_20);
   dashRaceLabel_ = makeCockpitCard(parent, 360, 78, 112, 62, "KNOCK", "OK", kUiColorGood,
@@ -2382,22 +2390,31 @@ void ScreenDashboard::buildMethPage(lv_obj_t* parent) {
   methBadgeLabel_ = makeStatusPill(parent, 24, 116, 194, "SYSTEM STANDBY", lv_color_hex(kUiColorGood));
   methStateLabel_ = makeCockpitCard(parent, 242, 8, 110, 62, "PUMP DUTY", "0%", kUiColorGood,
                                     &ccm_font_semibold_20);
-  methTankLabel_ = makeCockpitCard(parent, 360, 8, 112, 62, "TANK LEVEL", "100%", dashboard_theme::blue,
+  methTankLabel_ = makeCockpitCard(parent, 360, 8, 112, 62, "TANK SWITCH", "--", dashboard_theme::blue,
                                    &ccm_font_semibold_20);
   methPressureLabel_ = makeCockpitCard(parent, 242, 78, 110, 62, "LINE PRESSURE", "-- PSI", kUiColorWarn,
                                        &ccm_font_semibold_20);
-  methMapLabel_ = makeCockpitCard(parent, 360, 78, 112, 62, "BOOST TRIGGER", "-- kPa", dashboard_theme::blue,
+  methMapLabel_ = makeCockpitCard(parent, 360, 78, 112, 62, "BOOST", "-- PSI", dashboard_theme::blue,
                                   &ccm_font_semibold_16);
-  methBayLabel_ = makeCockpitCard(parent, 242, 148, 110, 68, "FLOW RATE", "--", dashboard_theme::cyan,
-                                  &ccm_font_semibold_16);
-  methIatLabel_ = makeCockpitCard(parent, 360, 148, 112, 68, "IAT", "-- F", dashboard_theme::purple,
-                                  &ccm_font_semibold_20);
-  methSensorLabel_ = makeStatusPill(parent, 8, 158, 108, "SENSORS", lv_color_hex(kUiColorGood));
+  methBayLabel_ = makeLabel(parent, 242, 148, 110, "BAY -- F", &lv_font_montserrat_12);
+  methIatLabel_ = makeLabel(parent, 360, 148, 112, "IAT -- F", &lv_font_montserrat_12);
+  auto* testBtn = makeBtn(parent, "HOLD: TEST 5s", 242, 180, 110, 36, nullptr, this);
+  methTestBtnLabel_ = btnLabel(testBtn);
+  lv_obj_set_style_text_font(methTestBtnLabel_, &lv_font_montserrat_12, 0);
+  lv_obj_add_event_cb(testBtn, onMethTestHeld, LV_EVENT_LONG_PRESSED, this);
+  auto* stopBtn = makeBtn(parent, "STOP PUMP", 360, 180, 112, 36, onMethStopClicked, this);
+  lv_obj_set_style_text_font(btnLabel(stopBtn), &lv_font_montserrat_12, 0);
+  auto* tankBtn = makeBtn(parent, "TANK GUARD", 8, 158, 108, 26, nullptr, this);
+  methSensorLabel_ = btnLabel(tankBtn);
+  lv_obj_set_style_text_font(methSensorLabel_, &lv_font_montserrat_12, 0);
+  lv_obj_add_event_cb(tankBtn, onMethTankProtection, LV_EVENT_LONG_PRESSED, this);
   methParamLabel_ = makeStatusPill(parent, 124, 158, 110, "ARM OFF", lv_color_hex(kUiColorTextMuted));
   methArmBtn_ = makeBtn(parent, "ARM", 8, 190, 108, 26, onMethArmClicked, this);
   methArmBtnLabel_ = btnLabel(methArmBtn_);
   methRatioBtn_ = makeBtn(parent, "RATIO 55%", 124, 190, 110, 26, onMethRatioClicked, this);
   methRatioBtnLabel_ = btnLabel(methRatioBtn_);
+  lv_obj_set_style_text_font(methArmBtnLabel_, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(methRatioBtnLabel_, &lv_font_montserrat_12, 0);
   stylePrimaryButton(methArmBtn_);
   styleSecondaryButton(methRatioBtn_);
   return;
@@ -2918,30 +2935,54 @@ void ScreenDashboard::buildSdBrowser(lv_obj_t* parent) {
 void ScreenDashboard::buildKnockPage(lv_obj_t* parent) {
   lv_obj_t* left = makePanel(parent, 8, 8, 220, 208, 0x040A0D);
   lv_obj_set_style_border_color(left, lv_color_hex(0x46545A), LV_PART_MAIN);
-  makeLabel(left, 10, 4, 196, "KNOCK STATUS", &lv_font_montserrat_12);
-  knockEventLabel_ = makeLabel(left, 8, 26, 196, "NO KNOCK", &ccm_font_semibold_48);
+  lv_obj_t* knockTitle = makeLabel(left, 10, 4, 196, "KNOCK STATUS", &lv_font_montserrat_12);
+  lv_obj_set_style_text_align(knockTitle, LV_TEXT_ALIGN_CENTER, 0);
+  knockEventLabel_ = makeLabel(left, 8, 28, 196, "NO KNOCK", &ccm_font_semibold_20);
+  lv_obj_set_height(knockEventLabel_, 28);
   lv_obj_set_style_text_align(knockEventLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(knockEventLabel_, LV_LABEL_LONG_DOT);
   lv_label_set_recolor(knockEventLabel_, true);
   setTextColor(knockEventLabel_, lv_color_hex(kUiColorGood), 0);
-  knockSensorLabel_ = makeLabel(left, 8, 78, 196, "SENSOR OK", &lv_font_montserrat_12);
+  knockSensorLabel_ = makeLabel(left, 8, 62, 196, "SENSOR OK", &lv_font_montserrat_12);
+  lv_obj_set_height(knockSensorLabel_, 16);
   lv_obj_set_style_text_align(knockSensorLabel_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(knockSensorLabel_, LV_LABEL_LONG_DOT);
   setTextColor(knockSensorLabel_, lv_color_hex(kUiColorTextMuted), 0);
 
-  knockGraphLabel_ = makeLabel(left, 8, 98, 196, "KNOCK INTENSITY", &lv_font_montserrat_12);
+  knockGraphLabel_ = makeLabel(left, 8, 78, 196,
+      "#42CB54 SIGNAL#   #20D6E4 BASE#   #F6B80B LIMIT#", &lv_font_montserrat_12);
+  lv_label_set_recolor(knockGraphLabel_, true);
+  lv_obj_set_style_text_align(knockGraphLabel_, LV_TEXT_ALIGN_CENTER, 0);
   knockGraphChart_ = lv_chart_create(left);
-  lv_obj_set_pos(knockGraphChart_, 8, 118);
-  lv_obj_set_size(knockGraphChart_, 196, 68);
+  lv_obj_set_pos(knockGraphChart_, 8, 96);
+  lv_obj_set_size(knockGraphChart_, 196, 94);
   lv_chart_set_type(knockGraphChart_, LV_CHART_TYPE_LINE);
-  lv_chart_set_range(knockGraphChart_, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+  lv_chart_set_range(knockGraphChart_, LV_CHART_AXIS_PRIMARY_Y, 0, 110);
   lv_chart_set_point_count(knockGraphChart_, 32);
-  lv_chart_set_div_line_count(knockGraphChart_, 3, 6);
-  stylePanel(knockGraphChart_, kUiColorRow);
+  lv_chart_set_div_line_count(knockGraphChart_, 3, 4);
+  stylePanel(knockGraphChart_, 0x061017);
+  lv_obj_set_style_radius(knockGraphChart_, 4, LV_PART_MAIN);
+  lv_obj_set_style_border_color(knockGraphChart_, lv_color_hex(0x263944), LV_PART_MAIN);
+  lv_obj_set_style_border_width(knockGraphChart_, 1, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(knockGraphChart_, 4, LV_PART_MAIN);
+  lv_obj_set_style_line_color(knockGraphChart_, lv_color_hex(0x20323C), LV_PART_MAIN);
+  lv_obj_set_style_line_opa(knockGraphChart_, LV_OPA_50, LV_PART_MAIN);
+  lv_obj_set_style_line_width(knockGraphChart_, 2, LV_PART_ITEMS);
+  lv_obj_set_style_size(knockGraphChart_, 0, LV_PART_INDICATOR);
   knockGraphEnergySeries_ = lv_chart_add_series(knockGraphChart_, lv_color_hex(kUiColorGood),
                                                 LV_CHART_AXIS_PRIMARY_Y);
   knockGraphBaselineSeries_ = lv_chart_add_series(knockGraphChart_, lv_color_hex(dashboard_theme::cyan),
                                                   LV_CHART_AXIS_PRIMARY_Y);
   knockGraphThresholdSeries_ = lv_chart_add_series(knockGraphChart_, lv_color_hex(kUiColorWarn),
                                                    LV_CHART_AXIS_PRIMARY_Y);
+  // Seed the complete history. Without this, LVGL leaves most points as
+  // LV_CHART_POINT_NONE and the live trace appears as a short fragment at the
+  // right edge until all 32 samples have arrived.
+  for (uint8_t i = 0; i < 32; ++i) {
+    lv_chart_set_next_value(knockGraphChart_, knockGraphEnergySeries_, 0);
+    lv_chart_set_next_value(knockGraphChart_, knockGraphBaselineSeries_, 0);
+    lv_chart_set_next_value(knockGraphChart_, knockGraphThresholdSeries_, 100);
+  }
 
   knockEnergyLabel_ = makeCockpitCard(parent, 236, 8, 114, 48, "CURRENT LEVEL", "0.00 V", kUiColorGood,
                                        &ccm_font_semibold_20);
@@ -3259,7 +3300,7 @@ void ScreenDashboard::updateStatusOverlays(const state::VehicleState& s, uint32_
 void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   char buf[64];
   const float spdMph = s.speed * 0.621371f;
-  snprintf(buf, sizeof(buf), "%.0f\nMPH", static_cast<double>(spdMph));
+  snprintf(buf, sizeof(buf), "%.0f", static_cast<double>(spdMph));
   setLabelTextStatic(spdValLabel_, spdText_, sizeof(spdText_), buf);
 
   const float boostPsi = s.boost_psi;
@@ -3271,7 +3312,7 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   setTextColor(boostValLabel_, boostColor, 0);
 
   const uint8_t methDuty = static_cast<uint8_t>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty);
-  snprintf(buf, sizeof(buf), "%u%%", static_cast<unsigned>(s.meth_tank_level));
+  snprintf(buf, sizeof(buf), "%s", !s.meth_online ? "--" : (s.meth_tank_level == 0 ? "LOW" : "OK"));
   setLabelTextStatic(dashEnvLabel_, dashEnvText_, sizeof(dashEnvText_), buf);
 
   const bool methActive = (s.meth_state == state::MethState::SPRAYING) || s.manual_test_running;
@@ -3295,7 +3336,7 @@ void ScreenDashboard::updateDashPage(const state::VehicleState& s) {
   snprintf(buf, sizeof(buf), "%s", knockDash);
   setLabelTextStatic(dashRaceLabel_, dashRaceText_, sizeof(dashRaceText_), buf);
 
-  snprintf(buf, sizeof(buf), "%u RPM", static_cast<unsigned>(s.rpm));
+  snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(s.rpm));
   setLabelTextStatic(rpmValLabel_, rpmText_, sizeof(rpmText_), buf);
   snprintf(buf, sizeof(buf), "%.0f PSI", static_cast<double>(s.fuel_pressure_psi));
   setLabelTextStatic(gLiveLabel_, gLiveText_, sizeof(gLiveText_), buf);
@@ -3320,18 +3361,22 @@ void ScreenDashboard::updateMethPage(const state::VehicleState& s, uint32_t nowM
   lv_color_t extColor = lv_color_hex(extFresh ? kUiColorGood : kUiColorBad);
   lv_color_t armColor = lv_color_hex((s.meth_desired_armed || methActive) ? kUiColorButtonActive : kUiColorTextMuted);
 
-  setLabelText(methBadgeLabel_, "WATER-METH");
+  setLabelText(methBadgeLabel_, !s.meth_online ? "SYSTEM OFFLINE" :
+      (methActive ? "SYSTEM ACTIVE" : "SYSTEM STANDBY"));
   lv_obj_set_style_border_color(methBadgeLabel_, moduleColor, LV_PART_MAIN);
   setTextColor(methBadgeLabel_, moduleColor, 0);
-  snprintf(buf, sizeof(buf), "%s", s.meth_online ? (methActive ? "ACTIVE" : "ONLINE") : "OFFLINE");
+  snprintf(buf, sizeof(buf), "%u%%",
+           static_cast<unsigned>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty));
   setLabelText(methStateLabel_, buf);
   lv_obj_set_style_border_color(methStateLabel_, moduleColor, LV_PART_MAIN);
   setTextColor(methStateLabel_, moduleColor, 0);
-  snprintf(buf, sizeof(buf), "EXT %s", extFresh ? "ON" : "OFF");
+  snprintf(buf, sizeof(buf), "%s", s.meth_tank_protection ? "TANK GUARD" : "BYPASS!");
+  extColor = lv_color_hex(s.meth_tank_protection ? kUiColorGood : kUiColorWarn);
   setLabelText(methSensorLabel_, buf);
   lv_obj_set_style_border_color(methSensorLabel_, extColor, LV_PART_MAIN);
   setTextColor(methSensorLabel_, extColor, 0);
-  snprintf(buf, sizeof(buf), "%s", (s.meth_desired_armed || methActive) ? "ARMED" : "ARM OFF");
+  snprintf(buf, sizeof(buf), "%s", s.manual_test_running ? "TEST" :
+      ((s.meth_desired_armed || methActive) ? "ARMED" : "ARM OFF"));
   setLabelText(methParamLabel_, buf);
   lv_obj_set_style_border_color(methParamLabel_, armColor, LV_PART_MAIN);
   setTextColor(methParamLabel_, armColor, 0);
@@ -3339,20 +3384,21 @@ void ScreenDashboard::updateMethPage(const state::VehicleState& s, uint32_t nowM
   snprintf(buf, sizeof(buf), "%u%%",
            static_cast<unsigned>(s.meth_pump_duty > 100U ? 100U : s.meth_pump_duty));
   setLabelText(methDutyLabel_, buf);
-  snprintf(buf, sizeof(buf), "%u%%", static_cast<unsigned>(s.meth_tank_level));
+  snprintf(buf, sizeof(buf), "%s", !s.meth_online ? "--" : (s.meth_tank_level == 0 ? "LOW" : "OK"));
   setLabelText(methTankLabel_, buf);
   snprintf(buf, sizeof(buf), "%.1f PSI", static_cast<double>(s.boost_psi));
   setLabelText(methMapLabel_, buf);
   snprintf(buf, sizeof(buf), "%.0f PSI", static_cast<double>(s.meth_pressure_psi));
   setLabelText(methPressureLabel_, buf);
-  snprintf(buf, sizeof(buf), "%.0f F",
+  snprintf(buf, sizeof(buf), "IAT %.0f F",
            static_cast<double>(celsiusToFahrenheit(s.intake_temp)));
   setLabelText(methIatLabel_, buf);
-  snprintf(buf, sizeof(buf), "%.0f F",
+  snprintf(buf, sizeof(buf), "BAY %.0f F",
            static_cast<double>(celsiusToFahrenheit(s.engine_bay_temp)));
   setLabelText(methBayLabel_, buf);
 
   setLabelText(methArmBtnLabel_, s.meth_desired_armed ? "DISARM" : "ARM");
+  setLabelText(methTestBtnLabel_, s.manual_test_running ? "TEST RUNNING" : "HOLD: TEST 5s");
   snprintf(buf, sizeof(buf), "RATIO %u%%", static_cast<unsigned>(s.meth_selected_ratio_percent));
   setLabelText(methRatioBtnLabel_, buf);
   setBgColor(methArmBtn_,
@@ -4006,11 +4052,59 @@ void ScreenDashboard::performUiAction(const UiAction& action, uint32_t nowMs) {
         state::g_vehicle_state.mutate([arm](state::VehicleState& vs) { vs.meth_desired_armed = arm; });
         setActionFeedback(arm ? "METH ON" : "METH OFF", nowMs);
       } else {
-        setActionFeedback("METH CMD REJECTED", nowMs);
+        const auto s = state::g_vehicle_state.read();
+        setActionFeedback(!s.meth_online ? "METH OFFLINE" :
+            ((s.meth_tank_protection && s.meth_tank_level == 0) ? "TANK LOW" :
+            (s.meth_fault_flags || s.meth_state == state::MethState::FAULT ? "METH FAULT" : "CAN SEND FAILED")), nowMs);
       }
       break;
     }
 
+    case UiActionType::MethTest: {
+      if (canMgr_ && canMgr_->sendMethManualTest(100)) {
+        setActionFeedback("PUMP TEST 100% / 5s", nowMs);
+      } else {
+        const auto s = state::g_vehicle_state.read();
+        const char* reason = "TEST REJECTED";
+        switch (s.meth_manual_test_reject_reason) {
+          case 1: reason = "METH OFFLINE"; break;
+          case 2: reason = "METH FAULT"; break;
+          case 3: reason = "TEST COOLDOWN"; break;
+          case 7: reason = "TANK LOW"; break;
+          case 8: reason = "DISARM BEFORE TEST"; break;
+          case 9: reason = "TEST ALREADY RUNNING"; break;
+        }
+        setActionFeedback(reason, nowMs);
+      }
+      break;
+    }
+    case UiActionType::MethStop:
+      if (canMgr_) {
+        const bool stopped = canMgr_->sendMethStopManualTest();
+        const bool disarmed = canMgr_->sendMethArm(false);
+        setActionFeedback(stopped && disarmed ? "PUMP STOP SENT" : "STOP SEND FAILED", nowMs);
+      }
+      break;
+    case UiActionType::MethTankProtection: {
+      const auto s = state::g_vehicle_state.read();
+      if (s.meth_desired_armed || s.manual_test_running || s.meth_state == state::MethState::SPRAYING ||
+          s.meth_state == state::MethState::TEST || s.meth_state == state::MethState::ARMED) {
+        setActionFeedback("STOP / DISARM FIRST", nowMs);
+        break;
+      }
+      state::g_vehicle_state.mutate([](state::VehicleState& vs) {
+        vs.meth_tank_protection = !vs.meth_tank_protection;
+      });
+      const bool sent = canMgr_ && canMgr_->sendMethConfigBroadcast();
+      if (!sent) {
+        state::g_vehicle_state.mutate([&](state::VehicleState& vs) {
+          vs.meth_tank_protection = s.meth_tank_protection;
+        });
+      }
+      setActionFeedback(!sent ? "CONFIG SEND FAILED" :
+          (s.meth_tank_protection ? "TANK GUARD BYPASSED" : "TANK GUARD ENABLED"), nowMs);
+      break;
+    }
     case UiActionType::MethRatio: {
       const uint8_t ratio = action.arg0;
       state::g_vehicle_state.mutate([ratio](state::VehicleState& vs) { vs.meth_selected_ratio_percent = ratio; });
@@ -4932,8 +5026,22 @@ void ScreenDashboard::onMethArmClicked(lv_event_t* e) {
   const uint32_t now = millis();
   if (!self->shouldAcceptUiTap(lv_event_get_target(e), now)) return;
   const bool arm = !state::g_vehicle_state.read().meth_desired_armed;
-  self->setActionFeedback(arm ? "METH ON" : "METH OFF", now);
   self->enqueueAction({UiActionType::MethArm, static_cast<uint8_t>(arm ? 1U : 0U), 0, 0}, now);
+}
+
+void ScreenDashboard::onMethTestHeld(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (self) self->enqueueAction({UiActionType::MethTest, 0, 0, 0}, millis());
+}
+
+void ScreenDashboard::onMethStopClicked(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (self) self->enqueueAction({UiActionType::MethStop, 0, 0, 0}, millis());
+}
+
+void ScreenDashboard::onMethTankProtection(lv_event_t* e) {
+  auto* self = static_cast<ScreenDashboard*>(lv_event_get_user_data(e));
+  if (self) self->enqueueAction({UiActionType::MethTankProtection, 0, 0, 0}, millis());
 }
 
 void ScreenDashboard::onMethRatioClicked(lv_event_t* e) {

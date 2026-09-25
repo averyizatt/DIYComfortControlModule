@@ -73,9 +73,9 @@ void Application::runCanTask() {
     if ((now - lastHeartbeat) >= config::kCanHeartbeatMs) {
       can::CanFrame hb{};
       hb.id = static_cast<uint16_t>(can::CanId::MasterHeartbeat);
-      hb.dlc = 2;
-      hb.data[0] = can::kProtocolVersion;
-      hb.data[1] = static_cast<uint8_t>(can::ModuleId::Master);
+      hb.dlc = 8;
+      hb.data[0] = static_cast<uint8_t>(can_protocol::MasterState::RUN);
+      hb.data[7] = static_cast<uint8_t>(now / 1000U);
       can_.send(hb);
       lastHeartbeat = now;
     }
@@ -143,6 +143,9 @@ void Application::runTachTask() {
 }
 
 void Application::runUiTask() {
+  can_protocol::MethConfigBroadcast methConfig{};
+  methConfig.ratio_percent = 50;
+  methConfig.failsafe_flags = 0x03;
   while (true) {
     DashboardData dashboard = state_.readDashboard();
 
@@ -164,25 +167,30 @@ void Application::runUiTask() {
     if (ui_.pollAction(action)) {
       CanCommand cmd{};
       switch (action.type) {
-        case UiActionType::ChangeMethMix:
-          cmd.id = can::CanId::MethCommand;
-          cmd.len = 2;
-          cmd.data[0] = 0x01;
-          cmd.data[1] = action.value;
+        case UiActionType::ChangeMethMix: {
+          methConfig.version++;
+          methConfig.ratio_percent = action.value > 100 ? 100 : action.value;
+          const auto frame = can_protocol::packMethConfigBroadcast(methConfig);
+          cmd.id = can::CanId::MethConfig;
+          cmd.len = frame.dlc;
+          for (uint8_t i = 0; i < frame.dlc; ++i) cmd.data[i] = frame.data[i];
           xQueueSend(qCanCmd_, &cmd, 0);
           break;
+        }
         case UiActionType::ToggleMethEnable:
+          methConfig.desired_armed = action.value ? 1 : 0;
           cmd.id = can::CanId::MethCommand;
           cmd.len = 2;
-          cmd.data[0] = 0x02;
-          cmd.data[1] = action.value;
+          cmd.data[0] = can_protocol::meth_command::ARM;
+          cmd.data[1] = methConfig.desired_armed;
           xQueueSend(qCanCmd_, &cmd, 0);
           break;
         case UiActionType::SetTaillightMode:
           cmd.id = can::CanId::TailLightCommand;
-          cmd.len = 2;
-          cmd.data[0] = 0x01;
+          cmd.len = 3;
+          cmd.data[0] = can_protocol::taillight_command::SET_MODE;
           cmd.data[1] = action.value;
+          cmd.data[2] = 0;
           xQueueSend(qCanCmd_, &cmd, 0);
           break;
         default:

@@ -1,10 +1,13 @@
 #pragma once
 
 #include <Arduino.h>
+#include "can_contract/can_protocol.h"
 
 namespace ccm::can {
 
 constexpr uint8_t kProtocolVersion = CCM_CAN_PROTOCOL_VERSION;
+static_assert(kProtocolVersion == can_protocol::CAN_PROTOCOL_SCHEMA_VERSION,
+              "Build flags and shared CAN schema must agree");
 
 enum class ModuleId : uint8_t {
   Master = 0x01,
@@ -17,20 +20,15 @@ enum class ModuleId : uint8_t {
 };
 
 enum class CanId : uint16_t {
-  MasterHeartbeat = 0x100,
-  DashboardBroadcast = 0x101,
-  NodeStatus = 0x120,
-  Diagnostic = 0x130,
-
-  MethCommand = 0x200,
-  MethStatus = 0x201,
-
-  TailLightCommand = 0x210,
-  TailLightStatus = 0x211,
-
-  RpmTelemetry = 0x300,
-  GpsTelemetry = 0x301,
-  EnvironmentTelemetry = 0x302,
+  MasterHeartbeat = can_protocol::ID_MASTER_HEARTBEAT,
+  MethCommand = can_protocol::ID_ENGINE_METH_COMMAND,
+  MethConfig = can_protocol::ID_METH_CONFIG_BROADCAST,
+  MethStatus = can_protocol::ID_ENGINE_METH_STATE,
+  TailLightCommand = can_protocol::ID_TAILLIGHT_COMMAND,
+  TailLightStatus = can_protocol::ID_TAILLIGHT_STATE,
+  RpmTelemetry = can_protocol::ID_TACH_RPM_STATE,
+  GpsTelemetry = can_protocol::ID_GPS_STATE,
+  EnvironmentTelemetry = can_protocol::ID_ENGINE_SENSOR_EXT,
 };
 
 enum class MethMode : uint8_t {
@@ -48,11 +46,7 @@ enum class TailLightMode : uint8_t {
   Demo = 3,
 };
 
-struct CanFrame {
-  uint16_t id = 0;
-  uint8_t dlc = 0;
-  uint8_t data[8]{};
-};
+using CanFrame = can_protocol::CanFrame;
 
 struct NodeHealth {
   ModuleId owner = ModuleId::Master;

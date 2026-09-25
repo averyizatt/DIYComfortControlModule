@@ -61,10 +61,10 @@ inline void packKnockState(const state::VehicleState& s, can_protocol::CanFrame&
 
 inline void packEngineSensorExt(const state::VehicleState& s, can_protocol::CanFrame& out) {
   can_protocol::EngineSensorExt ext{};
-  ext.oil_pressure_psi = can_protocol::clampU8(static_cast<int>(s.oil_pressure_psi));
-  ext.fuel_pressure_psi = can_protocol::clampU8(static_cast<int>(s.fuel_pressure_psi));
-  ext.meth_pressure_psi = can_protocol::clampU8(static_cast<int>(s.meth_pressure_psi));
-  ext.boost_ref_pressure_psi = can_protocol::clampU8(static_cast<int>(s.boost_ref_pressure_psi));
+  ext.oil_pressure_psi_x2 = can_protocol::clampU8(static_cast<int>(s.oil_pressure_psi * 2.0f + 0.5f));
+  ext.fuel_pressure_psi_x2 = can_protocol::clampU8(static_cast<int>(s.fuel_pressure_psi * 2.0f + 0.5f));
+  ext.meth_pressure_psi_x2 = can_protocol::clampU8(static_cast<int>(s.meth_pressure_psi * 2.0f + 0.5f));
+  ext.boost_ref_pressure_psi_x2 = can_protocol::clampU8(static_cast<int>(s.boost_ref_pressure_psi * 2.0f + 0.5f));
   ext.ambient_temp_c = static_cast<int8_t>(s.outside_temp);
   ext.cabin_temp_c = static_cast<int8_t>(s.cabin_temp);
   ext.analog_fault_flags = s.analog_sensor_fault_flags;
@@ -79,7 +79,7 @@ inline can_protocol::CanFrame packMethConfigState(const state::VehicleState& s) 
   msg.boost_trigger_kpa = 114;  // ~3.5 psi boost above a 90 kPa local baro default
   msg.iat_threshold_offset40 = can_protocol::tempToOffset40(50);
   msg.max_pump_duty = 100;
-  msg.failsafe_flags = 0x03;  // low tank + sensor validity required
+  msg.failsafe_flags = s.meth_tank_protection ? 0x03 : 0x02;
   return can_protocol::packMethConfigBroadcast(msg);
 }
 

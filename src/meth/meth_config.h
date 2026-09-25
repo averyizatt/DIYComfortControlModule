@@ -12,6 +12,7 @@ namespace meth {
 struct DesiredConfig {
   uint8_t version = 0;
   bool armed = false;
+  bool tank_protection = true;
   uint8_t ratio_percent = 50;  // 0–100 % methanol in tank
 };
 

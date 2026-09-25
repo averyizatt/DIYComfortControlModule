@@ -14,6 +14,9 @@ enum class ManualTestRejectReason : uint8_t {
   DUTY_ZERO = 4,
   DUTY_OVER_MAX = 5,
   CONFIRMATION_REQUIRED = 6,
+  LOW_TANK = 7,
+  ARMED = 8,
+  RUNNING = 9,
 };
 
 struct ManualTestDecision {
@@ -27,7 +30,7 @@ struct ManualTestDecision {
 
 inline bool canArm(const state::VehicleState& s) {
   return s.meth_online && state::methSafetyInputsValid(s) && !state::hasCriticalMethFault(s) &&
-         s.meth_tank_level > 10U;
+         (!s.meth_tank_protection || s.meth_tank_level > 10U);
 }
 
 inline uint8_t progressivePumpDuty(bool armed, bool faulted, bool lowTank, bool sensorsValid,
@@ -44,7 +47,12 @@ inline ManualTestDecision evaluateManualTestRequest(const state::VehicleState& s
                                                     bool confirmed, uint32_t nowMs, uint32_t lastStopMs,
                                                     uint32_t cooldownMs = 3000U) {
   if (!s.meth_online) return {false, ManualTestRejectReason::OFFLINE};
+  if (s.meth_tank_protection && s.meth_tank_level <= 10U) return {false, ManualTestRejectReason::LOW_TANK};
   if (state::hasCriticalMethFault(s)) return {false, ManualTestRejectReason::FAULT};
+  if (s.meth_desired_armed || s.meth_state == state::MethState::ARMED ||
+      s.meth_state == state::MethState::SPRAYING) return {false, ManualTestRejectReason::ARMED};
+  if (s.manual_test_running || s.meth_state == state::MethState::TEST)
+    return {false, ManualTestRejectReason::RUNNING};
   if ((nowMs - lastStopMs) < cooldownMs) return {false, ManualTestRejectReason::COOLDOWN};
   if (duty == 0U) return {false, ManualTestRejectReason::DUTY_ZERO};
   if (duty > 100U) return {false, ManualTestRejectReason::DUTY_OVER_MAX};

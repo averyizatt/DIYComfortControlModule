@@ -136,14 +136,7 @@ bool deadlineReached(uint32_t nowMs, uint32_t deadlineMs) {
   return deadlineMs != 0U && static_cast<int32_t>(nowMs - deadlineMs) >= 0;
 }
 
-namespace taillight_animation {
-constexpr uint8_t SEQUENTIAL_ID = 1;
-constexpr uint16_t SEQUENTIAL_DURATION_MS = 500;
-constexpr uint8_t SHOW_ID = 2;
-constexpr uint16_t SHOW_DURATION_MS = 800;
-constexpr uint8_t DEMO_ID = 3;
-constexpr uint16_t DEMO_DURATION_MS = 1200;
-}  // namespace taillight_animation
+
 
 namespace meth_manual_test_reject_reason {
 constexpr uint8_t NONE = 0;
@@ -608,23 +601,8 @@ bool CanManager::sendTaillightCustomAnimation(uint8_t animId, uint16_t durationM
 }
 
 bool CanManager::sendTaillightMode(uint8_t mode) {
-  bool sent = false;
-  switch (mode) {
-    case can_protocol::taillight_mode::STOCK:
-      sent = clearTaillightOverride();
-      break;
-    case can_protocol::taillight_mode::SEQUENTIAL:
-      sent = sendTaillightCustomAnimation(taillight_animation::SEQUENTIAL_ID, taillight_animation::SEQUENTIAL_DURATION_MS, 0, 0);
-      break;
-    case can_protocol::taillight_mode::SHOW:
-      sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, 0, 0);
-      break;
-    case can_protocol::taillight_mode::DEMO:
-      sent = sendTaillightCustomAnimation(taillight_animation::DEMO_ID, taillight_animation::DEMO_DURATION_MS, 0, 0);
-      break;
-    default:
-      break;
-  }
+  if (!can_protocol::validTaillightMode(mode, 0)) return false;
+  const bool sent = sendFrame(can_protocol::packTaillightMode(mode));
   if (sent) {
     state::g_vehicle_state.mutate([mode](state::VehicleState& s) { s.taillight_mode_commanded = mode; });
   }
@@ -632,7 +610,8 @@ bool CanManager::sendTaillightMode(uint8_t mode) {
 }
 
 bool CanManager::sendTaillightShowOption(uint8_t option) {
-  const bool sent = sendTaillightCustomAnimation(taillight_animation::SHOW_ID, taillight_animation::SHOW_DURATION_MS, option, 0);
+  if (!can_protocol::validTaillightMode(can_protocol::taillight_mode::SHOW, option)) return false;
+  const bool sent = sendFrame(can_protocol::packTaillightMode(can_protocol::taillight_mode::SHOW, option));
   if (sent) {
     state::g_vehicle_state.mutate([](state::VehicleState& s) { s.taillight_mode_commanded = can_protocol::taillight_mode::SHOW; });
   }
@@ -822,7 +801,8 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
         return false;
       }
     }
-    frame.id = static_cast<uint16_t>(rx.can_id & 0x7FFU);
+    if (rx.can_id > 0x7FFU || rx.can_dlc > 8U) return false;
+    frame.id = static_cast<uint16_t>(rx.can_id);
     frame.dlc = rx.can_dlc;
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       frame.data[i] = rx.data[i];
@@ -850,7 +830,8 @@ bool CanManager::receiveFrame(can_protocol::CanFrame& frame) {
     if (twai_receive(&rx, 0) != ESP_OK) {
       return false;
     }
-    frame.id = static_cast<uint16_t>(rx.identifier & 0x7FFU);
+    if (rx.extd || rx.rtr || rx.identifier > 0x7FFU || rx.data_length_code > 8U) return false;
+    frame.id = static_cast<uint16_t>(rx.identifier);
     frame.dlc = rx.data_length_code;
     for (uint8_t i = 0; i < frame.dlc && i < 8; ++i) {
       frame.data[i] = rx.data[i];
@@ -926,8 +907,7 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
         s.intake_temp = msg.iat_c;
       }
       s.engine_bay_temp = msg.engine_bay_c;
-      s.intake_temp_valid = true;
-      s.engine_bay_temp_valid = true;
+      // Temperature validity arrives in the 0x303 sensor flags.
       s.meth_fault_flags = msg.fault_flags;
       if (msg.fault_flags != 0U || s.meth_state == state::MethState::FAULT) {
         s.fault_flags |= kFaultMeth;
@@ -971,19 +951,23 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     can_protocol::EngineSensorExt msg{};
     if (!can_protocol::unpackEngineSensorExt(frame, msg)) return;
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {
-      s.oil_pressure_psi = msg.oil_pressure_psi;
-      s.fuel_pressure_psi = msg.fuel_pressure_psi;
-      s.meth_pressure_psi = msg.meth_pressure_psi;
-      s.boost_ref_pressure_psi = msg.boost_ref_pressure_psi;
+      s.oil_pressure_psi = msg.oil_pressure_psi_x2 * 0.5f;
+      s.fuel_pressure_psi = msg.fuel_pressure_psi_x2 * 0.5f;
+      s.meth_pressure_psi = msg.meth_pressure_psi_x2 * 0.5f;
+      s.boost_ref_pressure_psi = msg.boost_ref_pressure_psi_x2 * 0.5f;
       s.outside_temp = msg.ambient_temp_c;
       s.cabin_temp = msg.cabin_temp_c;
       s.analog_sensor_fault_flags = msg.analog_fault_flags;
-      s.oil_pressure_valid = true;
-      s.fuel_pressure_valid = true;
-      s.meth_pressure_valid = true;
-      s.boost_ref_pressure_valid = true;
-      s.outside_temp_valid = true;
-      s.cabin_temp_valid = true;
+      const bool ecuFresh = s.microsquirt_online &&
+          (nowMs - s.microsquirt_last_ms) <= microsquirt::kFreshTimeoutMs;
+      if (!ecuFresh) s.intake_temp_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::IAT) == 0;
+      s.engine_bay_temp_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::ENGINE_BAY) == 0;
+      s.oil_pressure_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::OIL) == 0;
+      s.fuel_pressure_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::FUEL) == 0;
+      s.meth_pressure_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::METH) == 0;
+      s.boost_ref_pressure_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::BOOST_REF) == 0;
+      s.outside_temp_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::AMBIENT) == 0;
+      s.cabin_temp_valid = (msg.analog_fault_flags & can_protocol::analog_sensor_fault::CABIN) == 0;
       s.last_analog_sensor_ms = nowMs;
       s.last_meth_ms = nowMs;
       s.meth_online = true;
@@ -1025,9 +1009,11 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
     return;
   }
 
-  if (frame.id == can_protocol::ID_METH_CONFIG_ACK) {
+  if (frame.id == can_protocol::ID_ENGINE_COMMAND_ACK) {
     can_protocol::EngineKnockConfigAck knockAck{};
     if (can_protocol::unpackEngineKnockConfigAck(frame, knockAck)) {
+      if (knockAck.status != can_protocol::config_ack_status::OK &&
+          knockAck.status != can_protocol::config_ack_status::VALUE_CLAMPED) return;
       state::g_vehicle_state.mutate([&](state::VehicleState& s) {
         s.can_online = true;
         switch (knockAck.command) {
@@ -1075,6 +1061,17 @@ void CanManager::dispatchFrame(const can_protocol::CanFrame& frame, uint32_t now
       return;
     }
 
+    can_protocol::EngineCommandAck commandAck{};
+    if (!can_protocol::unpackEngineCommandAck(frame, commandAck)) return;
+    // Commands must never update mixture ratio or configuration version.
+    if (commandAck.command == can_protocol::meth_command::MANUAL_TEST_DUTY &&
+        (commandAck.status != can_protocol::config_ack_status::OK || commandAck.applied_value == 0)) {
+      sendMethStopManualTest();
+    }
+    return;
+  }
+
+  if (frame.id == can_protocol::ID_METH_CONFIG_ACK) {
     can_protocol::MethConfigAck ack{};
     if (!can_protocol::unpackMethConfigAck(frame, ack)) return;
     state::g_vehicle_state.mutate([&](state::VehicleState& s) {

@@ -3,6 +3,8 @@
 #include "can/CanFrameBuilders.hpp"
 #include "can/MicroSquirtProtocol.hpp"
 #include "can_contract/can_protocol.h"
+#include "../../modules/water-meth/include/can_contract/can_protocol.h"
+#include "../../modules/tailights/src/can_control.h"
 
 void setUp() {}
 void tearDown() {}
@@ -61,7 +63,7 @@ void test_knock_and_sensor_frames_pack_expected_bytes() {
   TEST_ASSERT_EQUAL_UINT8(255, knock.data[1]);
   TEST_ASSERT_EQUAL_UINT8(68, knock.data[5]);
   TEST_ASSERT_EQUAL_HEX16(0x303, sensor.id);
-  TEST_ASSERT_EQUAL_UINT8(61, sensor.data[0]);
+  TEST_ASSERT_EQUAL_UINT8(122, sensor.data[0]);
   TEST_ASSERT_EQUAL_UINT8(0x34, sensor.data[6]);
 }
 
@@ -118,8 +120,91 @@ void test_microsquirt_realtime_boost_uses_baro_and_rejects_bad_dlc() {
   TEST_ASSERT_EQUAL_UINT32(1, data.invalid_count);
 }
 
+void test_real_taillight_payload_layout() {
+  can_protocol::CanFrame wire{};
+  wire.id = 0x100;
+  wire.dlc = 7;
+  const uint8_t bytes[7] = {2, 3, 1, 4, 180, 65, 32};
+  for (int i = 0; i < 7; ++i) wire.data[i] = bytes[i];
+  can_protocol::TaillightState state{};
+  TEST_ASSERT_TRUE(can_protocol::unpackTaillightState(wire, state));
+  TEST_ASSERT_EQUAL_UINT8(180, state.brightness);
+  TEST_ASSERT_EQUAL_UINT8(65, state.die_temp_c);
+  TEST_ASSERT_EQUAL_UINT8(32, state.thermal_derate);
+  TEST_ASSERT_EQUAL_UINT8(5, state.input_flags);
+  const auto packed = can_protocol::packTaillightState(state);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(bytes, packed.data, 7);
+  wire.dlc = 6;
+  TEST_ASSERT_FALSE(can_protocol::unpackTaillightState(wire, state));
+}
+
+void test_command_ack_is_distinct_from_config_ack() {
+  const auto command = can_protocol::packConfigAck(1, 0, 1, 2);
+  TEST_ASSERT_EQUAL_HEX16(0x30A, command.id);
+  can_protocol::MethConfigAck config{};
+  can_protocol::EngineCommandAck ack{};
+  TEST_ASSERT_FALSE(can_protocol::unpackMethConfigAck(command, config));
+  TEST_ASSERT_TRUE(can_protocol::unpackEngineCommandAck(command, ack));
+  // Previously collided with knock command 0x40 when mixture was 1%.
+  const auto broadcastAck = can_protocol::packMethConfigAck(0x40, 0, 0, 1);
+  TEST_ASSERT_TRUE(can_protocol::unpackMethConfigAck(broadcastAck, config));
+  TEST_ASSERT_FALSE(can_protocol::unpackEngineKnockConfigAck(broadcastAck, ack));
+  const auto knock = can_protocol::packConfigAck(0x40, 0, 1, 2);
+  TEST_ASSERT_TRUE(can_protocol::unpackEngineKnockConfigAck(knock, ack));
+  auto wrongSchema = knock;
+  wrongSchema.data[3] = 1;
+  TEST_ASSERT_FALSE(can_protocol::unpackEngineCommandAck(wrongSchema, ack));
+}
+
+void test_modes_reach_actual_taillight_settings() {
+  Settings settings{};
+  for (uint8_t option = 0; option < 33; ++option) {
+    const auto frame = can_protocol::packTaillightMode(2, option);
+    TEST_ASSERT_EQUAL_UINT8(5, frame.data[0]);
+    TEST_ASSERT_TRUE(applyCanMode(settings, frame));
+    TEST_ASSERT_EQUAL_UINT8(1, settings.show_mode);
+    TEST_ASSERT_EQUAL_UINT8(option, settings.show_anim);
+  }
+  TEST_ASSERT_FALSE(applyCanMode(settings, can_protocol::packTaillightMode(2, 33)));
+  TEST_ASSERT_EQUAL_UINT8(32, settings.show_anim);
+  TEST_ASSERT_TRUE(applyCanMode(settings, can_protocol::packTaillightMode(0)));
+  TEST_ASSERT_EQUAL_UINT8(0, settings.show_mode);
+  TEST_ASSERT_EQUAL_UINT8(1, settings.turn_anim);
+  TEST_ASSERT_TRUE(applyCanMode(settings, can_protocol::packTaillightMode(1)));
+  TEST_ASSERT_EQUAL_UINT8(0, settings.turn_anim);
+  TEST_ASSERT_TRUE(applyCanMode(settings, can_protocol::packTaillightMode(3)));
+  TEST_ASSERT_EQUAL_UINT8(1, settings.show_mode);
+  auto bad = can_protocol::packTaillightMode(0);
+  bad.dlc = 2;
+  TEST_ASSERT_FALSE(applyCanMode(settings, bad));
+  TEST_ASSERT_EQUAL_UINT8(1, settings.show_mode);
+}
+
+void test_nano_pressure_and_runtime_wire_units() {
+  can_protocol::EngineSensorExt sensors{};
+  sensors.oil_pressure_psi_x2 = 123; // 61.5 psi, not 123 psi
+  sensors.analog_fault_flags = can_protocol::analog_sensor_fault::METH |
+      can_protocol::analog_sensor_fault::IAT;
+  const auto wire = can_protocol::packEngineSensorExt(sensors);
+  can_protocol::EngineSensorExt decoded{};
+  TEST_ASSERT_TRUE(can_protocol::unpackEngineSensorExt(wire, decoded));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 61.5f, decoded.oil_pressure_psi_x2 * 0.5f);
+  TEST_ASSERT_EQUAL_HEX16(0x14, decoded.analog_fault_flags);
+  can_protocol::EngineRuntime runtime{};
+  runtime.rpm = 0x1234;
+  runtime.map_kpa = 150;
+  runtime.valid_flags = 3;
+  const auto engine = can_protocol::packEngineRuntime(runtime);
+  const uint8_t bytes[4] = {0x34, 0x12, 150, 3};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(bytes, engine.data, 4);
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_real_taillight_payload_layout);
+  RUN_TEST(test_command_ack_is_distinct_from_config_ack);
+  RUN_TEST(test_modes_reach_actual_taillight_settings);
+  RUN_TEST(test_nano_pressure_and_runtime_wire_units);
   RUN_TEST(test_taillight_and_meth_frames_remain_compatible);
   RUN_TEST(test_invalid_dlc_and_endian_handling);
   RUN_TEST(test_knock_and_sensor_frames_pack_expected_bytes);

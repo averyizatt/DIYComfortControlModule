@@ -1,6 +1,7 @@
 #include <Unity.h>
 
 #include "meth/MethSafetyLogic.hpp"
+#include "can/CanFrameBuilders.hpp"
 
 void setUp() {}
 void tearDown() {}
@@ -9,16 +10,48 @@ void test_boots_off_disarmed() {
   state::VehicleState s{};
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(state::MethState::OFF), static_cast<uint8_t>(s.meth_state));
   TEST_ASSERT_FALSE(s.meth_desired_armed);
+  TEST_ASSERT_TRUE(s.meth_tank_protection);
 }
 
 void test_arming_only_works_when_sensors_valid() {
   state::VehicleState s{};
   s.meth_online = true;
   s.meth_tank_level = 50;
-  TEST_ASSERT_FALSE(meth::canArm(s));
-  s.intake_temp_valid = true;
-  s.meth_pressure_valid = true;
+  // Optional IAT/pressure sensors are not required by the Nano's boost mode.
   TEST_ASSERT_TRUE(meth::canArm(s));
+  s.meth_fault_flags = 1U << 1;  // Nano reports invalid MAP.
+  TEST_ASSERT_FALSE(meth::canArm(s));
+  s.meth_fault_flags = 0;
+  s.meth_online = false;
+  TEST_ASSERT_FALSE(meth::canArm(s));
+}
+
+void test_tank_bypass_and_manual_interlocks() {
+  state::VehicleState s{};
+  s.meth_online = true;
+  s.meth_tank_level = 0;
+  TEST_ASSERT_FALSE(meth::canArm(s));
+  TEST_ASSERT_FALSE(meth::evaluateManualTestRequest(s, 100, true, 5000, 0).allowed);
+  s.meth_tank_protection = false;
+  can_protocol::MethConfigBroadcast config{};
+  TEST_ASSERT_TRUE(can_protocol::unpackMethConfigBroadcast(canbus::packMethConfigState(s), config));
+  TEST_ASSERT_EQUAL_UINT8(0x02, config.failsafe_flags);
+  TEST_ASSERT_TRUE(meth::canArm(s));
+  TEST_ASSERT_TRUE(meth::evaluateManualTestRequest(s, 100, true, 5000, 0).allowed);
+  s.meth_fault_flags = 2;
+  TEST_ASSERT_FALSE(meth::canArm(s));
+  TEST_ASSERT_FALSE(meth::evaluateManualTestRequest(s, 100, true, 5000, 0).allowed);
+  s.meth_fault_flags = 0;
+  s.meth_desired_armed = true;
+  TEST_ASSERT_FALSE(meth::evaluateManualTestRequest(s, 100, true, 5000, 0).allowed);
+  s.meth_desired_armed = false;
+  s.manual_test_running = true;
+  TEST_ASSERT_FALSE(meth::evaluateManualTestRequest(s, 100, true, 5000, 0).allowed);
+  s.manual_test_running = false;
+  TEST_ASSERT_FALSE(meth::evaluateManualTestRequest(s, 100, true, 5000, 4500).allowed);
+  s.meth_tank_protection = true;
+  TEST_ASSERT_TRUE(can_protocol::unpackMethConfigBroadcast(canbus::packMethConfigState(s), config));
+  TEST_ASSERT_EQUAL_UINT8(0x03, config.failsafe_flags);
 }
 
 void test_pump_duty_zero_when_disarmed_or_faulted() {
@@ -67,6 +100,7 @@ void test_can_loss_disarms_and_fault_inputs_work() {
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_boots_off_disarmed);
+  RUN_TEST(test_tank_bypass_and_manual_interlocks);
   RUN_TEST(test_arming_only_works_when_sensors_valid);
   RUN_TEST(test_pump_duty_zero_when_disarmed_or_faulted);
   RUN_TEST(test_pump_ramps_progressively_with_boost);
