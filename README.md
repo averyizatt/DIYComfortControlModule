@@ -176,18 +176,10 @@ Simulate is only effective in `DEMO_MODE` builds or when `knock_demo_mode_enable
 
 ## Build Variants
 
-The active PlatformIO environments are defined in [`platformio.ini`](platformio.ini):
-
-| Environment | Purpose |
-|---|---|
-| `esp32s3_devkit_debug` | Debug-oriented build with `CCM_BUILD_DEBUG=1` on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
-| `esp32s3_can_debug` | CAN-only bench build using the production MCP2515 pin map; skips display, SD, GPS, touch, LEDs, sensors, and web startup while tracing controller health and CAN frames over serial |
-| `esp32s3_devkit_release` | Default production-oriented build on PioArduino `55.03.38-1` (Arduino core 3.3.8 / ESP-IDF 5.5.4) |
-| `esp32s3_devkit_release_stock` | Stock PlatformIO `espressif32@6.7.0` release build kept for fallback/performance comparison |
-| `esp32s3_devkit_release_pioarduino` | Compatibility alias for `esp32s3_devkit_release` for existing scripts or local tooling that still reference the old name |
-| `esp32s3_devkit_demo` | Release-style build with `DEMO_MODE=1` on PioArduino `55.03.38-1` |
-
-The default environment is `esp32s3_devkit_release`, and it now uses the updated Arduino core via PioArduino.
+PlatformIO exposes one main environment: `esp32s3_devkit_release`.
+Use **Build** or **Upload** under that environment, or the VS Code task
+**PlatformIO: Build and flash**. Debug, demo, comparison and alias build
+variants have been removed. Host tests use `platformio-tests.ini` separately.
 
 The normal release also provides a safe runtime demo under **DIAG > TOOLS >
 DEMO**. It generates local dashboard telemetry without transmitting simulated
@@ -314,89 +306,30 @@ If the repository was cloned without submodules:
 git submodule update --init --recursive
 ```
 
-### Build
+### Build and flash
 
 ```bash
-# Debug
-pio run -e esp32s3_devkit_debug
-
-# CAN-only serial diagnostics
-pio run -e esp32s3_can_debug
-
-# Default release
-pio run -e esp32s3_devkit_release
-
-# Stock PlatformIO fallback / comparison build
-pio run -e esp32s3_devkit_release_stock
-
-# Demo / simulated CAN
-pio run -e esp32s3_devkit_demo
+pio run
+pio run -t upload
 ```
 
-### Flash
+The default production environment uploads at 921600 baud and reuses its
+existing build cache. Connect the controller before running Upload.
+
+For the other modules, run from this repository root:
 
 ```bash
-pio run -e esp32s3_devkit_release --target upload
-
-# Temporary CAN-only diagnostic image
-pio run -e esp32s3_can_debug --target upload
-
-# Or upload the stock PlatformIO fallback/comparison build
-pio run -e esp32s3_devkit_release_stock --target upload
+pio run -d modules/tailights -t upload
+pio run -d modules/water-meth -t upload
 ```
 
-The ESP32-S3 environments upload at 921600 baud. PlatformIO reuses the existing
-`.pio` build output, so use the same environment for normal edit/flash cycles
-and do not clean between uploads. A first build still compiles the framework and
-libraries; later builds compile only changed sources before flashing.
-
-To reflash the last successfully built release without running the dependency
-scanner or compiler again:
-
-```bash
-pio run -e esp32s3_devkit_release -t nobuild -t upload
-```
-
-Only use the cached command when no source, library, or build configuration has
-changed since the last successful release build. In VS Code, the matching task
-is `PlatformIO: Flash cached stable release (fast)`.
+Each module exposes one production environment for its own hardware.
 
 ### Serial monitor
 
 ```bash
 pio device monitor --baud 115200
 ```
-
-The CAN-only image prints `[CAN-RX]` and `[CAN-TX]` frame lines plus one
-`[CAN-ONLY] health` line per second. `TEC` rising while `REC` remains zero means
-the ESP32 is transmitting without another node acknowledging it. `REC` rising
-means frames are reaching the transceiver but have invalid timing or format.
-`EFLG=0x00`, increasing RX/TX counts, and stable `TEC=0 REC=0` indicate a healthy
-bus. Frame traces are capped at 25 lines per second; `[CAN-TRACE] suppressed=...`
-reports additional traffic without allowing serial output to overload CAN work.
-The diagnostic environment routes Arduino `Serial` to UART0, so application
-messages remain on the same USB-to-UART COM port that prints the ESP-ROM boot
-text instead of moving to a separately enumerated native USB CDC port.
-It uses the confirmed production harness on SCK GPIO8, MOSI GPIO3, MISO GPIO17,
-CS GPIO11, INT GPIO18, and reset GPIO21. Persistent `0xFF` register values on
-this image indicate an electrical SPI/power/reset fault, not a CAN bitrate,
-oscillator, termination, or CANH/CANL problem.
-
-### LVGL performance comparison
-
-To compare the updated Arduino core against the previous stock PlatformIO build on the same hardware, flash these two release environments and exercise the same screens on each build:
-
-- `esp32s3_devkit_release`
-- `esp32s3_devkit_release_stock`
-
-When comparing, keep the hardware, SPI wiring, display, and test flow the same and look for:
-
-- dashboard page transition smoothness
-- touch response latency
-- GPS and dashboard redraw smoothness during live updates
-- visible tearing during large redraws
-
-The default environments now use the updated Arduino core through PioArduino. If performance is still limited after the comparison, inspect the current LVGL rendering path and enabled UI features to identify the next bottlenecks.
 
 ## Validation
 
@@ -431,18 +364,18 @@ Host-native unit tests live under `test/` and are organized by subsystem:
 - `test/test_logging`
 - `test/mocks`
 
-The native test environment is defined in [`platformio.ini`](platformio.ini) as `native` and is intended for deterministic, non-hardware validation of safety logic, conversion math, CAN packing, and command validation.
+The native test environment is defined in [`platformio-tests.ini`](platformio-tests.ini) as `native` and is intended for deterministic, non-hardware validation of safety logic, conversion math, CAN packing, and command validation.
 
 ### Run all tests
 
 ```bash
-pio test -e native
+pio test -c platformio-tests.ini -e native
 ```
 
 ### Run one test suite
 
 ```bash
-pio test -e native -f test_pressure_sensor
+pio test -c platformio-tests.ini -e native -f test_pressure_sensor
 ```
 
 ### Add a new suite
@@ -556,7 +489,8 @@ DIYComfortControlModule/
 
 The taillight controller is a Git submodule at `modules/tailights`. Water/meth
 firmware is tracked directly in this repository at `modules/water-meth` and
-is currently identical to upstream commit `ea1213ae04c972a0d32577a119bb67fbb8e52c04`.
+uses upstream firmware from commit `ea1213ae04c972a0d32577a119bb67fbb8e52c04`,
+with local build-menu simplification.
 Both modules must be present when validating shared CAN compatibility.
 
 ## Roadmap
