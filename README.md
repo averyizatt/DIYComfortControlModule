@@ -551,14 +551,16 @@ DIYComfortControlModule/
 
 | Module | Path | Repository |
 |---|---|---|
-| Custom taillight controller | `modules/taillights` | [averyizatt/CustomTaillights](https://github.com/averyizatt/CustomTaillights) |
+| Custom taillight controller | `modules/tailights` | [averyizatt/CustomTaillights](https://github.com/averyizatt/CustomTaillights) |
 | Water/methanol injection controller | `modules/water-meth` | [averyizatt/DIYWaterMethInjection](https://github.com/averyizatt/DIYWaterMethInjection) |
 
-These modules are expected to be present when validating shared CAN compatibility.
+The taillight controller is a Git submodule at `modules/tailights`. Water/meth
+firmware is tracked directly in this repository at `modules/water-meth` and
+is currently identical to upstream commit `ea1213ae04c972a0d32577a119bb67fbb8e52c04`.
+Both modules must be present when validating shared CAN compatibility.
 
 ## Roadmap
 
-<<<<<<< HEAD
 - [x] Implement ST7796S SPI display driver and LVGL display flush (Arduino GFX + ST7796, 5-tab dashboard)
 - [x] Implement capacitive touch HAL (`src/touch/touch_manager`)
 - [x] Implement production TWAI CAN backend (`src/can/can_manager`)
@@ -567,11 +569,3 @@ These modules are expected to be present when validating shared CAN compatibilit
 - [x] Standalone water/meth architecture — CCM sends arm + ratio, reads back MAP/IAT/bay temp
 - [ ] Add OTA update support via WiFi
 - [ ] BLE/WiFi diagnostics bridge on expansion Header C
-=======
-- [ ] Complete production display driver and LVGL flush path
-- [ ] Complete capacitive touch hardware integration
-- [ ] Replace stubbed/demo transport paths with production TWAI behavior where needed
-- [ ] Expand diagnostics and service tooling
-- [ ] Add OTA or wireless diagnostics support
-- [ ] Continue tightening integration with taillight and water/meth modules
->>>>>>> 49d0f60c0b0b3d50d39ff953deba8cda37416dba

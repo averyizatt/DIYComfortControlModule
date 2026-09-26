@@ -34,8 +34,10 @@ def check_structure() -> None:
                 f"{wrapper}: does not resolve to canonical contract")
         require("namespace can_protocol" not in body, f"{wrapper}: duplicated protocol definitions")
     for firmware in ("modules/tailights/src/config.h", "modules/tailights/src/can_control.h"):
-        require("../../../shared/can_contract/include/can_contract/can_protocol.h" in text(firmware),
+        require("#include <can_contract/can_protocol.h>" in text(firmware),
                 f"{firmware}: real firmware must include canonical contract (stub is insufficient)")
+    require(text("modules/tailights/include/can_contract/can_protocol.h") == shared,
+            "Taillight vendored contract differs from canonical contract")
     require('"can_contract/can_protocol.h"' in text("src/can/can_protocol.h"), "Master shim missing")
     require('"can_contract/can_protocol.h"' in text("modules/water-meth/src/main_nano.cpp"), "Nano include missing")
     for module in ("comfort", "water-meth", "taillights", "tailights"):
@@ -47,7 +49,7 @@ def check_structure() -> None:
     require("#define CCM_TAILLIGHT_CAN_ENABLED 1" in text("modules/tailights/src/config.h"),
             "Integrated taillight build must enable CAN")
     for source, token in (
-        ("modules/tailights/src/canbus.cpp", "can_protocol::packTaillightState(state)"),
+        ("modules/tailights/src/can_state.h", "can_protocol::packTaillightState(state)"),
         ("modules/tailights/src/canbus.cpp", "applyCanMode(g_settings, command)"),
         ("src/can/can_manager.cpp", "can_protocol::ID_ENGINE_COMMAND_ACK"),
         ("modules/water-meth/src/main_nano.cpp", "can_protocol::packConfigAck(")):
