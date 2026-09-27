@@ -88,12 +88,20 @@ factory fuel gauge. The firmware uses calibrated ADC millivolts and computes
 `R_sender = 100 * V_adc / (3.3 - V_adc)` before mapping resistance to percentage.
 Do not interpolate percentage directly from voltage; the divider is nonlinear.
 
-The **1989 Mustang** uses the configured sender range of **16 ohms empty /
-158 ohms full**, corresponding to about 0.455 V / 2.021 V with this divider.
+For this installation, the user-specified sender endpoints are **16 ohms full /
+158 ohms empty**. With the 3.3 V / 100 ohm divider:
+
+| Sender position | Resistance | ADC voltage | Published percent |
+|---|---:|---:|---:|
+| Full | 16 ohms | 0.455 V | 100 |
+| Half resistance range | 87 ohms | 1.535 V | 50 |
+| Empty | 158 ohms | 2.021 V | 0 |
+
 `fuelEmptyOhms` / `fuelFullOhms` can be fine-tuned to measured sender endpoints.
-[AutoMeter's sender range guide](https://www.autometer.com/media/manual/2650-1858.pdf)
-documents the 16/158 range. Percentage is a linear sender-travel estimate, not
-calibrated tank volume. Sampling is 100 ms with resistance smoothing; open/short
+These are the requested installation settings, not a claim about the stock 1989
+Mustang sender. Verify full/empty direction against the installed sender.
+Percentage is a linear sender-travel estimate, not calibrated tank volume.
+Sampling is 100 ms with resistance smoothing; open/short
 or implausible readings publish 255 percent with fuel validity clear.
 
 ## CAN contract for the other project

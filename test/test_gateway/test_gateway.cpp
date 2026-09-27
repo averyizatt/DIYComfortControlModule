@@ -56,10 +56,13 @@ int main() {
   float ohms = 0;
   assert(gateway::fuelResistance(455, 3300, 100, ohms));
   assert(std::abs(ohms - 16) < 0.1f);
-  assert(gateway::fuelPercent(ohms, 16, 158) == 0);
+  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 100);
   assert(gateway::fuelResistance(2021, 3300, 100, ohms));
   assert(std::abs(ohms - 158) < 0.1f);
-  assert(gateway::fuelPercent(87, 16, 158) == 50);
+  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 0);
+  assert(gateway::fuelResistance(1535, 3300, 100, ohms));
+  assert(std::abs(ohms - 87) < 0.1f);
+  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 50);
   assert(gateway::fuelPercent(10, 73, 10) == 100); // reverse-range sender
   assert(!gateway::fuelResistance(0, 3300, 100, ohms));
   assert(!gateway::fuelResistance(3300, 3300, 100, ohms));
