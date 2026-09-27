@@ -81,11 +81,31 @@ vehicle/engine from a disconnected sensor; zero with validity clear means no
 fresh pulse measurement. Consumers must also expire all gateway data if frames
 stop arriving (suggested timeout 500 ms).
 
-Fuel wiring is **3.3 V -> 100 ohm fixed resistor -> ADC junction -> sender ->
-ground**. Use a regulated supply, common ground and at least a 0.25 W fixed
-resistor. This is a dedicated divider, not a parallel connection to a powered
-factory fuel gauge. The firmware uses calibrated ADC millivolts and computes
-`R_sender = 100 * V_adc / (3.3 - V_adc)` before mapping resistance to percentage.
+Fuel wiring includes a series resistor and capacitor at the ADC input:
+
+```text
+3.3 V -- 100 ohm (0.25 W) -- sense junction -- 4.7 kohm -- ADC GPIO1
+                                  |                         |
+                              Fuel sender                 100 nF
+                                  |                         |
+                            Chassis ground ---------------- GND
+```
+
+Connect chassis ground, the sender return and ESP32 ground together. Use a
+regulated 3.3 V supply. This is a dedicated divider, not a parallel connection
+to a powered factory fuel gauge. GPIO1 is the project's configured fuel input;
+use the corresponding board pin, not an assumed XIAO D-number.
+
+The 4.7 kohm resistor and 100 nF capacitor filter the ADC signal. At steady state,
+assuming negligible ADC loading, the capacitor draws no DC current and the
+series resistor does not change the divider equation or reverse its direction.
+The 100 ohm pullup remains the resistance used in the conversion (do not add
+4700 ohms to `fuelPullupOhms`). The firmware uses calibrated ADC millivolts:
+
+`V_adc = 3.3 * R_sender / (100 + R_sender)`
+
+`R_sender = 100 * V_adc / (3.3 - V_adc)`
+
 Do not interpolate percentage directly from voltage; the divider is nonlinear.
 
 For this installation, the user-specified sender endpoints are **16 ohms full /
