@@ -176,7 +176,9 @@ Simulate is only effective in `DEMO_MODE` builds or when `knock_demo_mode_enable
 
 ## Build Variants
 
-PlatformIO exposes one main environment: `esp32s3_devkit_release`.
+The default dashboard environment is `esp32s3_devkit_release`.
+An alternate **headless sensor gateway** is available as `esp32s3_gateway`;
+see [wiring, calibration and CAN messages](docs/SENSOR_GATEWAY.md).
 Use **Build** or **Upload** under that environment, or the VS Code task
 **PlatformIO: Build and flash**. Debug, demo, comparison and alias build
 variants have been removed. Host tests use `platformio-tests.ini` separately.
@@ -323,7 +325,8 @@ pio run -d modules/tailights -t upload
 pio run -d modules/water-meth -t upload
 ```
 
-Each module exposes one production environment for its own hardware.
+The root project also offers **PlatformIO: Build and flash sensor gateway**
+for the headless replacement firmware. External modules retain one main environment.
 
 ### Serial monitor
 
