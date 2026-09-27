@@ -27,7 +27,8 @@ constexpr bool validPins() {
   return fuelPin >= 1 && fuelPin <= 10;
 }
 static_assert(validPins(), "Gateway pins must be unique, USB/flash/PSRAM-safe; fuel needs ADC1");
-MCP2515 can(CCM_PIN_CAN_SPI_CS);
+// Supplying &SPI avoids the library starting the default pin bus in its constructor.
+MCP2515 can(CCM_PIN_CAN_SPI_CS, 1000000, &SPI);
 Adafruit_NeoPixel upper(ledCount, upperLedPin, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel lower(ledCount, lowerLedPin, NEO_GRB + NEO_KHZ800);
 gateway::DebouncedButton buttons[5];
@@ -96,7 +97,8 @@ bool sendFrame(const can_protocol::CanFrame& source, uint32_t now) {
       return false;
     }
     txPending = false;
-    if (ctrl & 0x70) { failTx(now); return false; }
+    // Arbitration loss alone is normal bus contention, not a disconnected bus.
+    if (ctrl & 0x50) { failTx(now); return false; }
   }
   if (can.getErrorFlags() & 0x20) { failTx(now); return false; }
   can_frame frame{}; frame.can_id = source.id; frame.can_dlc = source.dlc;

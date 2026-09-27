@@ -19,7 +19,7 @@ supervision. Do not run two publishers of tach ID 0x202 on the same bus.
 ## Wiring and calibration
 
 All gateway-specific settings are in `src/gateway/config.h`.
-The MCP2515 uses the existing `src/pin_map.h` SPI pins.
+The MCP2515 uses the existing `src/pin_map.h` SPI pins at 1 MHz.
 
 | Connection | GPIO | Input/output |
 |---|---:|---|
