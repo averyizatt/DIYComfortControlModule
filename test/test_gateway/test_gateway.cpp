@@ -5,6 +5,7 @@
 #include "can/CanFrameBuilders.hpp"
 #include "gateway/logic.h"
 #include "gateway/config.h"
+#include "gateway/steering.h"
 #include <can_contract/gateway_protocol.h>
 
 int main() {
@@ -70,6 +71,41 @@ int main() {
   assert(button.update(true, 47) && button.stable);
   assert(!button.update(false, 0xFFFFFFF0));
   assert(button.update(false, 10) && !button.stable);
+  // Nominal ladder levels, acceptance edges, gaps and clipped high idle.
+  const uint32_t levels[] = {0, 550, 1450, 2120};
+  const uint8_t masks[] = {2, 4, 8, 16};
+  for (unsigned i = 0; i < 4; ++i) {
+    assert(gateway::ladderButton(levels[i]) == masks[i]);
+    assert(gateway::ladderButton(levels[i] + 200) == masks[i]);
+    assert(gateway::ladderButton(levels[i] + 201) == 0);
+    if (i) {
+      assert(gateway::ladderButton(levels[i] - 200) == masks[i]);
+      assert(gateway::ladderButton(levels[i] - 201) == 0);
+    }
+  }
+  for (auto mv : {900U, 1800U, 2800U, 3100U, 3300U})
+    assert(gateway::ladderButton(mv) == 0);
+  gateway::SteeringButtons steering;
+  assert(steering.update(true, 550, 0) == 0); // held at startup
+  assert(steering.update(true, 550, 24) == 0);
+  assert(steering.update(true, 550, 25) == (wire::BUTTON_ON | wire::BUTTON_COAST));
+  assert(steering.update(true, 1450, 30) == 5);
+  assert(steering.update(true, 550, 40) == 5); // bounce cancels candidate
+  assert(steering.update(true, 1450, 45) == 5);
+  assert(steering.update(true, 1450, 69) == 5);
+  assert(steering.update(true, 1450, 70) == 9); // atomic COAST -> SET
+  assert(steering.update(false, 1450, 75) == 9);
+  assert(steering.update(false, 1450, 100) == 8); // ON independent
+  assert(steering.update(false, 900, 105) == 8);
+  assert(steering.update(false, 900, 130) == 0); // invalid voltage releases
+  assert(steering.update(false, 0, 135) == 0);
+  assert(steering.update(false, 0, 160) == wire::BUTTON_OFF);
+  assert(steering.update(false, 2120, 165) == 2);
+  assert(steering.update(false, 2120, 190) == wire::BUTTON_RESUME);
+  assert(steering.update(false, 3100, 0xFFFFFFF0) == 16);
+  assert(steering.update(false, 3100, 9) == 0); // release across rollover
+  auto steeringFrame = wire::packButtons({wire::BUTTON_ON | wire::BUTTON_RESUME, 31, 1});
+  assert(steeringFrame.id == 0x501 && steeringFrame.dlc == 4 && steeringFrame.data[0] == 17);
   wire::Sensors input{965, 3000, 2048, 50, 7}, decoded;
   auto f = wire::packSensors(input);
   assert(f.data[0] == 3 && f.data[1] == 197 && f.data[2] == 11 && f.data[3] == 184);

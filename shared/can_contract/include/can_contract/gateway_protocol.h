@@ -44,6 +44,11 @@ inline bool unpackSensors(const CanFrame& f, Sensors& s) {
        decodeU16BE(f.data[4], f.data[5]), f.data[6], f.data[7]};
   return true;
 }
+constexpr uint8_t BUTTON_ON = 1U << 0;
+constexpr uint8_t BUTTON_OFF = 1U << 1;
+constexpr uint8_t BUTTON_COAST = 1U << 2;
+constexpr uint8_t BUTTON_SET_ACCEL = 1U << 3;
+constexpr uint8_t BUTTON_RESUME = 1U << 4;
 struct Buttons {
   uint8_t pressed = 0; // bits 0..4; 1 = held
   uint8_t enabled = 0;

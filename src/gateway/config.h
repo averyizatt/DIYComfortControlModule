@@ -7,7 +7,9 @@ namespace gateway_config {
 constexpr int vssPin = 4;
 constexpr int tachPin = 2;
 constexpr int fuelPin = 1; // ADC1; 3.3 V -> 100 ohm -> ADC -> sender -> GND
-constexpr int buttonPins[5] = {5, 6, 7, 9, 10}; // active LOW, internal pull-ups
+constexpr int steeringOnPin = 5; // Proposed assignment; active HIGH, external 10k pulldown
+constexpr int steeringLadderPin = 6; // Proposed assignment; ADC1, no internal pulls
+constexpr uint32_t steeringToleranceMv = 200; // Acceptance window around each button level
 constexpr int upperLedPin = 38;
 constexpr int lowerLedPin = 39;
 constexpr unsigned ledCount = 180; // per interior output

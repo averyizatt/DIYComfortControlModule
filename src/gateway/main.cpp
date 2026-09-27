@@ -6,6 +6,7 @@
 #include "pin_map.h"
 #include "config.h"
 #include "logic.h"
+#include "steering.h"
 #include <can_contract/gateway_protocol.h>
 
 // NeoPixel 1.12.3 uses a stack-based RMT symbol array on Arduino 3.x.
@@ -16,8 +17,7 @@ namespace {
 using namespace gateway_config;
 namespace wire = can_protocol::gateway;
 constexpr bool validPins() {
-  const int used[] = {vssPin, tachPin, fuelPin, buttonPins[0], buttonPins[1],
-      buttonPins[2], buttonPins[3], buttonPins[4], upperLedPin, lowerLedPin,
+  const int used[] = {vssPin, tachPin, fuelPin, steeringOnPin, steeringLadderPin, upperLedPin, lowerLedPin,
       CCM_PIN_SPI_SCK, CCM_PIN_SPI_MOSI, CCM_PIN_SPI_MISO,
       CCM_PIN_CAN_SPI_CS, CCM_PIN_CAN_SPI_INT, CCM_PIN_CAN_SPI_RST};
   for (unsigned i = 0; i < sizeof(used) / sizeof(used[0]); ++i) {
@@ -25,14 +25,14 @@ constexpr bool validPins() {
         (used[i] >= 22 && used[i] <= 37)) return false;
     for (unsigned j = 0; j < i; ++j) if (used[i] == used[j]) return false;
   }
-  return fuelPin >= 1 && fuelPin <= 10;
+  return fuelPin >= 1 && fuelPin <= 10 && steeringLadderPin >= 1 && steeringLadderPin <= 10;
 }
-static_assert(validPins(), "Gateway pins must be unique, USB/flash/PSRAM-safe; fuel needs ADC1");
+static_assert(validPins(), "Gateway pins must be unique, USB/flash/PSRAM-safe; fuel and steering ladder need ADC1");
 // Supplying &SPI avoids the library starting the default pin bus in its constructor.
 MCP2515 can(CCM_PIN_CAN_SPI_CS, 1000000, &SPI);
 Adafruit_NeoPixel upper(ledCount, upperLedPin, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel lower(ledCount, lowerLedPin, NEO_GRB + NEO_KHZ800);
-gateway::DebouncedButton buttons[5];
+gateway::SteeringButtons buttons;
 wire::Buttons buttonState{0, 31, 0};
 wire::Sensors sensors;
 uint8_t tachCalibration = tachPulsesPerRev10;
@@ -138,11 +138,8 @@ void readSensors(uint32_t now) {
   sensors.valid |= wire::FUEL_VALID;
 }
 void readButtons(uint32_t now) {
-  uint8_t mask = 0;
-  for (uint8_t i = 0; i < 5; ++i) {
-    buttons[i].update(digitalRead(buttonPins[i]) == LOW, now);
-    if (buttons[i].stable) mask |= 1U << i;
-  }
+  const uint8_t mask = buttons.update(digitalRead(steeringOnPin) == HIGH,
+      analogReadMilliVolts(steeringLadderPin), now);
   if (mask != buttonState.pressed) {
     buttonState.pressed = mask; ++buttonState.sequence; buttonsDirty = true;
   }
@@ -201,9 +198,10 @@ void setup() {
     if (saved != 0) tachCalibration = saved;
     preferences.end();
   }
-  for (int pin : buttonPins) pinMode(pin, INPUT_PULLUP);
+  pinMode(steeringOnPin, INPUT); pinMode(steeringLadderPin, INPUT);
   pinMode(vssPin, INPUT_PULLUP); pinMode(tachPin, INPUT);
   analogReadResolution(12); analogSetPinAttenuation(fuelPin, ADC_11db);
+  analogSetPinAttenuation(steeringLadderPin, ADC_11db);
   attachInterrupt(digitalPinToInterrupt(vssPin), vssIsr, RISING);
   attachInterrupt(digitalPinToInterrupt(tachPin), tachIsr, RISING);
   upper.begin(); lower.begin(); upper.clear(); lower.clear(); upper.show(); lower.show();

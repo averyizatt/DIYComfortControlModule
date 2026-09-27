@@ -26,16 +26,37 @@ The MCP2515 uses the existing `src/pin_map.h` SPI pins at 1 MHz.
 | Conditioned VSS | 4 | Rising-edge digital input |
 | Conditioned tach | 2 | Rising-edge digital input |
 | Fuel divider junction | 1 | ADC1 input |
-| Steering buttons 1 through 5 | 5, 6, 7, 9, 10 | Individual switch to ground, internal pull-up |
+| Steering ON | 5 | Digital HIGH when pressed; external 10 kohm pulldown |
+| Steering OFF / COAST / SET ACCEL / RESUME | 6 | ADC1 voltage ladder; no internal pull-up |
 | Upper interior LEDs | 38 | WS2812/GRB, 180 slots |
 | Lower interior LEDs | 39 | WS2812/GRB, 180 slots |
 | MCP2515 SCK / MOSI / MISO | 8 / 3 / 17 | SPI |
 | MCP2515 CS / INT / RESET | 11 / 18 / 21 | INT currently polled through SPI |
 
-These button pins reuse the removed display/touch/SD connections. Disconnect
-those peripherals before wiring switches. Existing steering-wheel functions must
-be isolated from these switch inputs; do not connect a powered factory circuit
-to an ESP32 GPIO. VSS conditioner and tach interface outputs must be 3.3 V-safe.
+Steering GPIO5 and GPIO6 are proposed, configurable project assignments, not the
+example D6/D2 board labels. They reuse removed display/touch/SD connections;
+disconnect those peripherals before wiring. ON is approximately 0 V idle and
+3.0 V pressed, with your external 10 kohm pulldown. Both inputs use `INPUT`
+without internal pulls. Signals must stay within 0..3.3 V with common ground;
+VSS conditioner and tach interface outputs must also be 3.3 V-safe.
+
+| Ladder button | Nominal voltage | Accepted millivolts | CAN bit |
+|---|---:|---:|---:|
+| OFF | 0 V | 0..200 | 1 |
+| COAST | 0.55 V | 350..750 | 2 |
+| SET ACCEL | 1.45 V | 1250..1650 | 3 |
+| RESUME | 2.12 V | 1920..2320 | 4 |
+| None | 3.30 V | Outside button windows | None |
+
+ON uses CAN bit 0 independently. `steeringToleranceMv` sets the voltage window
+half-width (default 200 mV). The ladder uses calibrated millivolts at 11 dB
+attenuation. ESP32-S3's documented measurable range ends around 3100 mV, so
+high idle readings need not reach 3300 mV to decode as released; see
+[Espressif ADC documentation](https://docs.espressif.com/projects/esp-idf/en/v4.4.3/esp32s3/api-reference/peripherals/adc.html).
+Readings in gaps between button windows also decode as released after debounce.
+A short to ground is electrically indistinguishable from OFF. The ladder reports
+one selection at a time; arbitrary simultaneous ladder presses cannot be resolved.
+ON can be held together with any one ladder button.
 
 VSS defaults to **8000 pulses/mile**, measured on rising edges after the VR
 conditioner. This is the nominal Ford calibration, not an invariant of the
@@ -99,17 +120,19 @@ Runtime bus-off recovery is handled by the MCP2515; a failed initial setup requi
 checking wiring and restarting. Four RX frames maximum are processed per loop.
 Extended/RTR frames, incorrect lengths, versions and invalid channels are rejected.
 
-Button bit 0 is button 1 through bit 4 for button 5. Multiple held buttons are
-supported. Each input is debounced for 25 ms. Sequence increments modulo 256 when
-the stable combined mask changes. This is a repeated **current-state** protocol,
-not a guaranteed queue of every press/release; use sequence gaps to detect missed
-changes, and clear held buttons if messages time out. A button held during boot
-becomes pressed after debounce. Assign meanings (up/down/etc.) in your other project.
+Button bits are 0=ON, 1=OFF, 2=COAST, 3=SET ACCEL, 4=RESUME, with named
+`BUTTON_*` constants in the shared header. ON and the ladder selection each
+require 25 ms of stable input. Ladder transitions replace the previous selection
+atomically. Sequence increments modulo 256 when the stable combined mask changes.
+This is a repeated **current-state** protocol, not a guaranteed queue of every
+press/release; use sequence gaps to detect missed changes, and clear held buttons
+if messages time out. A button held during boot becomes pressed after debounce.
+Assign actions to these button states in your other project.
 
 ```cpp
 can_protocol::gateway::Buttons buttons;
 if (can_protocol::gateway::unpackButtons(frame, buttons)) {
-    bool button1Held = (buttons.pressed & 1) != 0;
+    bool onHeld = (buttons.pressed & can_protocol::gateway::BUTTON_ON) != 0;
     // Save reception time and expire this state after 500 ms of silence.
 }
 // Both strips, white at low brightness. Send again at least once per second.
@@ -135,7 +158,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
 & .pio/test_gateway.exe
 ```
 
-Before vehicle use, bench-check all five buttons (including simultaneous holds),
+Before vehicle use, bench-check all five button levels, ON held with each ladder
+button, releases, voltage gaps and transitions between ladder buttons,
 a known pulse frequency on both inputs, fuel empty/full resistances and unplugged
 sender, both lighting channels, command timeout, and CAN disconnect/reconnection.
 Firmware compilation and host tests do not validate the electrical installation.
