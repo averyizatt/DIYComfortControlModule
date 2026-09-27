@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <SPI.h>
+#include <Preferences.h>
 #include <mcp2515.h>
 #include <Adafruit_NeoPixel.h>
 #include "pin_map.h"
@@ -34,6 +35,7 @@ Adafruit_NeoPixel lower(ledCount, lowerLedPin, NEO_GRB + NEO_KHZ800);
 gateway::DebouncedButton buttons[5];
 wire::Buttons buttonState{0, 31, 0};
 wire::Sensors sensors;
+uint8_t tachCalibration = tachPulsesPerRev10;
 volatile gateway::Pulse vss, tach;
 portMUX_TYPE pulseLock = portMUX_INITIALIZER_UNLOCKED;
 struct LightState { wire::Light value{}; gateway::CommandLease lease; };
@@ -45,14 +47,14 @@ uint8_t txSlot = 0;
 float filteredFuel = 0;
 bool fuelFilterReady = false;
 
-void ARDUINO_ISR_ATTR capture(volatile gateway::Pulse& p, uint32_t timeout) {
+void ARDUINO_ISR_ATTR capture(volatile gateway::Pulse& p, uint32_t minimum, uint32_t timeout) {
   const uint32_t now = micros();
   portENTER_CRITICAL_ISR(&pulseLock);
-  p.edge(now, minPulseUs, timeout);
+  p.edge(now, minimum, timeout);
   portEXIT_CRITICAL_ISR(&pulseLock);
 }
-void ARDUINO_ISR_ATTR vssIsr() { capture(vss, vssTimeoutUs); }
-void ARDUINO_ISR_ATTR tachIsr() { capture(tach, tachTimeoutUs); }
+void ARDUINO_ISR_ATTR vssIsr() { capture(vss, vssMinPulseUs, vssTimeoutUs); }
+void ARDUINO_ISR_ATTR tachIsr() { capture(tach, tachMinPulseUs, tachTimeoutUs); }
 
 uint8_t readRegister(uint8_t address) {
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
@@ -116,7 +118,7 @@ void readSensors(uint32_t now) {
   portEXIT_CRITICAL(&pulseLock);
   const bool vr = vp != 0, tr = tp != 0;
   sensors.speedKph10 = vr ? gateway::speedKph10(vp, vssPulsesPerMile) : 0;
-  sensors.rpm = tr ? gateway::rpm(tp, tachPulsesPerRev10) : 0;
+  sensors.rpm = tr ? gateway::rpm(tp, tachCalibration) : 0;
   sensors.valid = (sensors.valid & wire::FUEL_VALID) |
       (vr ? wire::VSS_VALID : 0) | (tr ? wire::RPM_VALID : 0);
   if (uint32_t(now - lastFuel) < 100) return;
@@ -180,7 +182,7 @@ void render(uint32_t now) {
 }
 can_protocol::CanFrame nextFrame() {
   if (!(txSlot & 1)) {
-    return wire::packTach(sensors.rpm, tachPulsesPerRev10, sensors.valid & wire::RPM_VALID);
+    return wire::packTach(sensors.rpm, tachCalibration, sensors.valid & wire::RPM_VALID);
   }
   if (txSlot == 1) return wire::packSensors(sensors);
   if (txSlot == 3) return wire::packButtons(buttonState);
@@ -192,8 +194,15 @@ can_protocol::CanFrame nextFrame() {
 
 void setup() {
   Serial.begin(115200);
+  // Reuse the dashboard calibration on this board without modifying its settings.
+  Preferences preferences;
+  if (preferences.begin("ccm_cfg", true)) {
+    const uint8_t saved = preferences.getUChar("tach_ppr10", tachPulsesPerRev10);
+    if (saved != 0) tachCalibration = saved;
+    preferences.end();
+  }
   for (int pin : buttonPins) pinMode(pin, INPUT_PULLUP);
-  pinMode(vssPin, INPUT_PULLUP); pinMode(tachPin, INPUT_PULLUP);
+  pinMode(vssPin, INPUT_PULLUP); pinMode(tachPin, INPUT);
   analogReadResolution(12); analogSetPinAttenuation(fuelPin, ADC_11db);
   attachInterrupt(digitalPinToInterrupt(vssPin), vssIsr, RISING);
   attachInterrupt(digitalPinToInterrupt(tachPin), tachIsr, RISING);
@@ -202,7 +211,7 @@ void setup() {
   canReady = startCan();
   Serial.printf("[gateway] CAN=%s, VSS=%lu pulses/mile, tach=%.1f pulses/rev\n",
       canReady ? "ready" : "init failed; check wiring and restart",
-      static_cast<unsigned long>(vssPulsesPerMile), tachPulsesPerRev10 / 10.0f);
+      static_cast<unsigned long>(vssPulsesPerMile), tachCalibration / 10.0f);
 }
 void loop() {
   const uint32_t now = millis();

@@ -45,10 +45,16 @@ distance. At 60 mph the nominal input is 133.333 Hz (7500 us period).
 See [AccuTach Ford VSS calibration](https://accutach.com/ford-clusters) and
 [calibration factors](https://accutach.com/speedcal-calculator).
 
-Tach provisionally defaults to four pulses per crank revolution (V8 ignition
-pulse train). Change `tachPulsesPerRev10` for the actual conditioned source;
-40 means 4.0 pulses/revolution, 20 means 2.0. The input accepts pulses at least
-500 us apart. It requires two fresh edges, expires RPM after 500 ms and VSS after
+Tach reuses the current controller's GPIO2 rising-edge input. It reads the
+existing `ccm_cfg` / `tach_ppr10` calibration from the ESP32's NVS in read-only
+mode. Without a saved nonzero value it uses the same dashboard default of
+**2.0 pulses per revolution** (`tachPulsesPerRev10 = 20`). A saved calibration
+therefore survives switching firmware. The active value is printed at startup
+and included in tach frame byte 6. No settings are erased or rewritten.
+
+Tach rejects edges less than 1000 us apart and expires after 250 ms, matching
+the dashboard's existing input filter. VSS rejects edges less than 500 us apart.
+Both inputs require two fresh edges; VSS expires after
 1500 ms, and clears validity on timeout. No pulses cannot distinguish a stopped
 vehicle/engine from a disconnected sensor; zero with validity clear means no
 fresh pulse measurement. Consumers must also expire all gateway data if frames
@@ -61,10 +67,9 @@ factory fuel gauge. The firmware uses calibrated ADC millivolts and computes
 `R_sender = 100 * V_adc / (3.3 - V_adc)` before mapping resistance to percentage.
 Do not interpolate percentage directly from voltage; the divider is nonlinear.
 
-Provisional sender endpoints are **16 ohms empty / 158 ohms full**, corresponding
-to about 0.455 V / 2.021 V, for a 1987+ Mustang. Earlier Foxbody senders have a
-different/reversed range. Confirm the sender year and measured endpoints in
-`fuelEmptyOhms` / `fuelFullOhms` before relying on the reading.
+The **1989 Mustang** uses the configured sender range of **16 ohms empty /
+158 ohms full**, corresponding to about 0.455 V / 2.021 V with this divider.
+`fuelEmptyOhms` / `fuelFullOhms` can be fine-tuned to measured sender endpoints.
 [AutoMeter's sender range guide](https://www.autometer.com/media/manual/2650-1858.pdf)
 documents the 16/158 range. Percentage is a linear sender-travel estimate, not
 calibrated tank volume. Sampling is 100 ms with resistance smoothing; open/short

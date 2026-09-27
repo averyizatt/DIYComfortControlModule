@@ -4,10 +4,13 @@
 #include <initializer_list>
 #include "can/CanFrameBuilders.hpp"
 #include "gateway/logic.h"
+#include "gateway/config.h"
 #include <can_contract/gateway_protocol.h>
 
 int main() {
   namespace wire = can_protocol::gateway;
+  assert(gateway_config::tachPulsesPerRev10 == state::VehicleState{}.pulses_per_rev10);
+  assert(gateway::rpm(10000, gateway_config::tachPulsesPerRev10) == 3000);
   // Compare against the dashboard's actual builder, not a second gateway decoder.
   for (bool live : {false, true}) {
     state::VehicleState state{};
