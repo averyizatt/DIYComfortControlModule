@@ -18,6 +18,7 @@ using namespace gateway_config;
 namespace wire = can_protocol::gateway;
 constexpr bool validPins() {
   const int used[] = {vssPin, tachPin, fuelPin, steeringOnPin, steeringLadderPin, upperLedPin, lowerLedPin,
+      spareLed1Pin, spareLed2Pin,
       CCM_PIN_SPI_SCK, CCM_PIN_SPI_MOSI, CCM_PIN_SPI_MISO,
       CCM_PIN_CAN_SPI_CS, CCM_PIN_CAN_SPI_INT, CCM_PIN_CAN_SPI_RST};
   for (unsigned i = 0; i < sizeof(used) / sizeof(used[0]); ++i) {
@@ -204,6 +205,8 @@ void setup() {
   analogSetPinAttenuation(steeringLadderPin, ADC_11db);
   attachInterrupt(digitalPinToInterrupt(vssPin), vssIsr, RISING);
   attachInterrupt(digitalPinToInterrupt(tachPin), tachIsr, RISING);
+  pinMode(spareLed1Pin, OUTPUT); digitalWrite(spareLed1Pin, LOW);
+  pinMode(spareLed2Pin, OUTPUT); digitalWrite(spareLed2Pin, LOW);
   upper.begin(); lower.begin(); upper.clear(); lower.clear(); upper.show(); lower.show();
   lights[0].value.channel = 1; lights[1].value.channel = 2;
   canReady = startCan();

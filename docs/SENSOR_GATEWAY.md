@@ -19,23 +19,26 @@ supervision. Do not run two publishers of tach ID 0x202 on the same bus.
 ## Wiring and calibration
 
 All gateway-specific settings are in `src/gateway/config.h`.
-The MCP2515 uses the existing `src/pin_map.h` SPI pins at 1 MHz.
+The MCP2515 uses the existing `src/pin_map.h` SPI pins at 1 MHz, except CS,
+which the gateway build moves to GPIO10 (`-D CCM_PIN_CAN_SPI_CS=10`) so GPIO11
+can be an LED channel.
 
 | Connection | GPIO | Input/output |
 |---|---:|---|
-| Conditioned VSS | 4 | Rising-edge digital input |
-| Conditioned tach | 2 | Rising-edge digital input |
-| Fuel divider junction | 1 | ADC1 input |
-| Steering ON | 5 | Digital HIGH when pressed; external 10 kohm pulldown |
-| Steering OFF / COAST / SET ACCEL / RESUME | 6 | ADC1 voltage ladder; no internal pull-up |
-| Upper interior LEDs | 38 | WS2812/GRB, 180 slots |
-| Lower interior LEDs | 39 | WS2812/GRB, 180 slots |
+| Conditioned VSS | 15 | Rising-edge digital input |
+| Conditioned tach | 6 | Rising-edge digital input |
+| Fuel divider junction | 7 | ADC1 input |
+| Steering ON (yellow) | 5 | Digital HIGH when pressed; external 10 kohm pulldown |
+| Steering ladder (blue): OFF / COAST / SET ACCEL / RESUME | 4 | ADC1 voltage ladder; no internal pull-up |
+| Upper interior LEDs | 14 | WS2812/GRB, 180 slots |
+| Lower interior LEDs | 13 | WS2812/GRB, 180 slots |
+| Spare LED channel 1 | 12 | Reserved; held LOW |
+| Spare LED channel 2 | 11 | Reserved; held LOW |
 | MCP2515 SCK / MOSI / MISO | 8 / 3 / 17 | SPI |
-| MCP2515 CS / INT / RESET | 11 / 18 / 21 | INT currently polled through SPI |
+| MCP2515 CS / INT / RESET | 10 / 18 / 21 | INT currently polled through SPI |
 
-Steering GPIO5 and GPIO6 are proposed, configurable project assignments, not the
-example D6/D2 board labels. They reuse removed display/touch/SD connections;
-disconnect those peripherals before wiring. ON is approximately 0 V idle and
+Steering ON (yellow) is GPIO5 and the ladder (blue) is GPIO4. These are GPIO
+numbers, not board D-labels. Disconnect any old display/touch/SD wiring first. ON is approximately 0 V idle and
 3.0 V pressed, with your external 10 kohm pulldown. Both inputs use `INPUT`
 without internal pulls. Signals must stay within 0..3.3 V with common ground;
 VSS conditioner and tach interface outputs must also be 3.3 V-safe.
@@ -66,7 +69,7 @@ distance. At 60 mph the nominal input is 133.333 Hz (7500 us period).
 See [AccuTach Ford VSS calibration](https://accutach.com/ford-clusters) and
 [calibration factors](https://accutach.com/speedcal-calculator).
 
-Tach reuses the current controller's GPIO2 rising-edge input. It reads the
+Tach uses a GPIO6 rising-edge input (the dashboard used GPIO2). It reads the
 existing `ccm_cfg` / `tach_ppr10` calibration from the ESP32's NVS in read-only
 mode. Without a saved nonzero value it uses the same dashboard default of
 **2.0 pulses per revolution** (`tachPulsesPerRev10 = 20`). A saved calibration
@@ -84,7 +87,7 @@ stop arriving (suggested timeout 500 ms).
 Fuel wiring includes a series resistor and capacitor at the ADC input:
 
 ```text
-3.3 V -- 100 ohm (0.25 W) -- sense junction -- 4.7 kohm -- ADC GPIO1
+3.3 V -- 100 ohm (0.25 W) -- sense junction -- 4.7 kohm -- ADC GPIO7
                                   |                         |
                               Fuel sender                 100 nF
                                   |                         |
@@ -93,7 +96,7 @@ Fuel wiring includes a series resistor and capacitor at the ADC input:
 
 Connect chassis ground, the sender return and ESP32 ground together. Use a
 regulated 3.3 V supply. This is a dedicated divider, not a parallel connection
-to a powered factory fuel gauge. GPIO1 is the project's configured fuel input;
+to a powered factory fuel gauge. GPIO7 is the project's configured fuel input;
 use the corresponding board pin, not an assumed XIAO D-number.
 
 The 4.7 kohm resistor and 100 nF capacitor filter the ADC signal. At steady state,

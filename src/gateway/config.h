@@ -4,16 +4,18 @@
 // Gateway-only wiring; freed display/touch/SD pins are available to switches.
 // Inputs require protected 0..3.3 V signals. VR/ignition signals are not GPIO-safe.
 namespace gateway_config {
-constexpr int vssPin = 4;
-constexpr int tachPin = 2;
+constexpr int vssPin = 15;
+constexpr int tachPin = 6;
 // 3.3 V -> 100 ohm -> sense -> sender -> GND; sense -> 4.7 kohm -> ADC.
 // ADC -> 100 nF -> GND. See docs/SENSOR_GATEWAY.md.
-constexpr int fuelPin = 1; // ADC1
-constexpr int steeringOnPin = 5; // Proposed assignment; active HIGH, external 10k pulldown
-constexpr int steeringLadderPin = 6; // Proposed assignment; ADC1, no internal pulls
+constexpr int fuelPin = 7; // ADC1
+constexpr int steeringOnPin = 5; // Yellow wire; active HIGH, external 10k pulldown
+constexpr int steeringLadderPin = 4; // Blue wire; ADC1, no internal pulls
 constexpr uint32_t steeringToleranceMv = 200; // Acceptance window around each button level
-constexpr int upperLedPin = 38;
-constexpr int lowerLedPin = 39;
+constexpr int upperLedPin = 14;
+constexpr int lowerLedPin = 13;
+constexpr int spareLed1Pin = 12; // Reserved LED channel; held LOW until assigned
+constexpr int spareLed2Pin = 11; // Reserved LED channel; held LOW until assigned
 constexpr unsigned ledCount = 180; // per interior output
 constexpr uint32_t vssPulsesPerMile = 8000;
 constexpr uint16_t tachPulsesPerRev10 = 20; // Existing CCM default; saved tach_ppr10 takes precedence
