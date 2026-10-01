@@ -54,15 +54,18 @@ int main() {
   pulse.edge(605000, 500, 500000);
   assert(pulse.periodAt(605000, 500000) == 5000);
   float ohms = 0;
-  assert(gateway::fuelResistance(455, 3300, 100, ohms));
-  assert(std::abs(ohms - 16) < 0.1f);
-  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 100);
-  assert(gateway::fuelResistance(2021, 3300, 100, ohms));
-  assert(std::abs(ohms - 158) < 0.1f);
+  assert(gateway::fuelResistance(595, 3300, 100, ohms));
+  assert(std::abs(ohms - 22) < 0.1f);
   assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 0);
-  assert(gateway::fuelResistance(1535, 3300, 100, ohms));
-  assert(std::abs(ohms - 87) < 0.1f);
+  assert(gateway::fuelResistance(1953, 3300, 100, ohms));
+  assert(std::abs(ohms - 145) < 0.1f);
+  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 100);
+  assert(gateway::fuelResistance(1502, 3300, 100, ohms));
+  assert(std::abs(ohms - 83.5f) < 0.1f);
   assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 50);
+  assert(gateway::fuelResistance(1650, 3300, 100, ohms)); // 100 ohm bench test resistor
+  assert(std::abs(ohms - 100) < 0.1f);
+  assert(gateway::fuelPercent(ohms, gateway_config::fuelEmptyOhms, gateway_config::fuelFullOhms) == 63);
   assert(gateway::fuelPercent(10, 73, 10) == 100); // reverse-range sender
   assert(!gateway::fuelResistance(0, 3300, 100, ohms));
   assert(!gateway::fuelResistance(3300, 3300, 100, ohms));

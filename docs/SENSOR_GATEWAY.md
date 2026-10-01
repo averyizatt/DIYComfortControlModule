@@ -111,14 +111,15 @@ The 100 ohm pullup remains the resistance used in the conversion (do not add
 
 Do not interpolate percentage directly from voltage; the divider is nonlinear.
 
-For this installation, the user-specified sender endpoints are **16 ohms full /
-158 ohms empty**. With the 3.3 V / 100 ohm divider:
+For this installation the sender reads **22 ohms empty / 145 ohms full**. With the
+3.3 V / 100 ohm divider:
 
 | Sender position | Resistance | ADC voltage | Published percent |
 |---|---:|---:|---:|
-| Full | 16 ohms | 0.455 V | 100 |
-| Half resistance range | 87 ohms | 1.535 V | 50 |
-| Empty | 158 ohms | 2.021 V | 0 |
+| Empty | 22 ohms | 0.595 V | 0 |
+| Half resistance range | 83.5 ohms | 1.502 V | 50 |
+| 100 ohm bench test resistor | 100 ohms | 1.650 V | 63 |
+| Full | 145 ohms | 1.953 V | 100 |
 
 `fuelEmptyOhms` / `fuelFullOhms` can be fine-tuned to measured sender endpoints.
 These are the requested installation settings, not a claim about the stock 1989
