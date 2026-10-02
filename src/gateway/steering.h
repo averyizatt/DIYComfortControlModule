@@ -6,16 +6,9 @@
 namespace gateway {
 // Out-of-window readings (including idle ADC saturation) mean no ladder button.
 inline uint8_t ladderButton(uint32_t mv) {
-  namespace wire = can_protocol::gateway;
-  constexpr uint32_t levels[] = {0, 550, 1450, 2120};
-  constexpr uint8_t masks[] = {wire::BUTTON_OFF, wire::BUTTON_COAST,
-      wire::BUTTON_SET_ACCEL, wire::BUTTON_RESUME};
-  constexpr uint32_t tolerance = gateway_config::steeringToleranceMv;
-  static_assert(tolerance < 275, "Steering voltage windows must not overlap");
-  for (unsigned i = 0; i < 4; ++i) {
-    const uint32_t difference = mv > levels[i] ? mv - levels[i] : levels[i] - mv;
-    if (difference <= tolerance) return masks[i];
-  }
+  // Windows from gateway_config, centred on the installed wheel's measured levels.
+  for (const auto& window : gateway_config::steeringWindows)
+    if (mv >= window.lowMv && mv <= window.highMv) return window.mask;
   return 0;
 }
 struct SteeringButtons {

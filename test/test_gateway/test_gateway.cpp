@@ -77,37 +77,41 @@ int main() {
   assert(button.update(true, 47) && button.stable);
   assert(!button.update(false, 0xFFFFFFF0));
   assert(button.update(false, 10) && !button.stable);
-  // Nominal ladder levels, acceptance edges, gaps and clipped high idle.
-  const uint32_t levels[] = {0, 550, 1450, 2120};
+  // Measured wheel levels sit well inside their windows; edges, gaps and high idle.
+  assert(wire::BUTTON_OFF == 2 && wire::BUTTON_COAST == 4 && wire::BUTTON_SET_ACCEL == 8 && wire::BUTTON_RESUME == 16);
+  const uint32_t measured[] = {150, 400, 1500, 2300};
   const uint8_t masks[] = {2, 4, 8, 16};
   for (unsigned i = 0; i < 4; ++i) {
-    assert(gateway::ladderButton(levels[i]) == masks[i]);
-    assert(gateway::ladderButton(levels[i] + 200) == masks[i]);
-    assert(gateway::ladderButton(levels[i] + 201) == 0);
-    if (i) {
-      assert(gateway::ladderButton(levels[i] - 200) == masks[i]);
-      assert(gateway::ladderButton(levels[i] - 201) == 0);
-    }
+    assert(gateway::ladderButton(measured[i]) == masks[i]);
+    assert(gateway::ladderButton(measured[i] + 100) == masks[i]);
+    assert(gateway::ladderButton(measured[i] > 100 ? measured[i] - 100 : 0) == masks[i]);
   }
-  for (auto mv : {900U, 1800U, 2800U, 3100U, 3300U})
+  assert(gateway::ladderButton(0) == 2 && gateway::ladderButton(270) == 2);
+  assert(gateway::ladderButton(275) == 0); // boundary between OFF and COAST
+  assert(gateway::ladderButton(280) == 4 && gateway::ladderButton(700) == 4);
+  assert(gateway::ladderButton(1250) == 8 && gateway::ladderButton(1750) == 8);
+  assert(gateway::ladderButton(2050) == 16 && gateway::ladderButton(2550) == 16);
+  for (unsigned i = 0; i + 1 < sizeof(gateway_config::steeringWindows) / sizeof(gateway_config::steeringWindows[0]); ++i)
+    assert(gateway_config::steeringWindows[i].highMv < gateway_config::steeringWindows[i + 1].lowMv); // never overlap
+  for (auto mv : {900U, 1900U, 2800U, 3100U, 3300U})
     assert(gateway::ladderButton(mv) == 0);
   gateway::SteeringButtons steering;
-  assert(steering.update(true, 550, 0) == 0); // held at startup
-  assert(steering.update(true, 550, 24) == 0);
-  assert(steering.update(true, 550, 25) == (wire::BUTTON_ON | wire::BUTTON_COAST));
-  assert(steering.update(true, 1450, 30) == 5);
-  assert(steering.update(true, 550, 40) == 5); // bounce cancels candidate
-  assert(steering.update(true, 1450, 45) == 5);
-  assert(steering.update(true, 1450, 69) == 5);
-  assert(steering.update(true, 1450, 70) == 9); // atomic COAST -> SET
-  assert(steering.update(false, 1450, 75) == 9);
-  assert(steering.update(false, 1450, 100) == 8); // ON independent
+  assert(steering.update(true, 400, 0) == 0); // held at startup
+  assert(steering.update(true, 400, 24) == 0);
+  assert(steering.update(true, 400, 25) == (wire::BUTTON_ON | wire::BUTTON_COAST));
+  assert(steering.update(true, 1500, 30) == 5);
+  assert(steering.update(true, 400, 40) == 5); // bounce cancels candidate
+  assert(steering.update(true, 1500, 45) == 5);
+  assert(steering.update(true, 1500, 69) == 5);
+  assert(steering.update(true, 1500, 70) == 9); // atomic COAST -> SET
+  assert(steering.update(false, 1500, 75) == 9);
+  assert(steering.update(false, 1500, 100) == 8); // ON independent
   assert(steering.update(false, 900, 105) == 8);
   assert(steering.update(false, 900, 130) == 0); // invalid voltage releases
-  assert(steering.update(false, 0, 135) == 0);
-  assert(steering.update(false, 0, 160) == wire::BUTTON_OFF);
-  assert(steering.update(false, 2120, 165) == 2);
-  assert(steering.update(false, 2120, 190) == wire::BUTTON_RESUME);
+  assert(steering.update(false, 150, 135) == 0);
+  assert(steering.update(false, 150, 160) == wire::BUTTON_OFF);
+  assert(steering.update(false, 2300, 165) == 2);
+  assert(steering.update(false, 2300, 190) == wire::BUTTON_RESUME);
   assert(steering.update(false, 3100, 0xFFFFFFF0) == 16);
   assert(steering.update(false, 3100, 9) == 0); // release across rollover
   auto steeringFrame = wire::packButtons({wire::BUTTON_ON | wire::BUTTON_RESUME, 31, 1});

@@ -11,7 +11,17 @@ constexpr int tachPin = 6;
 constexpr int fuelPin = 7; // ADC1
 constexpr int steeringOnPin = 5; // Yellow wire; active HIGH, external 10k pulldown
 constexpr int steeringLadderPin = 4; // Blue wire; ADC1, no internal pulls
-constexpr uint32_t steeringToleranceMv = 200; // Acceptance window around each button level
+// Ladder (blue wire, 1 kohm pull-up to 3.3 V) measured on the installed wheel:
+// OFF 0.15 V, COAST 0.40 V, SET ACCEL 1.50 V, RESUME 2.30 V, released about 3.3 V.
+// OFF and COAST are only 0.25 V apart, so each button has its own window; the
+// boundary between them is the midpoint. Readings in the gaps mean no button.
+struct SteeringWindow { uint32_t lowMv, highMv; uint8_t mask; };
+constexpr SteeringWindow steeringWindows[] = {
+    {0, 270, 2},      // OFF       (can_protocol::gateway::BUTTON_OFF)
+    {280, 700, 4},    // COAST     (BUTTON_COAST)
+    {1250, 1750, 8},  // SET ACCEL (BUTTON_SET_ACCEL)
+    {2050, 2550, 16}, // RESUME    (BUTTON_RESUME)
+};
 constexpr int upperLedPin = 14;
 constexpr int lowerLedPin = 13;
 constexpr int spareLed1Pin = 12; // Reserved LED channel; held LOW until assigned

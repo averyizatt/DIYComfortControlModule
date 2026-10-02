@@ -43,16 +43,18 @@ numbers, not board D-labels. Disconnect any old display/touch/SD wiring first. O
 without internal pulls. Signals must stay within 0..3.3 V with common ground;
 VSS conditioner and tach interface outputs must also be 3.3 V-safe.
 
-| Ladder button | Nominal voltage | Accepted millivolts | CAN bit |
+| Ladder button | Measured on this wheel | Accepted millivolts | CAN bit |
 |---|---:|---:|---:|
-| OFF | 0 V | 0..200 | 1 |
-| COAST | 0.55 V | 350..750 | 2 |
-| SET ACCEL | 1.45 V | 1250..1650 | 3 |
-| RESUME | 2.12 V | 1920..2320 | 4 |
-| None | 3.30 V | Outside button windows | None |
+| OFF | 0.15 V | 0..270 | 1 |
+| COAST | 0.40 V | 280..700 | 2 |
+| SET ACCEL | 1.50 V | 1250..1750 | 3 |
+| RESUME | 2.30 V | 2050..2550 | 4 |
+| None | about 3.3 V | Outside button windows | None |
 
-ON uses CAN bit 0 independently. `steeringToleranceMv` sets the voltage window
-half-width (default 200 mV). The ladder uses calibrated millivolts at 11 dB
+ON uses CAN bit 0 independently. The windows are `steeringWindows` in
+`src/gateway/config.h`, one per button because OFF and COAST are only 0.25 V
+apart on this wheel; re-measure at GPIO4 and adjust them for a different wheel or
+pull-up. The ladder uses calibrated millivolts at 11 dB
 attenuation. ESP32-S3's documented measurable range ends around 3100 mV, so
 high idle readings need not reach 3300 mV to decode as released; see
 [Espressif ADC documentation](https://docs.espressif.com/projects/esp-idf/en/v4.4.3/esp32s3/api-reference/peripherals/adc.html).
