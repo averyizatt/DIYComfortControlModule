@@ -10,6 +10,10 @@ constexpr int tachPin = 6;
 // ADC -> 100 nF -> GND. See docs/SENSOR_GATEWAY.md.
 constexpr int fuelPin = 7; // ADC1
 constexpr int steeringOnPin = 5; // Yellow wire; active HIGH, external 10k pulldown
+// ON is read as a voltage, not a logic level: through the 10k / 3.3k divider a 12 V
+// feed gives about 3.0 V but a 3.3-5 V feed only 0.8-1.2 V, below a digital HIGH.
+constexpr uint32_t steeringOnPressMv = 500;   // pressed at or above this
+constexpr uint32_t steeringOnReleaseMv = 300; // released at or below this (hysteresis)
 constexpr int steeringLadderPin = 4; // Blue wire; ADC1, no internal pulls
 // Ladder (blue wire, 1 kohm pull-up to 3.3 V) measured on the installed wheel:
 // OFF 0.15 V, COAST 0.40 V, SET ACCEL 1.50 V, RESUME 2.30 V, released about 3.3 V.

@@ -28,7 +28,7 @@ can be an LED channel.
 | Conditioned VSS | 15 | Rising-edge digital input |
 | Conditioned tach | 6 | Rising-edge digital input |
 | Fuel divider junction | 7 | ADC1 input |
-| Steering ON (yellow) | 5 | Digital HIGH when pressed; external 10 kohm pulldown |
+| Steering ON (yellow) | 5 | ADC1 voltage through a 10 kohm / 3.3 kohm divider; pressed at 0.5 V or more at the pin |
 | Steering ladder (blue): OFF / COAST / SET ACCEL / RESUME | 4 | ADC1 voltage ladder; no internal pull-up |
 | Upper interior LEDs | 14 | WS2812/GRB, 180 slots |
 | Lower interior LEDs | 13 | WS2812/GRB, 180 slots |

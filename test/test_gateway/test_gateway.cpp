@@ -95,6 +95,10 @@ int main() {
     assert(gateway_config::steeringWindows[i].highMv < gateway_config::steeringWindows[i + 1].lowMv); // never overlap
   for (auto mv : {900U, 1900U, 2800U, 3100U, 3300U})
     assert(gateway::ladderButton(mv) == 0);
+  // ON by voltage: 12 V (3.0 V at the pin) and a 3.3 V feed (0.82 V) both register.
+  assert(!gateway::onPressed(0, false) && !gateway::onPressed(499, false));
+  assert(gateway::onPressed(820, false) && gateway::onPressed(3000, false));
+  assert(gateway::onPressed(400, true) && !gateway::onPressed(300, true)); // hysteresis
   gateway::SteeringButtons steering;
   assert(steering.update(true, 400, 0) == 0); // held at startup
   assert(steering.update(true, 400, 24) == 0);

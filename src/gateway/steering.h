@@ -11,6 +11,10 @@ inline uint8_t ladderButton(uint32_t mv) {
     if (mv >= window.lowMv && mv <= window.highMv) return window.mask;
   return 0;
 }
+// ON from its measured voltage, with hysteresis between the two thresholds.
+inline bool onPressed(uint32_t mv, bool previous) {
+  return previous ? mv > gateway_config::steeringOnReleaseMv : mv >= gateway_config::steeringOnPressMv;
+}
 struct SteeringButtons {
   DebouncedButton on;
   uint8_t ladderStable = 0, ladderCandidate = 0;

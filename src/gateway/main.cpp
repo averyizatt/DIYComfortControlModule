@@ -26,7 +26,8 @@ constexpr bool validPins() {
         (used[i] >= 22 && used[i] <= 37)) return false;
     for (unsigned j = 0; j < i; ++j) if (used[i] == used[j]) return false;
   }
-  return fuelPin >= 1 && fuelPin <= 10 && steeringLadderPin >= 1 && steeringLadderPin <= 10;
+  return fuelPin >= 1 && fuelPin <= 10 && steeringLadderPin >= 1 && steeringLadderPin <= 10 &&
+      steeringOnPin >= 1 && steeringOnPin <= 10;
 }
 static_assert(validPins(), "Gateway pins must be unique, USB/flash/PSRAM-safe; fuel and steering ladder need ADC1");
 // Supplying &SPI avoids the library starting the default pin bus in its constructor.
@@ -47,6 +48,7 @@ uint32_t txStart = 0, txFailure = 0, lastTx = 0, lastFuel = 0, lastLed = 0;
 uint8_t txSlot = 0;
 float filteredFuel = 0;
 bool fuelFilterReady = false;
+bool onHigh = false;
 
 void ARDUINO_ISR_ATTR capture(volatile gateway::Pulse& p, uint32_t minimum, uint32_t timeout) {
   const uint32_t now = micros();
@@ -139,8 +141,9 @@ void readSensors(uint32_t now) {
   sensors.valid |= wire::FUEL_VALID;
 }
 void readButtons(uint32_t now) {
-  const uint8_t mask = buttons.update(digitalRead(steeringOnPin) == HIGH,
-      analogReadMilliVolts(steeringLadderPin), now);
+  const uint32_t onMv = analogReadMilliVolts(steeringOnPin);
+  onHigh = gateway::onPressed(onMv, onHigh);
+  const uint8_t mask = buttons.update(onHigh, analogReadMilliVolts(steeringLadderPin), now);
   if (mask != buttonState.pressed) {
     buttonState.pressed = mask; ++buttonState.sequence; buttonsDirty = true;
   }
@@ -203,6 +206,7 @@ void setup() {
   pinMode(vssPin, INPUT_PULLUP); pinMode(tachPin, INPUT);
   analogReadResolution(12); analogSetPinAttenuation(fuelPin, ADC_11db);
   analogSetPinAttenuation(steeringLadderPin, ADC_11db);
+  analogSetPinAttenuation(steeringOnPin, ADC_11db);
   attachInterrupt(digitalPinToInterrupt(vssPin), vssIsr, RISING);
   attachInterrupt(digitalPinToInterrupt(tachPin), tachIsr, RISING);
   pinMode(spareLed1Pin, OUTPUT); digitalWrite(spareLed1Pin, LOW);
