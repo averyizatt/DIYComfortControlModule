@@ -1,0 +1,81 @@
+# Builds the sensor gateway firmware on every change and publishes it as the
+# "gateway-latest" release. The dash downloads it during Update now and installs it
+# over the CAN bus (docs/SENSOR_GATEWAY.md, "Firmware updates over CAN").
+name: Gateway firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/gateway/**'
+      - 'src/pin_map.h'
+      - 'shared/can_contract/**'
+      - 'platformio.ini'
+      - '.github/workflows/gateway-firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gateway-firmware
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-gateway-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Host tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -Ishared/can_contract/include \
+            test/test_firmware_update/test_firmware_update.cpp -o /tmp/test_firmware_update
+          /tmp/test_firmware_update
+          g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -Isrc -Ishared/can_contract/include \
+            test/test_gateway/test_gateway.cpp -o /tmp/test_gateway
+          /tmp/test_gateway
+
+      # The build number the gateway reports to the dash: the first eight hex digits of the commit.
+      - name: Build
+        run: |
+          BUILD=$(git rev-parse HEAD | cut -c1-8)
+          echo "BUILD=$BUILD" >> "$GITHUB_ENV"
+          PLATFORMIO_BUILD_FLAGS="-DCCM_FW_BUILD=0x$BUILD" pio run -e esp32s3_gateway
+
+      - name: Package
+        run: |
+          mkdir out
+          cp .pio/build/esp32s3_gateway/firmware.bin out/gateway-firmware.bin
+          python3 - <<'EOF'
+          import hashlib, json, os, pathlib
+          data = pathlib.Path('out/gateway-firmware.bin').read_bytes()
+          assert 0 < len(data) <= 0x330000, len(data)   # Must fit one application slot.
+          manifest = {'build': os.environ['BUILD'], 'size': len(data),
+                      'sha256': hashlib.sha256(data).hexdigest(), 'commit': os.environ['GITHUB_SHA']}
+          pathlib.Path('out/gateway-firmware.json').write_text(json.dumps(manifest) + '\n')
+          print(manifest)
+          EOF
+
+      # The image goes up before its manifest: the dash only takes an image that matches the manifest it read.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view gateway-latest >/dev/null 2>&1 || gh release create gateway-latest \
+            --title "Gateway firmware (latest build)" --latest=false \
+            --notes "Built automatically from main. The dash downloads this during Update now and installs it over the CAN bus."
+          gh release upload gateway-latest out/gateway-firmware.bin --clobber
+          gh release upload gateway-latest out/gateway-firmware.json --clobber

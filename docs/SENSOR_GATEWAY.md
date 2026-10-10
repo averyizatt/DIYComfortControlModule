@@ -12,6 +12,8 @@ The gateway is a replacement firmware for the same ESP32-S3 + MCP2515 (8 MHz),
 using standard 11-bit CAN at 500 kbit/s. It compiles only its own entry point,
 MCP2515 driver, NeoPixel driver and Arduino framework. There is no display,
 LVGL, touch, GPS, SD, Wi-Fi, web server, tach output, or RPM LED gauge.
+After the first USB flash, new versions can be installed from the dash over the CAN
+bus: see **Firmware updates over CAN** below.
 It does not send water/meth arm/configuration commands or impersonate the master
 heartbeat. Another project's CAN controller must provide any required master
 supervision. Do not run two publishers of tach ID 0x202 on the same bus.
@@ -180,6 +182,64 @@ turns it off immediately. Settings are live only and are not saved to flash.
 The gateway does not implement taillight animations or dashboard lighting effects.
 Its loop stack reserves the NeoPixel driver's per-strip RMT buffer plus 16 KiB
 headroom; changing `ledCount` adjusts this reservation automatically.
+
+## Firmware updates over CAN
+
+After this firmware has been flashed once by USB, later versions are installed from the
+dash over the CAN bus: no cable and no Wi-Fi in the gateway.
+
+**How a new version gets there**
+
+1. A push to `main` that touches the gateway builds it on GitHub
+   (`.github/workflows/gateway-firmware.yml`) and publishes `gateway-firmware.bin` and
+   `gateway-firmware.json` (build number, size, SHA-256) as the `gateway-latest` release.
+2. The dash downloads both during **Update now** and checks the file against the SHA-256.
+3. **Dash management → Support → Install gateway firmware** (or the phone page) sends
+   it, with the car stopped. It takes about a minute.
+
+The build number is the first eight hex digits of the commit. A build from the editor
+reports `00000000`, so the dash will always offer the published build over it.
+
+**What keeps it safe**
+
+- The image is written to the spare application slot. The running firmware is not
+  touched until the gateway restarts.
+- It goes in blocks of 448 bytes. A block is written only when every frame arrived and
+  its CRC-16 matches; otherwise the dash sends it again, more slowly.
+- Before restarting, the gateway checks the CRC-32 of everything received and the
+  image's own checksum. A wrong or incomplete image is discarded.
+- The new firmware starts **on trial**. The dash must confirm it is talking to the new
+  build; if that has not happened within 90 seconds, or the new firmware hangs or
+  crashes, the gateway restarts into the firmware it had before.
+- The dash refuses to start while a speed reading says the car is moving, and stops
+  the transfer if it starts moving. A transfer the dash abandons is dropped after 5 s
+  and the gateway carries on.
+- While receiving, the gateway does nothing else: speed, fuel, wheel buttons and the
+  interior lights pause.
+
+**Messages** (`<can_contract/firmware_update.h>`, shared with the dash). They sit in
+the block reserved for future use, clear of the MicroSquirt's broadcast range
+(0x5F0-0x62F). Modules without this firmware ignore them.
+
+| ID | Direction | DLC | Bytes |
+|---|---|---:|---|
+| 0x680 | RX | 8 | Command: op (0x80 query, 0x81 begin, 0x82 block end, 0x83 end, 0x84 abort, 0x85 confirm); target (1 = gateway); arguments. Data: frame index 0..63; seven image bytes |
+| 0x681 | TX | 8 | Info: 1; target; build u32; flags (1 on trial, 2 updating); version. Acknowledgement: 2; target; op answered; status; value u16 |
+
+The header documents every frame and holds the receiver itself
+(`can_protocol::firmware::Receiver`), so another ESP32 module can use the same code
+with its own target number.
+
+Host tests for the receiver (lost frames, lost answers, damaged image, trial and
+confirmation):
+
+```powershell
+g++ -std=c++17 -Wall -Wextra -Werror -Ishared/can_contract/include test/test_firmware_update/test_firmware_update.cpp -o .pio/test_firmware_update.exe
+& .pio/test_firmware_update.exe
+```
+
+The dash's sender is tested against this same receiver code in the frogdash
+repository (`tests/test_fwupdate.py`).
 
 ## Validation
 
