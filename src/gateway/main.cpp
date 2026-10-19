@@ -133,6 +133,31 @@ bool startCan() {
   modifyRegister(0x0F, 0x08, 0x08);
   return (readRegister(0x0F) & 0xE8) == 0x08;
 }
+// The CAN controller is started again when it did not start (power still settling at
+// key-on) or has reset itself (a supply dip leaves an MCP2515 in configuration mode,
+// silent). Before, either stayed until the next power-up: no wheel speed, buttons,
+// sensors or interior lights on the bus. First retry after 5 s, then doubling to 60 s.
+uint32_t canCheckAt = 0, canRetryMs = 5000;
+void tendCan(uint32_t now) {
+  if (int32_t(now - canCheckAt) < 0) return;
+  if (canReady) {
+    canCheckAt = now + 1000;
+    // CANSTAT bits 7-5: the operating mode, 0 = normal.
+    if ((readRegister(0x0E) & 0xE0) == 0) return;
+    Serial.println("[gateway] CAN controller left normal mode (reset by a supply dip?); starting it again");
+    canReady = false;
+  }
+  canReady = startCan();
+  txPending = false;
+  if (canReady) {
+    canRetryMs = 5000;
+    canCheckAt = now + 1000;
+    Serial.println("[gateway] CAN started");
+  } else {
+    canCheckAt = now + canRetryMs;
+    canRetryMs = canRetryMs >= 30000 ? 60000 : canRetryMs * 2;
+  }
+}
 void failTx(uint32_t now) {
   modifyRegister(0x30, 0x08, 0); txPending = false;
   txBackoff = true; txFailure = now;
@@ -183,7 +208,8 @@ void handleUpdate(const can_frame& input, uint32_t now) {
   if (action == fw::Action::STOPPED) Serial.println("[gateway] firmware update stopped; running firmware kept");
   if (action == fw::Action::CONFIRMED) Serial.println("[gateway] new firmware confirmed by the dash");
   if (action == fw::Action::RESTART) {
-    Serial.println("[gateway] firmware received and checked; restarting into it");
+    Serial.println(frame.data[0] == fw::RESTART ? "[gateway] restart asked for by the dash"
+                                                : "[gateway] firmware received and checked; restarting into it");
     restartAt = (now + 300) | 1;  // After the answer has left. Never 0, which means "not due".
   }
 }
@@ -297,8 +323,9 @@ void setup() {
   updater.setOnTrial(running && esp_ota_get_state_partition(running, &imageState) == ESP_OK &&
                      imageState == ESP_OTA_IMG_PENDING_VERIFY);
   canReady = startCan();
+  canCheckAt = millis() + (canReady ? 1000 : 5000);
   Serial.printf("[gateway] CAN=%s, VSS=%lu pulses/mile, tach=%.1f pulses/rev\n",
-      canReady ? "ready" : "init failed; check wiring and restart",
+      canReady ? "ready" : "init failed; trying again every few seconds",
       static_cast<unsigned long>(vssPulsesPerMile), tachCalibration / 10.0f);
   Serial.printf("[gateway] firmware build %08lX%s\n", static_cast<unsigned long>(CCM_FW_BUILD),
       updater.onTrial() ? " (new: on trial until the dash confirms it)" : "");
@@ -318,6 +345,7 @@ void loop() {
     updater.setOnTrial(false);  // Only reached if there is nothing to go back to.
   }
   readSensors(now); readButtons(now);
+  tendCan(now);
   if (canReady) {
     receive(now);
     if (uint32_t(now - lastTx) >= 10) {

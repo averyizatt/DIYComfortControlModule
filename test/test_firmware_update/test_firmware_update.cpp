@@ -195,6 +195,17 @@ static void test_new_firmware_is_on_trial_until_the_dash_confirms_the_right_buil
   assert(bench.action == fw::Action::NONE && !bench.flash.confirmed);
 }
 
+static void test_the_dash_can_restart_a_module_but_not_during_a_transfer() {
+  Bench bench;
+  assert(bench.send(fw::command(fw::RESTART, fw::TARGET_GATEWAY)) && bench.status() == fw::STATUS_OK);
+  assert(bench.reply.data[2] == fw::RESTART && bench.action == fw::Action::RESTART);
+  assert(!bench.send(fw::command(fw::RESTART, fw::TARGET_TAILLIGHT)));     // Another module's: ignored
+  const auto image = makeImage(2000);
+  bench.send(fw::packBegin(fw::TARGET_GATEWAY, image.size()));
+  assert(bench.send(fw::command(fw::RESTART, fw::TARGET_GATEWAY)) && bench.status() == fw::STATUS_BUSY);
+  assert(bench.action == fw::Action::NONE && bench.module.active());     // The transfer carries on
+}
+
 int main() {
   test_checksums_match_the_published_ones();
   test_a_whole_image_arrives_through_lost_frames_and_lost_answers();
@@ -202,5 +213,6 @@ int main() {
   test_nothing_happens_by_accident();
   test_a_transfer_the_dash_walks_away_from_is_given_up();
   test_new_firmware_is_on_trial_until_the_dash_confirms_the_right_build();
+  test_the_dash_can_restart_a_module_but_not_during_a_transfer();
   std::puts("Firmware update receiver tests passed");
 }
