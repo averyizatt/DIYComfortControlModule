@@ -135,5 +135,8 @@ int main() {
   f.data[0] = 3; assert(!wire::unpackLight(f, result));
   f.data[0] = 0; f.dlc = 8; assert(!wire::unpackLight(f, result));
   f.dlc = 6; f.data[5] = 0; assert(!wire::unpackLight(f, result));
-  puts("PASS: gateway calibration, divider conversion, debounce/rollover and CAN wire validation");
+  // Losing arbitration (ABTF + MLOA) is ordinary; only a bus error (TXERR) holds sending off.
+  assert(!gateway::txBusError(0x00) && !gateway::txBusError(0x60) && !gateway::txBusError(0x40) && !gateway::txBusError(0x20));
+  assert(gateway::txBusError(0x10) && gateway::txBusError(0x70) && gateway::txBusError(0x50));
+  puts("PASS: gateway calibration, divider conversion, debounce/rollover, CAN wire validation and TX outcomes");
 }

@@ -61,4 +61,11 @@ inline bool fuelResistance(uint32_t millivolts, float supplyMv, float pullupOhms
   ohms = pullupOhms * millivolts / (supplyMv - millivolts);
   return true;
 }
+// The MCP2515's TXB0CTRL after a one-shot transmission. A frame that lost arbitration to
+// a higher-priority one has ABTF (0x40) and MLOA (0x20) set: ordinary on a shared bus,
+// and in one-shot mode that frame is simply dropped; the next slot sends the next one.
+// Only TXERR (0x10), an error on the bus such as nobody acknowledging, is a reason to
+// hold off. (October 2026: every lost arbitration paused the gateway for a second, so
+// the dash saw speed, fuel and buttons go quiet for 1.1 s every few seconds.)
+inline bool txBusError(uint8_t txbCtrl) { return (txbCtrl & 0x10) != 0; }
 } // namespace gateway

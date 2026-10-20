@@ -173,7 +173,7 @@ bool sendFrame(const can_protocol::CanFrame& source, uint32_t now) {
     }
     txPending = false;
     // Arbitration loss alone is normal bus contention, not a disconnected bus.
-    if (ctrl & 0x50) { failTx(now); return false; }
+    if (gateway::txBusError(ctrl)) { failTx(now); return false; }
   }
   if (can.getErrorFlags() & 0x20) { failTx(now); return false; }
   can_frame frame{}; frame.can_id = source.id; frame.can_dlc = source.dlc;
