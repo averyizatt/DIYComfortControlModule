@@ -322,7 +322,7 @@ For the other modules, run from this repository root:
 
 ```bash
 pio run -d modules/tailights -t upload
-pio run -d modules/water-meth -t upload
+pio run -d ../DIYWaterMethInjection -e esp32s3_water_meth -t upload
 ```
 
 The root project also offers **PlatformIO: Build and flash sensor gateway**
@@ -488,13 +488,13 @@ DIYComfortControlModule/
 | Module | Path | Repository |
 |---|---|---|
 | Custom taillight controller | `modules/tailights` | [averyizatt/CustomTaillights](https://github.com/averyizatt/CustomTaillights) |
-| Water/methanol injection controller | `modules/water-meth` | [averyizatt/DIYWaterMethInjection](https://github.com/averyizatt/DIYWaterMethInjection) |
+| Water/methanol injection controller | `../DIYWaterMethInjection` (ESP32-S3) | [averyizatt/DIYWaterMethInjection](https://github.com/averyizatt/DIYWaterMethInjection) |
 
 The taillight controller is a Git submodule at `modules/tailights`. Water/meth
-firmware is tracked directly in this repository at `modules/water-meth` and
-uses upstream firmware from commit `ea1213ae04c972a0d32577a119bb67fbb8e52c04`,
-with local build-menu simplification.
-Both modules must be present when validating shared CAN compatibility.
+firmware is maintained in the sibling ESP32-only `DIYWaterMethInjection` repository.
+The copied Nano sources have been removed; `modules/water-meth/README.md` points to
+the supported build. The taillight submodule must be present for CCM wire tests;
+water/meth builds and tests run in its own repository.
 
 ## Roadmap
 

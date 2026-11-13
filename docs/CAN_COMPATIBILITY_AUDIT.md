@@ -1,5 +1,10 @@
 # CAN compatibility audit - schema 2
 
+> Historical audit of the original schema-2 integration. The Nano implementation
+> described below has been removed. Current water/meth firmware is the ESP32-S3
+> in the sibling DIYWaterMethInjection repository; it consumes the shared contract,
+> including extension 10 pulse drive. This document preserves the original audit.
+
 Audited the firmware in this repository: main ESP32, `modules/water-meth`
 (Nano), and `modules/tailights` (ESP32). The correctly spelled
 `modules/taillights` directory is a compatibility stub, not the firmware.

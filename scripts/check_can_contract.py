@@ -25,8 +25,7 @@ def require(condition: bool, message: str) -> None:
 def check_structure() -> None:
     shared = SHARED.read_text(encoding="utf-8")
     version = re.search(r"CAN_PROTOCOL_SCHEMA_VERSION = (\d+);", shared).group(1)
-    for wrapper in ("include/can_contract/can_protocol.h",
-                    "modules/water-meth/include/can_contract/can_protocol.h"):
+    for wrapper in ("include/can_contract/can_protocol.h",):
         body = text(wrapper)
         include = re.search(r'#include "([^"]+)"', body)
         require(include is not None, f"{wrapper}: missing canonical include")
@@ -36,14 +35,16 @@ def check_structure() -> None:
     for firmware in ("modules/tailights/src/config.h", "modules/tailights/src/can_control.h"):
         require("#include <can_contract/can_protocol.h>" in text(firmware),
                 f"{firmware}: real firmware must include canonical contract (stub is insufficient)")
-    require(text("modules/tailights/include/can_contract/can_protocol.h") == shared,
-            "Taillight vendored contract differs from canonical contract")
+    def schema_two(header: str) -> str:
+        return re.sub(r"// BEGIN FROGDASH ADDITIVE EXTENSION.*?// END FROGDASH ADDITIVE EXTENSION\n\n",
+                      "", header, flags=re.S)
+    require(schema_two(text("modules/tailights/include/can_contract/can_protocol.h")) == schema_two(shared),
+            "Taillight base schema-2 contract differs from canonical contract")
     require('"can_contract/can_protocol.h"' in text("src/can/can_protocol.h"), "Master shim missing")
-    require('"can_contract/can_protocol.h"' in text("modules/water-meth/src/main_nano.cpp"), "Nano include missing")
-    for module in ("comfort", "water-meth", "taillights", "tailights"):
+    for module in ("comfort", "taillights", "tailights"):
         require(text(f"modules/{module}/CAN_PROTOCOL_SCHEMA_VERSION").strip() == version,
                 f"{module}: schema pin differs from {version}")
-    for project in ("platformio.ini", "modules/water-meth/platformio.ini"):
+    for project in ("platformio.ini",):
         versions = re.findall(r"CCM_CAN_PROTOCOL_VERSION=(\d+)", text(project))
         require(versions and all(v == version for v in versions), f"{project}: build schema mismatch")
     require("#define CCM_TAILLIGHT_CAN_ENABLED 1" in text("modules/tailights/src/config.h"),
@@ -51,17 +52,13 @@ def check_structure() -> None:
     for source, token in (
         ("modules/tailights/src/can_state.h", "can_protocol::packTaillightState(state)"),
         ("modules/tailights/src/canbus.cpp", "applyCanMode(g_settings, command)"),
-        ("src/can/can_manager.cpp", "can_protocol::ID_ENGINE_COMMAND_ACK"),
-        ("modules/water-meth/src/main_nano.cpp", "can_protocol::packConfigAck(")):
+        ("src/can/can_manager.cpp", "can_protocol::ID_ENGINE_COMMAND_ACK")):
         require(token in text(source), f"{source}: expected production protocol path missing: {token}")
     main_ini = text("platformio.ini")
     bitrates = re.findall(r"CCM_CAN_BITRATE=(\d+)", main_ini)
     require(bitrates and all(rate == "500000" for rate in bitrates),
             "Main CAN bitrate settings drifted")
     require("CCM_CAN_MCP_CLOCK_MHZ=8" in main_ini, "Main oscillator setting drifted")
-    nano_ini = text("modules/water-meth/platformio.ini")
-    require("CCM_CAN_SPEED=CAN_500KBPS" in nano_ini and "CCM_MCP2515_CLOCK=MCP_8MHZ" in nano_ini,
-            "Nano bus settings drifted")
     require("setBitrate(CAN_500KBPS, MCP_8MHZ)" in text("modules/tailights/src/canbus.cpp"),
             "Taillight bus settings drifted")
     print(f"PASS: schema {version}, canonical includes, bus settings and integrated firmware paths", flush=True)

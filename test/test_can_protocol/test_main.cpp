@@ -3,8 +3,18 @@
 #include "can/CanFrameBuilders.hpp"
 #include "can/MicroSquirtProtocol.hpp"
 #include "can_contract/can_protocol.h"
-#include "../../modules/water-meth/include/can_contract/can_protocol.h"
 #include "../../modules/tailights/src/can_control.h"
+
+void test_esp32_pulse_drive_report() {
+  const auto frame = can_protocol::packMethTuneSettingReport(
+      can_protocol::meth_tune_setting::MIN_ON_MS, 1000, 7, 0, can_protocol::meth_drive::PULSE);
+  TEST_ASSERT_EQUAL_HEX16(0x30F, frame.id);
+  TEST_ASSERT_EQUAL_UINT8(8, frame.dlc);
+  TEST_ASSERT_EQUAL_UINT8(2, frame.data[0]);
+  TEST_ASSERT_EQUAL_UINT8(2, frame.data[6]);
+  TEST_ASSERT_EQUAL_UINT8(3, frame.data[2]);
+  TEST_ASSERT_EQUAL_UINT8(232, frame.data[3]);
+}
 
 void setUp() {}
 void tearDown() {}
@@ -180,7 +190,7 @@ void test_modes_reach_actual_taillight_settings() {
   TEST_ASSERT_EQUAL_UINT8(1, settings.show_mode);
 }
 
-void test_nano_pressure_and_runtime_wire_units() {
+void test_watermeth_pressure_and_runtime_wire_units() {
   can_protocol::EngineSensorExt sensors{};
   sensors.oil_pressure_psi_x2 = 123; // 61.5 psi, not 123 psi
   sensors.analog_fault_flags = can_protocol::analog_sensor_fault::METH |
@@ -201,10 +211,11 @@ void test_nano_pressure_and_runtime_wire_units() {
 
 int main(int argc, char** argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_esp32_pulse_drive_report);
   RUN_TEST(test_real_taillight_payload_layout);
   RUN_TEST(test_command_ack_is_distinct_from_config_ack);
   RUN_TEST(test_modes_reach_actual_taillight_settings);
-  RUN_TEST(test_nano_pressure_and_runtime_wire_units);
+  RUN_TEST(test_watermeth_pressure_and_runtime_wire_units);
   RUN_TEST(test_taillight_and_meth_frames_remain_compatible);
   RUN_TEST(test_invalid_dlc_and_endian_handling);
   RUN_TEST(test_knock_and_sensor_frames_pack_expected_bytes);
