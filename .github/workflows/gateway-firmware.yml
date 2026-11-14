@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -39,10 +41,14 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
+      # The firmware-update receiver test unpacks compressed blocks with zlib.
+      - name: zlib for the host tests
+        run: dpkg -s zlib1g-dev >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq zlib1g-dev)
+
       - name: Host tests
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -Ishared/can_contract/include \
-            test/test_firmware_update/test_firmware_update.cpp -o /tmp/test_firmware_update
+            test/test_firmware_update/test_firmware_update.cpp -lz -o /tmp/test_firmware_update
           /tmp/test_firmware_update
           g++ -std=c++17 -Wall -Wextra -Werror -Iinclude -Isrc -Ishared/can_contract/include \
             test/test_gateway/test_gateway.cpp -o /tmp/test_gateway
@@ -52,6 +58,10 @@ jobs:
       - name: Build
         run: |
           BUILD=$(git rev-parse HEAD | cut -c1-8)
+          # The system version (VERSION, shared by the dash and every module): exactly it on its
+          # release tag, with a + after it for a build that came later.
+          V=$(tr -cd '0-9.' < VERSION)
+          if git tag --points-at HEAD | grep -qx "v$V"; then echo "RELEASE=$V" >> "$GITHUB_ENV"; else echo "RELEASE=$V+" >> "$GITHUB_ENV"; fi
           echo "BUILD=$BUILD" >> "$GITHUB_ENV"
           PLATFORMIO_BUILD_FLAGS="-DCCM_FW_BUILD=0x$BUILD" pio run -e esp32s3_gateway
 
@@ -64,7 +74,8 @@ jobs:
           data = pathlib.Path('out/gateway-firmware.bin').read_bytes()
           assert 0 < len(data) <= 0x330000, len(data)   # Must fit one application slot.
           manifest = {'build': os.environ['BUILD'], 'size': len(data),
-                      'sha256': hashlib.sha256(data).hexdigest(), 'commit': os.environ['GITHUB_SHA']}
+                      'sha256': hashlib.sha256(data).hexdigest(), 'commit': os.environ['GITHUB_SHA'],
+                      'version': os.environ.get('RELEASE', '')}
           pathlib.Path('out/gateway-firmware.json').write_text(json.dumps(manifest) + '\n')
           print(manifest)
           EOF

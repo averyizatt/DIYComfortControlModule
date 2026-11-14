@@ -44,7 +44,10 @@ constexpr bool validPins() {
 }
 static_assert(validPins(), "Gateway pins must be unique, USB/flash/PSRAM-safe; fuel and steering ladder need ADC1");
 // Supplying &SPI avoids the library starting the default pin bus in its constructor.
-MCP2515 can(CCM_PIN_CAN_SPI_CS, 1000000, &SPI);
+// 8 MHz (the MCP2515 takes up to 10): the board's SPI wiring is soldered (owner, November
+// 2026), and a faster read keeps up with firmware frames sent back to back.
+constexpr uint32_t kCanSpiHz = 8000000;
+MCP2515 can(CCM_PIN_CAN_SPI_CS, kCanSpiHz, &SPI);
 Adafruit_NeoPixel upper(ledCount, upperLedPin, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel lower(ledCount, lowerLedPin, NEO_GRB + NEO_KHZ800);
 gateway::SteeringButtons buttons;
@@ -87,7 +90,8 @@ struct OtaFlash {
   bool confirm() { return esp_ota_mark_app_valid_cancel_rollback() == ESP_OK; }
 };
 OtaFlash otaFlash;
-fw::Receiver<OtaFlash> updater(fw::TARGET_GATEWAY, CCM_FW_BUILD, otaFlash);
+// The ROM's decompressor: the dash sends compressed blocks (firmware_update.h version 2).
+fw::Receiver<OtaFlash, fw::RomInflate> updater(fw::TARGET_GATEWAY, CCM_FW_BUILD, otaFlash);
 uint32_t restartAt = 0;
 // A new firmware that the dash has not confirmed within this time is given up: the
 // gateway restarts into the firmware it had before.
@@ -103,13 +107,13 @@ void ARDUINO_ISR_ATTR vssIsr() { capture(vss, vssMinPulseUs, vssTimeoutUs); }
 void ARDUINO_ISR_ATTR tachIsr() { capture(tach, tachMinPulseUs, tachTimeoutUs); }
 
 uint8_t readRegister(uint8_t address) {
-  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  SPI.beginTransaction(SPISettings(kCanSpiHz, MSBFIRST, SPI_MODE0));
   digitalWrite(CCM_PIN_CAN_SPI_CS, LOW);
   SPI.transfer(0x03); SPI.transfer(address); uint8_t value = SPI.transfer(0);
   digitalWrite(CCM_PIN_CAN_SPI_CS, HIGH); SPI.endTransaction(); return value;
 }
 void modifyRegister(uint8_t address, uint8_t mask, uint8_t value) {
-  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  SPI.beginTransaction(SPISettings(kCanSpiHz, MSBFIRST, SPI_MODE0));
   digitalWrite(CCM_PIN_CAN_SPI_CS, LOW);
   SPI.transfer(0x05); SPI.transfer(address); SPI.transfer(mask); SPI.transfer(value);
   digitalWrite(CCM_PIN_CAN_SPI_CS, HIGH); SPI.endTransaction();
